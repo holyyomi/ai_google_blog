@@ -16,6 +16,9 @@
     "url_verified_status_code": 200,
     "live_url_verified": true,
     "source_type": "news_publish_service",
+    "post_id": "3081619275723872933",
+    "cover_image_url": "https://i.ibb.co/h1JJ0WCP/chatgpt-ai-work-automation-productivity.jpg",
+    "jsonld_image_present": true,
     "run_id": "27467219865",
     "workflow_url": "https://github.com/holyyomi/ai_google_blog/actions/runs/27467219865"
   }

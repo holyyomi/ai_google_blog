@@ -105,6 +105,7 @@ jobs:
           DISABLE_IMAGE_GENERATION: "true"
           DISABLE_IMAGE_UPLOAD: "true"
           NEWS_COVER_IMAGE_URL: ${{ secrets.NEWS_COVER_IMAGE_URL }}
+          DEFAULT_NEWS_COVER_IMAGE_URL: "https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png"
           REQUIRE_NEWS_COVER_IMAGE: "false"
           # 커버 이미지 자동 생성 (Cloudflare 무료 1순위 → Gemini 2순위 → imgbb 호스팅, 비치명)
           ENABLE_COVER_IMAGE_AUTOGEN: "true"

@@ -25,6 +25,7 @@ def _cover_image_env_keys(*, content_type: str = "", topic_group: str = "") -> t
         if suffix:
             keys.append(f"NEWS_COVER_IMAGE_URL_{suffix}")
     keys.append("NEWS_COVER_IMAGE_URL")
+    keys.append("DEFAULT_NEWS_COVER_IMAGE_URL")
     return tuple(dict.fromkeys(keys))
 
 

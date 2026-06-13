@@ -60,3 +60,12 @@ def test_cover_image_url_from_env_prefers_content_type_specific_url(monkeypatch)
     result = cover_image_url_from_env(content_type="today_issue_explainer", topic_group="today_issue")
 
     assert result == "https://cdn.example.com/today.jpg"
+
+
+def test_cover_image_url_from_env_uses_default_fallback(monkeypatch) -> None:
+    monkeypatch.delenv("NEWS_COVER_IMAGE_URL", raising=False)
+    monkeypatch.setenv("DEFAULT_NEWS_COVER_IMAGE_URL", "https://cdn.example.com/default-ai-cover.png")
+
+    result = cover_image_url_from_env(content_type="ai_work_tip", topic_group="ai_work")
+
+    assert result == "https://cdn.example.com/default-ai-cover.png"

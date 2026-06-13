@@ -31,6 +31,7 @@ from blogspot_automation.services.publish_history_service import PublishHistoryS
 from blogspot_automation.services.run_artifact_service import RunArtifactService
 from blogspot_automation.services.seo_policy import (
     append_hashtags_block,
+    build_english_permalink_slug,
     build_internal_links_from_history,
     normalize_hashtags,
     normalize_labels,
@@ -1035,12 +1036,18 @@ class NewsPipeline:
                 selected=selected,
                 selected_title=best_title.title,
             )
+            cover_image_url = self._resolve_cover_image_url(
+                selected=selected,
+                selected_title=best_title.title,
+                content_type=str(content_angle_summary.get("content_type") or ""),
+                topic_group=str(selected.candidate.raw.get("topic_group") or ""),
+                image_plan=image_plan,
+            )
+            if cover_image_url:
+                image_plan["cover_image_url"] = cover_image_url
             html = ensure_cover_image_html(
                 html,
-                image_url=cover_image_url_from_env(
-                    content_type=str(content_angle_summary.get("content_type") or ""),
-                    topic_group=str(selected.candidate.raw.get("topic_group") or ""),
-                ),
+                image_url=cover_image_url,
                 alt_text=image_plan.get("image_alt_text", ""),
                 title=best_title.title,
             )
@@ -1221,10 +1228,7 @@ class NewsPipeline:
                 )
                 _candidate_publish_html = ensure_cover_image_html(
                     _candidate_publish_html,
-                    image_url=cover_image_url_from_env(
-                        content_type=str(content_angle_summary.get("content_type") or ""),
-                        topic_group=str(selected.candidate.raw.get("topic_group") or ""),
-                    ),
+                    image_url=cover_image_url,
                     alt_text=image_plan.get("image_alt_text", ""),
                     title=best_title.title,
                 )
@@ -4579,6 +4583,40 @@ class NewsPipeline:
             current_content_type=content_type,
             limit=3,
         )
+
+    def _resolve_cover_image_url(
+        self,
+        *,
+        selected: ScoredNewsCandidate,
+        selected_title: str,
+        content_type: str,
+        topic_group: str,
+        image_plan: dict[str, str],
+    ) -> str:
+        configured = cover_image_url_from_env(content_type=content_type, topic_group=topic_group)
+        if configured:
+            return configured
+        try:
+            from blogspot_automation.services.cover_image_service import CoverImageService
+
+            service = CoverImageService()
+            if not service.enabled():
+                return ""
+            slug = build_english_permalink_slug(
+                title=selected_title,
+                topic=selected.candidate.topic or "",
+                labels=[topic_group, content_type],
+                topic_group=topic_group,
+            )
+            return service.build_cover_image_url(
+                title=selected_title,
+                topic=selected.candidate.topic or "",
+                slug=slug,
+                image_concept=str(image_plan.get("image_prompt") or "")[:500],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cover image generation skipped: %s", exc)
+            return cover_image_url_from_env(content_type=content_type, topic_group=topic_group)
 
     @staticmethod
     def _internal_link_suggestions(*, selected: ScoredNewsCandidate, content_type: str) -> list[str]:

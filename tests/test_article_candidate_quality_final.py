@@ -313,18 +313,27 @@ class TestAiPipeline(unittest.TestCase):
 
     def test_ai_pipeline_runs(self) -> None:
         from blogspot_automation.pipelines.ai_pipeline import AiTopicPipeline
-        pipeline = AiTopicPipeline(dry_run=True)
-        result = pipeline.run_once()
-        self.assertIn(result.get("status"), ("dry_run_saved", "skipped", "failed", "held_for_review"))
+        from blogspot_automation.services.publish_history_service import PublishHistoryService
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            pipeline = AiTopicPipeline(
+                dry_run=True,
+                publish_history_service=PublishHistoryService(history_path=Path(tmp) / "publish_history.json"),
+            )
+            result = pipeline.run_once()
+            self.assertIn(result.get("status"), ("dry_run_saved", "skipped", "failed", "held_for_review"))
 
     def test_ai_pipeline_generates_candidate(self) -> None:
         from blogspot_automation.pipelines.ai_pipeline import AiTopicPipeline
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
+            from blogspot_automation.services.publish_history_service import PublishHistoryService
             from blogspot_automation.services.run_artifact_service import RunArtifactService
             pipeline = AiTopicPipeline(
                 artifact_service=RunArtifactService(runs_dir=tmp),
+                publish_history_service=PublishHistoryService(history_path=Path(tmp) / "publish_history.json"),
                 dry_run=True,
             )
             result = pipeline.run_once()
