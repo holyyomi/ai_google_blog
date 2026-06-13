@@ -1,0 +1,733 @@
+from __future__ import annotations
+
+import logging
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from blogspot_automation.services.golden_article_preview_service import GoldenArticlePreviewService
+from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+from blogspot_automation.services.naver_blog_service import (
+    NaverPost,
+    fetch_latest_ai_post_for_blogspot,
+    mark_ai_blogspot_rewritten,
+)
+from blogspot_automation.services.news_label_service import NewsLabelService
+from blogspot_automation.services.publish_history_service import PublishHistoryService
+from blogspot_automation.services.run_artifact_service import RunArtifactService
+from blogspot_automation.services.seo_policy import normalize_hashtags, normalize_labels, prepare_blogspot_html
+from blogspot_automation.services.title_candidate_service import TitleCandidateService
+from blogspot_automation.services.evergreen_topic_service import EvergreenTopicService
+from blogspot_automation.services.news_scoring_service import NewsScoringService
+
+logger = logging.getLogger(__name__)
+
+_AI_AXES = {"ai_automation"}
+_NAVER_CONTENT_TYPE = "ai_work_tip"
+_NAVER_TOPIC_GROUP  = "ai_work"
+
+# pattern_id별 16:9 커버 이미지 scene
+_AI_IMAGE_SCENES: dict[str, str] = {
+    "ai_work_time_savings": (
+        "a Korean office worker organizing repeated workflow tasks into a clean digital checklist "
+        "on a laptop screen, calm focused mood, modern minimal desk, natural daylight"
+    ),
+    "ai_tool_comparison": (
+        "two laptop screens side by side on a modern desk showing different AI assistant interfaces, "
+        "a Korean professional comparing results calmly, clean office setting, natural light"
+    ),
+    "ai_automation_workflow": (
+        "a clean automated workflow diagram with connected process nodes displayed on a monitor, "
+        "a Korean office desk with organized documents, calm productive mood, minimal modern style"
+    ),
+}
+_AI_IMAGE_SCENE_DEFAULT = (
+    "a Korean office worker using AI productivity tools on a laptop, "
+    "calm professional mood, modern minimal desk, natural daylight"
+)
+
+
+def _build_ai_image_prompt(*, pattern_id: str, selected_title: str) -> tuple[str, str]:
+    scene = _AI_IMAGE_SCENES.get(pattern_id, _AI_IMAGE_SCENE_DEFAULT)
+    prompt = (
+        f"Clean realistic editorial blog cover image for a Korean AI productivity blog. "
+        f"Topic: {selected_title}. "
+        f"Scene: {scene}, 16:9 aspect ratio, "
+        f"no text, no readable letters, no logo, no watermark, no UI elements with readable text."
+    )
+    alt_text = f"{selected_title} 관련 AI 업무 활용 이미지"
+    return prompt, alt_text
+
+
+def _naver_post_to_source_meta(post: NaverPost) -> dict[str, Any]:
+    """NaverPost → source 메타데이터 dict."""
+    return {
+        "source_type": "naver_blog",
+        "source_url": post.link,
+        "source_title": post.title,
+        "source_summary": post.rss_excerpt[:300] if post.rss_excerpt else "",
+        "source_published_at": post.pub_date,
+        "source_log_no": post.log_no,
+        "already_rewritten": False,
+    }
+
+
+class AiTopicPipeline:
+    """AI 관련 주제 Blogspot article_candidate 생성 파이프라인.
+
+    1순위: 네이버 블로그 AI 관련 포스트 → Blogspot 재구성
+    Fallback: evergreen_topic_service (Naver 포스트 없을 때)
+
+    auto_publish=True + 품질 조건 통과 시 실제 Blogger API 발행.
+    """
+
+    def __init__(
+        self,
+        *,
+        artifact_service: RunArtifactService | None = None,
+        publish_history_service: PublishHistoryService | None = None,
+        dry_run: bool = True,
+        auto_publish: bool = False,
+        disable_image_generation: bool = True,
+        disable_image_upload: bool = True,
+        # 테스트용: Naver RSS 실제 호출 없이 주제 강제 지정
+        _force_topic: str = "",
+        _force_naver_post: NaverPost | None = None,
+    ) -> None:
+        self.artifact_service = artifact_service or RunArtifactService()
+        self.publish_history_service = publish_history_service or PublishHistoryService()
+        self.golden_preview_service = GoldenArticlePreviewService()
+        self.title_candidate_service = TitleCandidateService()
+        self.label_service = NewsLabelService()
+        self.scoring_service = NewsScoringService()
+        self.evergreen_topic_service = EvergreenTopicService()
+        self._ps = GoldenPatternService()
+        self.dry_run = dry_run
+        self.auto_publish = auto_publish
+        self.disable_image_generation = disable_image_generation
+        self.disable_image_upload = disable_image_upload
+        self._force_topic = _force_topic
+        self._force_naver_post = _force_naver_post
+
+    # ------------------------------------------------------------------ #
+    # Public API                                                           #
+    # ------------------------------------------------------------------ #
+
+    def run_once(self) -> dict[str, Any]:
+        try:
+            naver_post, source_meta, topic, ct, tg = self._resolve_source()
+            if not topic:
+                return {"status": "skipped", "reason": "no_source_topic"}
+
+            summary = self._build_summary(naver_post, source_meta)
+            raw_candidate = self._build_candidate_raw(naver_post, source_meta, ct, tg)
+
+            preview, pm_result, pattern_id = self._build_golden_preview(
+                topic=topic, ct=ct, tg=tg,
+                summary=summary, raw_candidate=raw_candidate,
+            )
+            if not preview:
+                return {"status": "skipped", "reason": "no_golden_matched_ai_candidate",
+                        "source_type": source_meta.get("source_type", "unknown")}
+
+            title_result, selected_title, selected_title_ctr = self._build_title(
+                topic=topic, ct=ct, tg=tg, pattern_id=pattern_id,
+                raw_candidate=raw_candidate,
+            )
+
+            _can_gen, candidate_html = self._render_candidate(
+                preview=preview, selected_title=selected_title
+            )
+
+            blogspot_labels, hashtags = self._build_labels(
+                pattern_id=pattern_id, ct=ct, tg=tg,
+                topic=topic, selected_title=selected_title,
+            )
+
+            preview = self._attach_preview_fields(
+                preview=preview,
+                title_result=title_result,
+                selected_title=selected_title,
+                candidate_html=candidate_html,
+                can_gen=_can_gen,
+                blogspot_labels=blogspot_labels,
+                hashtags=hashtags,
+                ct=ct, tg=tg,
+            )
+
+            image_prompt, image_alt_text = _build_ai_image_prompt(
+                pattern_id=pattern_id, selected_title=selected_title
+            )
+
+            run_path = self._make_run_path()
+            self._save_artifacts(
+                run_path=run_path,
+                preview=preview,
+                title_result=title_result,
+                topic=topic,
+                pattern_id=pattern_id,
+                ct=ct, tg=tg,
+                source_meta=source_meta,
+                selected_title=selected_title,
+                selected_title_ctr=selected_title_ctr,
+                pm_result=pm_result,
+                raw_candidate=raw_candidate,
+                blogspot_labels=blogspot_labels,
+                hashtags=hashtags,
+                image_prompt=image_prompt,
+                image_alt_text=image_alt_text,
+                can_gen=_can_gen,
+            )
+
+            _cand_meta = self._load_cand_meta(run_path)
+            _geo_ready  = bool(_cand_meta.get("geo_ready"))
+            _pub_ready  = bool(_cand_meta.get("publish_ready"))
+            _meta_valid = bool(_cand_meta.get("candidate_meta_description_valid"))
+            _cit_valid  = bool(_cand_meta.get("geo_ai_citation_summary_valid"))
+
+            # 실제 발행 시도 (auto_publish + 품질 조건)
+            publish_attempted = False
+            publish_succeeded = False
+            blogger_url = ""
+            skip_reason = ""
+
+            if self.dry_run:
+                skip_reason = "dry_run=true"
+            elif not self.auto_publish:
+                skip_reason = "auto_publish=false"
+            elif not _can_gen:
+                skip_reason = "article_candidate_generated=false"
+            elif not _geo_ready:
+                skip_reason = "geo_ready=false"
+            elif not _meta_valid:
+                skip_reason = "candidate_meta_description_valid=false"
+            elif not _cit_valid:
+                skip_reason = "geo_ai_citation_summary_valid=false"
+            else:
+                publish_attempted = True
+                blogger_url, publish_succeeded = self._attempt_blogger_publish(
+                    title=selected_title,
+                    candidate_html=candidate_html,
+                    labels=blogspot_labels,
+                    cand_meta=_cand_meta,
+                    run_path=run_path,
+                )
+
+            if naver_post and not self.dry_run and publish_succeeded:
+                try:
+                    mark_ai_blogspot_rewritten(naver_post)
+                except Exception as _me:
+                    logger.warning("mark_ai_blogspot_rewritten failed: %s", _me)
+
+            if self.dry_run:
+                status = "dry_run_saved"
+            elif publish_attempted and publish_succeeded:
+                status = "published"
+            elif publish_attempted and not publish_succeeded:
+                status = "publish_failed"
+            else:
+                status = "held_for_review"
+
+            logger.info("AiTopicPipeline: done → %s (status=%s)", run_path, status)
+
+            return {
+                "status": status,
+                "artifact_dir": str(run_path),
+                "selected_topic": topic,
+                "selected_title": selected_title,
+                "golden_pattern_id": pattern_id,
+                "golden_pattern_confidence": int(pm_result.get("confidence", 0)),
+                "article_candidate_generated": _can_gen,
+                "geo_score": _cand_meta.get("geo_score", 0),
+                "geo_ready": _geo_ready,
+                "publish_ready": _pub_ready,
+                "publish_allowed_in_phase2": False,
+                "human_review_required": True,
+                "source_type": source_meta.get("source_type", "unknown"),
+                "source_url": source_meta.get("source_url", ""),
+                "source_title": source_meta.get("source_title", ""),
+                "already_rewritten": bool(naver_post and publish_succeeded),
+                "blogspot_labels": blogspot_labels,
+                "publish_attempted": publish_attempted,
+                "publish_succeeded": publish_succeeded,
+                "blogger_url": blogger_url,
+                "skip_reason": skip_reason,
+            }
+
+        except Exception as exc:
+            logger.error("AiTopicPipeline failed: %s", exc)
+            return {"status": "failed", "error": str(exc)}
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _resolve_source(
+        self,
+    ) -> tuple[NaverPost | None, dict[str, Any], str, str, str]:
+        """소스(Naver post or evergreen)와 topic/ct/tg를 결정한다."""
+        # 테스트용 강제 지정
+        if self._force_naver_post:
+            post = self._force_naver_post
+            meta = _naver_post_to_source_meta(post)
+            return post, meta, post.title, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+        if self._force_topic:
+            meta = {
+                "source_type": "forced_topic",
+                "source_url": "",
+                "source_title": self._force_topic,
+                "source_summary": "",
+                "source_published_at": "",
+                "already_rewritten": False,
+            }
+            return None, meta, self._force_topic, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+
+        # 1순위: Naver Blog AI 포스트
+        try:
+            post = fetch_latest_ai_post_for_blogspot()
+        except Exception as _ne:
+            logger.warning("fetch_latest_ai_post_for_blogspot failed: %s", _ne)
+            post = None
+
+        if post:
+            meta = _naver_post_to_source_meta(post)
+            return post, meta, post.title, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+
+        # Fallback: evergreen_topic_service
+        logger.info("AiTopicPipeline: Naver 소스 없음 — evergreen fallback 사용")
+        fallback_topic, fallback_ct, fallback_tg = self._evergreen_fallback()
+        if not fallback_topic:
+            return None, {}, "", "", ""
+
+        meta = {
+            "source_type": "evergreen_fallback",
+            "source_url": "",
+            "source_title": fallback_topic,
+            "source_summary": "",
+            "source_published_at": "",
+            "already_rewritten": False,
+        }
+        return None, meta, fallback_topic, fallback_ct, fallback_tg
+
+    def _evergreen_fallback(self) -> tuple[str, str, str]:
+        candidates = self.evergreen_topic_service.collect_candidates()
+        ai_candidates = [
+            c for c in candidates
+            if (c.raw or {}).get("evergreen_axis") in _AI_AXES
+        ]
+        if not ai_candidates:
+            return "", "", ""
+        scored = self.scoring_service.score_candidates(ai_candidates)
+        for item in scored:
+            raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+            ct = str((raw.get("content_angle") or {}).get("content_type") or "")
+            tg = str(raw.get("topic_group") or "")
+            r = self._ps.match_pattern(
+                topic=item.candidate.topic or "", content_type=ct, topic_group=tg
+            )
+            if r["matched"] or r.get("near_match"):
+                return item.candidate.topic or "", ct, tg
+        return "", "", ""
+
+    @staticmethod
+    def _build_summary(naver_post: NaverPost | None, source_meta: dict) -> str:
+        if naver_post:
+            parts = [
+                naver_post.rss_excerpt[:200] if naver_post.rss_excerpt else "",
+                naver_post.full_text[:200] if naver_post.full_text else "",
+            ]
+            return " ".join(p for p in parts if p)
+        return source_meta.get("source_summary", "")
+
+    @staticmethod
+    def _build_candidate_raw(
+        naver_post: NaverPost | None,
+        source_meta: dict,
+        ct: str,
+        tg: str,
+    ) -> dict[str, Any]:
+        raw: dict[str, Any] = {
+            "content_angle": {"content_type": ct, "topic_group": tg},
+            "topic_group": tg,
+            "source_type": source_meta.get("source_type", "unknown"),
+            "source_url": source_meta.get("source_url", ""),
+            "source_title": source_meta.get("source_title", ""),
+            "source_summary": source_meta.get("source_summary", ""),
+            "source_published_at": source_meta.get("source_published_at", ""),
+            "already_rewritten": False,
+        }
+        if naver_post:
+            raw.update({
+                "search_demand_topic": naver_post.title,
+                "reader_search_questions": [],
+            })
+        return raw
+
+    def _build_golden_preview(
+        self,
+        *,
+        topic: str,
+        ct: str,
+        tg: str,
+        summary: str,
+        raw_candidate: dict,
+    ) -> tuple[dict | None, dict, str]:
+        """golden preview 빌드 + 패턴 매칭 결과 반환."""
+        pm_result = self._ps.match_pattern(
+            topic=topic, content_type=ct, topic_group=tg
+        )
+        if not (pm_result.get("matched") or pm_result.get("near_match")):
+            logger.warning("AiTopicPipeline: 패턴 매칭 실패 — topic=%s", topic[:40])
+            return None, pm_result, ""
+
+        pattern_id = str(pm_result.get("pattern_id") or "")
+
+        preview = self.golden_preview_service.build_preview(
+            topic=topic,
+            content_type=ct,
+            topic_group=tg,
+            summary=summary,
+            candidate_raw=raw_candidate,
+        )
+        preview["_editorial_scores"] = {
+            "traffic_potential_score": 24,
+            "usefulness_score": 30,
+            "evergreen_asset_score": 8,
+            "viral_safety_score": 10,
+            "final_editorial_score": 72,
+        }
+        preview["_content_candidate_grade"] = "B"
+        return preview, pm_result, pattern_id
+
+    def _build_title(
+        self, *, topic: str, ct: str, tg: str, pattern_id: str, raw_candidate: dict
+    ) -> tuple[dict, str, int]:
+        tr = self.title_candidate_service.generate_candidates(
+            topic=topic, content_type=ct, topic_group=tg,
+            pattern_id=pattern_id, candidate_raw=raw_candidate,
+        )
+        best = tr.get("best_title") or {}
+        selected_title = best.get("title", topic)
+        ctr = int(best.get("ctr_score") or 0)
+        return tr, selected_title, ctr
+
+    def _render_candidate(
+        self, *, preview: dict, selected_title: str
+    ) -> tuple[bool, str]:
+        pm = preview.get("pattern_match") or {}
+        sr = preview.get("slot_result") or {}
+        _can_gen = bool(preview.get("matched") or preview.get("near_match"))
+        candidate_html = ""
+        if _can_gen and pm:
+            try:
+                candidate_html = self.golden_preview_service.render_article_candidate_html(
+                    pm, sr, selected_title=selected_title
+                )
+            except Exception as e:
+                logger.warning("render_article_candidate_html failed: %s", e)
+                _can_gen = False
+        return _can_gen, candidate_html
+
+    def _build_labels(
+        self, *, pattern_id: str, ct: str, tg: str, topic: str, selected_title: str
+    ) -> tuple[list, list]:
+        labels = self.label_service.build_blogspot_labels(
+            pattern_id=pattern_id, content_type=ct, topic_group=tg
+        )
+        hashtags = self.label_service.build_hashtags(
+            selected_topic=topic, selected_title=selected_title,
+            topic_group=tg, content_type=ct,
+        )
+        return normalize_labels(labels), normalize_hashtags(hashtags)
+
+    @staticmethod
+    def _attach_preview_fields(
+        *,
+        preview: dict,
+        title_result: dict,
+        selected_title: str,
+        candidate_html: str,
+        can_gen: bool,
+        blogspot_labels: list,
+        hashtags: list,
+        ct: str,
+        tg: str,
+    ) -> dict:
+        preview["_can_generate_candidate"] = can_gen
+        preview["_article_candidate_html"] = candidate_html
+        preview["_title_result"] = title_result
+        preview["_selected_title"] = selected_title
+        preview["_stale_candidate"] = False
+        preview["_scoring_stale_penalty"] = False
+        preview["_blogspot_labels"] = blogspot_labels
+        preview["_hashtags"] = hashtags
+        preview["_content_type"] = ct
+        preview["_topic_group"] = tg
+        return preview
+
+    def _make_run_path(self) -> Path:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        runs_dir = Path(getattr(self.artifact_service, "runs_dir", "runs"))
+        run_path = runs_dir / f"news_{ts}"
+        run_path.mkdir(parents=True, exist_ok=True)
+        return run_path
+
+    def _save_artifacts(
+        self,
+        *,
+        run_path: Path,
+        preview: dict,
+        title_result: dict,
+        topic: str,
+        pattern_id: str,
+        ct: str,
+        tg: str,
+        source_meta: dict,
+        selected_title: str,
+        selected_title_ctr: int,
+        pm_result: dict,
+        raw_candidate: dict,
+        blogspot_labels: list,
+        hashtags: list,
+        image_prompt: str,
+        image_alt_text: str,
+        can_gen: bool,
+    ) -> None:
+        editorial_scores = preview.get("_editorial_scores") or {}
+
+        # selected_topic.json (source 메타 포함)
+        RunArtifactService._write_json(run_path / "selected_topic.json", {
+            "topic": topic,
+            "pattern_id": pattern_id,
+            "content_type": ct,
+            "topic_group": tg,
+            "source": "ai_pipeline",
+            **source_meta,
+        })
+
+        # golden preview artifacts
+        self.artifact_service.save_golden_preview_artifacts(run_path, preview)
+
+        # title candidate artifacts
+        if title_result:
+            self.artifact_service.save_title_candidate_artifacts(run_path, title_result)
+
+        # article_candidate_meta에서 GEO 정보 읽기
+        _cand_meta = self._load_cand_meta(run_path)
+        _geo_score    = int(_cand_meta.get("geo_score") or 0)
+        _geo_ready    = bool(_cand_meta.get("geo_ready"))
+        _publish_ready = bool(_cand_meta.get("publish_ready"))
+
+        status = "dry_run_saved" if self.dry_run else "held_for_review"
+        _phase_hold = os.getenv("PUBLISH_HOLD_PHASE2", "true").strip().lower() in {"1", "true", "yes"}
+
+        # run_meta.json
+        run_meta: dict[str, Any] = {
+            "pipeline": "ai_pipeline",
+            "mode": "dry_run" if self.dry_run else "publish",
+            "dry_run": self.dry_run,
+            "status": status,
+            "selected_topic": topic,
+            "selected_topic_group": tg,
+            "selected_content_angle": {"content_type": ct, "topic_group": tg},
+            "golden_preview_generated": bool(preview),
+            "golden_preview_ready_for_review": bool(preview.get("ready_for_review")),
+            "golden_pattern_id": pattern_id,
+            "golden_pattern_confidence": int(pm_result.get("confidence", 0)),
+            "golden_slot_fill_rate": float(preview.get("slot_fill_rate", 0.0)),
+            "golden_blocking_issues": list(preview.get("blocking_issues") or []),
+            "golden_warnings": list(preview.get("warnings") or []),
+            "article_candidate_generated": can_gen,
+            "selected_title": selected_title,
+            "selected_title_ctr_score": selected_title_ctr,
+            "geo_score": _geo_score,
+            "geo_ready": _geo_ready,
+            "publish_ready": _publish_ready,
+            "publish_allowed_in_phase2": False,
+            "human_review_required": True,
+            "blogspot_labels": blogspot_labels,
+            "content_hashtags": hashtags,
+            "image_prompt": image_prompt,
+            "image_alt_text": image_alt_text,
+            "content_candidate_grade": "B",
+            "final_editorial_score": editorial_scores.get("final_editorial_score", 72),
+            "traffic_potential_score": editorial_scores.get("traffic_potential_score", 24),
+            "usefulness_score": editorial_scores.get("usefulness_score", 30),
+            "phase_hold": _phase_hold,
+            "auto_publish": self.auto_publish,
+            "disable_image_generation": self.disable_image_generation,
+            "disable_image_upload": self.disable_image_upload,
+            "run_at": datetime.now().isoformat(),
+            # 소스 메타
+            **{f"source_{k}": v for k, v in {
+                "type": source_meta.get("source_type", "unknown"),
+                "url": source_meta.get("source_url", ""),
+                "title": source_meta.get("source_title", ""),
+                "summary": source_meta.get("source_summary", ""),
+                "published_at": source_meta.get("source_published_at", ""),
+            }.items()},
+        }
+        RunArtifactService._write_json(run_path / "run_meta.json", run_meta)
+
+        # scoring.json
+        scoring: dict[str, Any] = {
+            "pipeline": "ai_pipeline",
+            "topic": topic,
+            "source_type": source_meta.get("source_type", "unknown"),
+            "source_title": source_meta.get("source_title", ""),
+            "golden_pattern_id": pattern_id,
+            "pattern_confidence": int(pm_result.get("confidence", 0)),
+            "content_candidate_grade": "B",
+            "final_editorial_score": editorial_scores.get("final_editorial_score", 72),
+            "traffic_potential_score": editorial_scores.get("traffic_potential_score", 24),
+            "usefulness_score": editorial_scores.get("usefulness_score", 30),
+            "evergreen_asset_score": editorial_scores.get("evergreen_asset_score", 8),
+            "viral_safety_score": editorial_scores.get("viral_safety_score", 10),
+            "ai_topic_score": int(raw_candidate.get("topic_engine_score") or 75),
+            "search_intent_score": int(raw_candidate.get("topic_search_intent_score") or 15),
+            "monetization_score": int(raw_candidate.get("topic_monetization_score") or 12),
+            "safety_score": int(raw_candidate.get("topic_safety_score") or 15),
+            "slot_fill_rate": float(preview.get("slot_fill_rate", 0.0)),
+            "geo_score": _geo_score,
+            "geo_ready": _geo_ready,
+            "publish_ready": _publish_ready,
+            "publish_allowed_in_phase2": False,
+            "human_review_required": True,
+            "selected_title": selected_title,
+            "selected_title_ctr_score": selected_title_ctr,
+            "stale_penalty_applied": False,
+            "blocking_issues": list(preview.get("blocking_issues") or []),
+            "reason": (
+                f"source={source_meta.get('source_type','unknown')} "
+                f"golden_matched={bool(pm_result.get('matched'))} "
+                f"pattern={pattern_id} "
+                f"conf={pm_result.get('confidence', 0)} "
+                f"slot_fill={preview.get('slot_fill_rate', 0):.2f} "
+                f"geo={_geo_score}"
+            ),
+        }
+        RunArtifactService._write_json(run_path / "scoring.json", scoring)
+
+        # image_prompt.txt
+        if image_prompt.strip():
+            (run_path / "image_prompt.txt").write_text(image_prompt.strip(), encoding="utf-8")
+
+        # publish_history 기록
+        self._record_history(
+            topic=topic,
+            selected_title=selected_title,
+            pattern_id=pattern_id,
+            ct=ct, tg=tg,
+            source_meta=source_meta,
+            can_gen=can_gen,
+            geo_score=_geo_score,
+            publish_ready=_publish_ready,
+            status=status,
+            run_path=run_path,
+            raw_candidate=raw_candidate,
+        )
+
+    def _record_history(
+        self, *, topic: str, selected_title: str, pattern_id: str,
+        ct: str, tg: str, source_meta: dict, can_gen: bool,
+        geo_score: int, publish_ready: bool, status: str,
+        run_path: Path, raw_candidate: dict,
+    ) -> None:
+        record: dict[str, Any] = {
+            "pipeline": "ai_pipeline",
+            "run_at": datetime.now().isoformat(),
+            "date": datetime.now().date().isoformat(),
+            "topic": topic,
+            "selected_title": selected_title,
+            "golden_pattern_id": pattern_id,
+            "content_type": ct,
+            "topic_group": tg,
+            "evergreen_axis": str(raw_candidate.get("evergreen_axis") or "ai_automation"),
+            "source_type": source_meta.get("source_type", "unknown"),
+            "source_url": source_meta.get("source_url", ""),
+            "source_title": source_meta.get("source_title", ""),
+            "status": status,
+            "publish_ready": publish_ready,
+            "article_candidate_generated": can_gen,
+            "geo_score": geo_score,
+            "artifact_dir": str(run_path),
+        }
+        try:
+            self.publish_history_service.append_record(record)
+            logger.info("AiTopicPipeline: publish_history recorded (source=%s)", record["source_type"])
+        except Exception as _he:
+            logger.warning("AiTopicPipeline: publish_history record failed: %s", _he)
+
+    def _attempt_blogger_publish(
+        self,
+        *,
+        title: str,
+        candidate_html: str,
+        labels: list,
+        cand_meta: dict,
+        run_path: Path,
+    ) -> tuple[str, bool]:
+        """Blogger API에 발행 시도. (url, succeeded) 반환."""
+        import json as _json
+        try:
+            from blogspot_automation.config import Settings
+            from blogspot_automation.publishing.client import BloggerClient
+
+            settings = Settings.from_env()
+            client = BloggerClient(settings)
+            meta_description = str(cand_meta.get("candidate_meta_description") or title[:120])
+            result = client.publish_post(
+                title=title,
+                article_html=prepare_blogspot_html(candidate_html, strip_document=True),
+                labels=normalize_labels(labels or []),
+                meta_description=meta_description,
+                is_draft=False,
+            )
+            blogger_url = str(result.get("url") or "")
+            logger.info("AiTopicPipeline: Blogger publish succeeded → %s", blogger_url)
+
+            # run_meta 업데이트
+            run_meta_path = run_path / "run_meta.json"
+            if run_meta_path.exists():
+                try:
+                    rm = _json.loads(run_meta_path.read_text(encoding="utf-8"))
+                    rm["publish_attempted"] = True
+                    rm["publish_succeeded"] = True
+                    rm["blogger_url"] = blogger_url
+                    rm["blogger_post_id"] = str(result.get("id") or "")
+                    rm["status"] = "published"
+                    RunArtifactService._write_json(run_meta_path, rm)
+                except Exception:
+                    pass
+
+            return blogger_url, True
+
+        except Exception as exc:
+            logger.error("AiTopicPipeline: Blogger publish failed: %s", exc)
+
+            run_meta_path = run_path / "run_meta.json"
+            if run_meta_path.exists():
+                try:
+                    import json as _j
+                    rm = _j.loads(run_meta_path.read_text(encoding="utf-8"))
+                    rm["publish_attempted"] = True
+                    rm["publish_succeeded"] = False
+                    rm["publish_error"] = str(exc)
+                    rm["status"] = "publish_failed"
+                    RunArtifactService._write_json(run_meta_path, rm)
+                except Exception:
+                    pass
+
+            return "", False
+
+    @staticmethod
+    def _load_cand_meta(run_path: Path) -> dict[str, Any]:
+        import json as _json
+        p = run_path / "article_candidate_meta.json"
+        if p.exists():
+            try:
+                return _json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {}

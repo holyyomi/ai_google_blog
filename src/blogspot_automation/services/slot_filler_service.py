@@ -1,0 +1,1483 @@
+from __future__ import annotations
+
+from html import unescape
+import logging
+import re
+from typing import Any
+
+from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+
+logger = logging.getLogger(__name__)
+
+_GLOBAL_BANNED_PHRASES = [
+    "이 이슈는 나와 직접 관련이 없다",
+    "정보가 너무 많음",
+    "공식 안내를 확인한다",
+    "오늘 내 선택 기준",
+]
+
+
+def _is_filled(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return bool(value)
+
+
+_POLICY_REGION_TERMS = (
+    "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+    "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+)
+_POLICY_PAYMENT_TERMS = (
+    "울산페이", "지역화폐", "지역사랑상품권", "상품권", "바우처",
+    "카드 포인트", "포인트", "현금", "계좌 입금",
+)
+_POLICY_TARGET_TERMS = (
+    "근로자", "재직자", "청년", "소상공인", "자영업자", "사업자",
+    "구직자", "가구", "시민", "주민", "노동자",
+)
+
+
+def _policy_fact_pack(topic: str, raw: dict[str, Any]) -> dict[str, Any]:
+    source_text = _policy_source_text(topic, raw)
+    subject = _policy_subject(topic=topic, raw=raw, source_text=source_text)
+    return {
+        "source_text": source_text,
+        "subject": subject,
+        "regions": _unique_terms(_POLICY_REGION_TERMS, source_text),
+        "amounts": _unique_regex(r"(?:1인(?:당)?\s*)?(?:최대\s*)?\d+(?:,\d{3})*\s*(?:만\s*)?원", source_text),
+        "targets": _extract_policy_targets(source_text),
+        "payments": _unique_terms(_POLICY_PAYMENT_TERMS, source_text),
+        "deadlines": _unique_regex(r"(?:20\d{2}년\s*)?\d{1,2}월\s*\d{1,2}일(?:\s*\([^)]+\))?", source_text),
+        "contacts": _unique_regex(r"\b0\d{1,2}[-.)\s]?\d{3,4}[-.\s]?\d{4}\b", source_text),
+        "source_names": _extract_policy_source_names(source_text),
+    }
+
+
+def _policy_source_text(topic: str, raw: dict[str, Any]) -> str:
+    values: list[str] = [topic]
+    for key in (
+        "original_topic", "source_title", "source_summary", "cleaned_title",
+        "original_title", "search_demand_topic", "reader_benefit",
+        "content_promise", "public_benefit_original_topic",
+    ):
+        values.append(str(raw.get(key) or ""))
+    for key in ("source_titles", "sample_titles", "reader_search_questions", "source_excerpts"):
+        items = raw.get(key)
+        if isinstance(items, list):
+            values.extend(str(item or "") for item in items)
+    verification = raw.get("web_verification")
+    if isinstance(verification, dict):
+        for docs in verification.values():
+            if isinstance(docs, list):
+                for item in docs[:3]:
+                    if isinstance(item, dict):
+                        values.extend([str(item.get("title") or ""), str(item.get("snippet") or "")])
+    naver_item = raw.get("naver_item")
+    if isinstance(naver_item, dict):
+        values.extend([str(naver_item.get("title") or ""), str(naver_item.get("description") or "")])
+    return _clean_policy_text(" ".join(values))
+
+
+def _clean_policy_text(text: str) -> str:
+    clean = unescape(str(text or ""))
+    clean = re.sub(r"<[^>]+>", " ", clean)
+    clean = re.sub(r"\[[^\]]{1,18}\]", " ", clean)
+    clean = re.sub(r"\s+", " ", clean)
+    return clean.strip()
+
+
+def _policy_subject(*, topic: str, raw: dict[str, Any], source_text: str) -> str:
+    candidates: list[str] = []
+    for key in ("source_title", "original_topic", "cleaned_title", "original_title"):
+        value = str(raw.get(key) or "").strip()
+        if value:
+            candidates.append(value)
+    source_titles = raw.get("source_titles")
+    if isinstance(source_titles, list):
+        candidates.extend(str(item or "") for item in source_titles[:3])
+    candidates.extend([topic, source_text])
+
+    for value in candidates:
+        text = _clean_policy_text(value)
+        text = re.split(r"\s+[|｜]\s+|\s+-\s+", text)[0].strip(" ,.-:;!?\"'")
+        text = re.sub(r"\s*(연합뉴스|뉴시스|뉴스1|이데일리|매일경제|한국경제)$", "", text).strip()
+        if not text:
+            continue
+        match = re.search(
+            r"([가-힣A-Za-z0-9·\s]{2,42}(?:지원금|지원사업|장려금|보조금|수당|안심페이|울산페이))",
+            text,
+        )
+        subject = (match.group(1) if match else text).strip()
+        subject = re.split(
+            r"\s*(?:신청방법|신청 방법|대상 조건|대상은|어떻게|참여자 모집|공고|,|—)",
+            subject,
+        )[0].strip(" ,.-:;!?\"'")
+        if len(subject) >= 3:
+            return subject[:36].strip()
+    return "지원금 공고"
+
+
+def _unique_terms(terms: tuple[str, ...], text: str) -> list[str]:
+    found: list[str] = []
+    for term in terms:
+        if term in text and term not in found:
+            found.append(term)
+    return found
+
+
+def _unique_regex(pattern: str, text: str) -> list[str]:
+    found: list[str] = []
+    for match in re.finditer(pattern, text or ""):
+        value = " ".join(match.group(0).split()).strip()
+        if value and value not in found:
+            found.append(value)
+    return found
+
+
+def _extract_policy_targets(text: str) -> list[str]:
+    found: list[str] = []
+    for term in _POLICY_TARGET_TERMS:
+        for match in re.finditer(rf"[가-힣A-Za-z0-9·\s]{{0,18}}{re.escape(term)}", text or ""):
+            value = " ".join(match.group(0).split()).strip(" ,.-")
+            if len(value) >= 2 and value not in found:
+                found.append(value[:32])
+    return found[:4]
+
+
+def _extract_policy_source_names(text: str) -> list[str]:
+    names: list[str] = []
+    for term in ("고용노동부", "보건복지부", "국세청", "정부24", "복지로", "대한민국 정책브리핑"):
+        if term in text and term not in names:
+            names.append(term)
+    for region in _POLICY_REGION_TERMS:
+        for suffix in ("시", "광역시", "도", "시청", "도청"):
+            name = f"{region}{suffix}"
+            if name in text and name not in names:
+                names.append(name)
+    return names[:4]
+
+
+def _fact_text(values: list[str], fallback: str) -> str:
+    return ", ".join(values[:3]) if values else fallback
+
+
+_REACTION_SUBJECT_STOP_PHRASES = (
+    "반응이 갈린 이유와 핵심 포인트",
+    "반응이 갈린 이유",
+    "사람들이 본 핵심 포인트",
+    "사람들이 본 핵",
+    "먼저 볼 3가지",
+    "먼저 볼 것",
+)
+
+
+def _reaction_subject(topic: str, raw: dict[str, Any]) -> str:
+    values = [
+        str(raw.get("source_title") or ""),
+        str(raw.get("original_topic") or ""),
+        str(raw.get("cleaned_title") or ""),
+        str(raw.get("search_demand_topic") or ""),
+        topic,
+    ]
+    for value in values:
+        text = _clean_policy_text(value)
+        if not text:
+            continue
+        text = re.split(r"\s+[|｜]\s+|\s+-\s+", text)[0].strip()
+        for phrase in _REACTION_SUBJECT_STOP_PHRASES:
+            text = text.replace(phrase, " ")
+        text = re.sub(r"\s+", " ", text).strip(" ,.-:;!?\"'")
+        if len(text) >= 2:
+            return text[:42].strip()
+    return "이 이슈"
+
+
+def _policy_hashtags(facts: dict[str, Any]) -> list[str]:
+    tags: list[str] = []
+    subject = re.sub(r"\s+", "", str(facts.get("subject") or ""))[:12]
+    if subject:
+        tags.append(f"#{subject}")
+    for value in [*(facts.get("regions") or []), *(facts.get("payments") or [])]:
+        clean = re.sub(r"\s+", "", str(value or ""))[:12]
+        if clean:
+            tags.append(f"#{clean}")
+    tags.append("#지원금신청")
+    deduped: list[str] = []
+    for tag in tags:
+        if tag not in deduped:
+            deduped.append(tag)
+        if len(deduped) >= 3:
+            break
+    return deduped
+
+
+class SlotFillerService:
+    """골든 패턴의 required_slots를 topic/candidate_raw 기반으로 채우는 서비스.
+
+    Phase 2-2: AI 생성 없이 lookup(slot_filling_strategy 기반) 또는
+    derived(topic·메타데이터 기반) 방식만 사용한다.
+    """
+
+    def __init__(self, pattern_service: GoldenPatternService | None = None) -> None:
+        self._ps = pattern_service or GoldenPatternService()
+        self._builders: dict[str, Any] = {
+            "tax_refund_hometax_check": self._build_tax_refund,
+            "viral_ott_reaction_decode": self._build_viral_ott,
+            "ai_work_time_savings": self._build_ai_work,
+            "ai_tool_comparison": self._build_ai_tool_comparison,
+            "ai_automation_workflow": self._build_ai_automation_workflow,
+            "delivery_money_checklist": self._build_delivery_money_checklist,
+            "platform_change_service_update": self._build_platform_change,
+            "consumer_warning_refund": self._build_consumer_warning,
+            "policy_deadline_support": self._build_policy_deadline,
+            "corporate_issue_decode": self._build_corporate_issue,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Public API                                                           #
+    # ------------------------------------------------------------------ #
+
+    def fill_slots(
+        self,
+        pattern_id: str,
+        topic: str,
+        candidate_raw: dict | None = None,
+    ) -> dict[str, Any]:
+        """pattern_id와 topic을 받아 슬롯을 채우고 payload를 반환한다.
+
+        Returns:
+            {
+              pattern_id, topic, slots, required_slots,
+              filled_required_slots, missing_required_slots,
+              slot_fill_rate, fill_strategy[, error]
+            }
+        """
+        pattern = self._ps.get_pattern(pattern_id)
+        required_slots = self._ps.list_required_slots(pattern_id)
+        raw = candidate_raw or {}
+
+        if not pattern:
+            logger.warning("%s | pattern not found: %s", __name__, pattern_id)
+            return {
+                "pattern_id": pattern_id,
+                "topic": topic,
+                "slots": {},
+                "required_slots": [],
+                "filled_required_slots": [],
+                "missing_required_slots": [],
+                "slot_fill_rate": 0.0,
+                "fill_strategy": {},
+                "error": f"pattern not found: {pattern_id}",
+            }
+
+        builder = self._builders.get(pattern_id)
+        if builder:
+            slots, fill_strategy = builder(topic, raw)
+        else:
+            slots, fill_strategy = self._build_generic(pattern, topic, raw)
+
+        fill_rate = self.calculate_slot_fill_rate(slots, required_slots)
+        missing = self.get_missing_required_slots(slots, required_slots)
+        filled_list = [s for s in required_slots if s not in missing]
+
+        logger.info(
+            "%s | pattern=%s fill_rate=%.2f missing=%s",
+            __name__, pattern_id, fill_rate, missing,
+        )
+
+        return {
+            "pattern_id": pattern_id,
+            "topic": topic,
+            "slots": slots,
+            "required_slots": required_slots,
+            "filled_required_slots": filled_list,
+            "missing_required_slots": missing,
+            "slot_fill_rate": fill_rate,
+            "fill_strategy": fill_strategy,
+        }
+
+    def calculate_slot_fill_rate(
+        self, slots: dict, required_slots: list[str]
+    ) -> float:
+        """required_slots 중 채워진 비율(0.0~1.0)을 반환한다."""
+        if not required_slots:
+            return 1.0
+        filled_count = sum(1 for s in required_slots if _is_filled(slots.get(s)))
+        return filled_count / len(required_slots)
+
+    def get_missing_required_slots(
+        self, slots: dict, required_slots: list[str]
+    ) -> list[str]:
+        """required_slots 중 비어 있는 슬롯 이름 목록을 반환한다."""
+        return [s for s in required_slots if not _is_filled(slots.get(s))]
+
+    # ------------------------------------------------------------------ #
+    # Pattern-specific builders                                            #
+    # ------------------------------------------------------------------ #
+
+    def _build_tax_refund(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                "환급금이 있다는 안내 문자를 받았는데 통장에는 아무것도 들어오지 않은 경험이 있다면, "
+                "그 이유는 환급 유형을 구분하지 않은 채로 조회를 시작했기 때문일 가능성이 높다. "
+                "홈택스에 로그인했는데 어느 메뉴를 열어야 할지 몰라 그냥 닫은 적이 있는가? "
+                "국세환급금·종합소득세·연말정산·지방세는 각기 다른 메뉴에서 확인해야 하며, "
+                "유형을 구분하지 않으면 내 환급금이 어디 있는지 찾지 못한 채 소멸시효가 지날 수 있다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: 환급금 조회는 절차 자체가 복잡하지 않다. "
+                "국세환급금·종합소득세·연말정산·지방세 중 어느 유형인지 먼저 구분한 뒤 해당 메뉴로 들어가면 된다. "
+                "확인을 미루면 5년 소멸시효가 지나 환급금을 영원히 받을 수 없게 된다. "
+                "지금 홈택스에 로그인해서 환급 유형부터 구분하라."
+            ),
+            "misconceptions": [
+                {
+                    "착각": "환급금은 별도 신청 없이 자동으로 통장에 입금된다",
+                    "실제": "계좌를 홈택스에 등록하거나 직접 신청해야 입금된다. 계좌 미등록 시 환급금이 발생해도 통장에 들어오지 않는다",
+                },
+                {
+                    "착각": "종합소득세 신고를 한 사람만 환급 대상이다",
+                    "실제": "연말정산 과납자, 경정청구 대상자, 국세환급금 발생자 등 유형마다 대상이 다르다. 직장인도 환급 대상이 될 수 있다",
+                },
+                {
+                    "착각": "홈택스 환급금 조회 메뉴 하나에서 모든 환급을 한 번에 확인할 수 있다",
+                    "실제": "국세환급금·종합소득세·연말정산·지방세는 각기 다른 메뉴에서 따로 확인해야 한다",
+                },
+                {
+                    "착각": "안내 문자나 우편이 오면 이미 입금된 것이다",
+                    "실제": "안내는 환급 발생 사실을 알리는 것이며, 계좌 등록 후 별도로 입금 처리가 이루어진다",
+                },
+            ],
+            "real_criterion": (
+                "1단계: 환급 유형 확인 — 홈택스 로그인 후 마이홈택스 > 환급금 통합 조회에서 전체 내역 먼저 확인. "
+                "국세환급금(체납 공제 후 잔액 환급)·종합소득세 환급·연말정산 환급·지방세(위택스) 중 해당 유형 파악.\n"
+                "2단계: 계좌 등록 확인 — 홈택스 환급계좌 신청/해지 메뉴에서 등록 여부 확인. "
+                "미등록 상태라면 즉시 본인 계좌 등록. 손택스(모바일 앱)에서도 동일하게 처리 가능.\n"
+                "3단계: 미수령 원인 진단 — 환급 예정 금액이 있으나 입금이 안 된 경우, "
+                "주소 불일치·계좌 오류·처리 중 대기 상태 여부를 홈택스 내 환급 상태 메시지로 확인."
+            ),
+            "quick_decision_table": [
+                {
+                    "내 상황": "홈택스 환급금 조회를 한 번도 안 해봤다",
+                    "할 일": "홈택스 로그인 → 마이홈택스 → 환급금 통합 조회 먼저 실행",
+                },
+                {
+                    "내 상황": "조회했는데 환급금 금액이 0원이다",
+                    "할 일": "환급 유형 재확인 — 종합소득세·연말정산·지방세(위택스)를 각각 별도 메뉴에서 조회",
+                },
+                {
+                    "내 상황": "환급 예정 금액은 보이는데 입금이 안 됐다",
+                    "할 일": "홈택스 환급계좌 신청/해지 확인 → 계좌 미등록이면 즉시 등록",
+                },
+                {
+                    "내 상황": "환급금 안내 문자를 받았다",
+                    "할 일": "문자의 유형(국세환급금/지방세) 확인 → 해당 서비스(홈택스/위택스)에 직접 접속해 조회",
+                },
+                {
+                    "내 상황": "5년이 지난 환급금이 있을 것 같다",
+                    "할 일": "소멸시효 확인 후 경정청구 가능 여부를 세무사에게 상담",
+                },
+            ],
+            "actions": [
+                {
+                    "번호": 1,
+                    "행동": "홈택스 환급금 통합 조회 실행",
+                    "설명": "홈택스 로그인 → 마이홈택스 → 세금신고납부 → 국세환급금 통합조회 순으로 접속",
+                },
+                {
+                    "번호": 2,
+                    "행동": "손택스(모바일)에서 환급 유형별 확인",
+                    "설명": "손택스 앱 로그인 → 조회/발급 → 환급 관련 메뉴 선택 → 유형별 금액 확인",
+                },
+                {
+                    "번호": 3,
+                    "행동": "홈택스 환급계좌 등록 또는 확인",
+                    "설명": "홈택스 → 마이홈택스 → 환급계좌 신청/해지 → 현재 등록 계좌 확인 및 수정",
+                },
+            ],
+            "faq": [
+                {
+                    "Q": "홈택스에 환급계좌를 등록하는 방법은?",
+                    "A": (
+                        "홈택스 로그인 → 마이홈택스 → 환급계좌 신청/해지 메뉴에서 본인 계좌를 입력하고 저장한다. "
+                        "손택스 앱에서도 동일하게 등록 가능하다."
+                    ),
+                },
+                {
+                    "Q": "환급 예정금액이 있는데 왜 입금이 안 되나?",
+                    "A": (
+                        "계좌 미등록, 등록 계좌 오류, 주소 불일치, 환급 처리 중 대기 상태 중 하나일 가능성이 높다. "
+                        "홈택스 내 환급 상태 메시지를 먼저 확인하라."
+                    ),
+                },
+                {
+                    "Q": "환급금에도 소멸시효가 있나?",
+                    "A": (
+                        "국세환급금 소멸시효는 5년이다. "
+                        "발생한 환급금도 5년 내 청구하지 않으면 소멸한다. "
+                        "경정청구도 법정신고기한으로부터 5년 이내에만 가능하므로 해당 연도를 반드시 확인해야 한다."
+                    ),
+                },
+            ],
+            "hashtags": [
+                "#세금환급",
+                "#홈택스",
+                "#국세환급금",
+                "#환급계좌등록",
+                "#종합소득세환급",
+                "#연말정산환급",
+                "#손택스",
+                "#AI활용",
+            ],
+            "internal_links": [
+                {
+                    "주제": "종합소득세 신고 방법과 환급 시점 완전 정리",
+                    "content_type": "tax_refund",
+                },
+                {
+                    "주제": "연말정산과 종합소득세 환급 차이 — 직장인이 알아야 할 구분",
+                    "content_type": "tax_refund",
+                },
+                {
+                    "주제": "홈택스 처음 쓰는 직장인을 위한 기초 가이드",
+                    "content_type": "policy_benefit",
+                },
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    def _build_viral_ott(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        subject = _reaction_subject(topic, raw)
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                f"{subject} 이슈는 제목만 보고 좋다거나 나쁘다고 단정하기 어렵다. "
+                "공개 반응은 이용자 기대, 플랫폼 맥락, 실제 확인 가능한 정보가 섞여 움직인다. "
+                "그래서 먼저 볼 것은 댓글의 온도가 아니라 무엇이 확인됐고 무엇이 아직 주장인지다. "
+                "반응이 갈린 지점을 나누어 보면 이 이슈를 계속 지켜볼지, 내 선택에 영향을 주는지 더 빠르게 판단할 수 있다."
+            ),
+            "yomi_judgment": (
+                f"요미 판단: {subject}의 반응 갈림은 한쪽 반응만 확대해서 볼 일이 아니다. "
+                "공식 확인 내용, 실제 이용자에게 생기는 영향, 커뮤니티에서 과장된 해석을 분리해야 한다. "
+                "확인되지 않은 주장까지 사실처럼 받아들이면 판단이 흐려진다. "
+                "먼저 원문 공지와 신뢰할 수 있는 보도, 당사자 안내를 나눠 확인하라."
+            ),
+            "misconceptions": [
+                {
+                    "착각": "반응이 많으면 사실관계가 이미 정리됐다는 뜻이다",
+                    "실제": "화제성과 사실 확인은 다르다. 공유량이 많아도 공식 확인 전 정보는 주장으로 봐야 한다",
+                },
+                {
+                    "착각": "긍정 반응과 부정 반응 중 하나만 맞다",
+                    "실제": "이슈의 이해관계, 이용자 상황, 기대값에 따라 양쪽 반응이 동시에 존재할 수 있다",
+                },
+                {
+                    "착각": "커뮤니티 요약만 보면 핵심을 파악할 수 있다",
+                    "실제": "요약 글은 맥락이 빠지기 쉽다. 원문 안내와 보도에서 확인된 범위를 먼저 봐야 한다",
+                },
+                {
+                    "착각": "반응이 갈리면 내 선택과 무관하다",
+                    "실제": "구독, 결제, 시청, 참여, 팬덤 소비처럼 내 행동과 연결되는 지점이 있는지 따로 봐야 한다",
+                },
+            ],
+            "real_criterion": (
+                f"관점 1: 확인된 사실 — {subject}에 대해 실제로 공개된 공지, 보도, 플랫폼 안내가 무엇인지 먼저 구분한다.\n"
+                "관점 2: 이용자 영향 — 구독료, 이용 조건, 시청 선택, 팬덤 소비, 일정 변화처럼 독자 행동에 연결되는 부분만 따로 본다.\n"
+                "관점 3: 반응의 출처 — 공식 안내, 언론 보도, 커뮤니티 반응, 추측성 댓글을 한데 섞지 않는다. "
+                "출처가 다른 반응은 같은 무게로 비교하면 안 된다."
+            ),
+            "quick_decision_table": [
+                {
+                    "내 상황": "제목만 보고 판단하려는 중이다",
+                    "먼저 할 것": f"{subject} 관련 공식 안내나 원문 보도에서 확인된 사실을 먼저 본다",
+                },
+                {
+                    "내 상황": "커뮤니티 반응이 크게 갈린다",
+                    "먼저 할 것": "반응의 출처가 이용자 후기인지, 추측인지, 공식 발표인지 나눈다",
+                },
+                {
+                    "내 상황": "내 구독이나 소비 결정에 영향이 있을 수 있다",
+                    "먼저 할 것": "요금, 이용 조건, 환불, 일정, 참여 방식처럼 직접 영향 항목만 확인한다",
+                },
+                {
+                    "내 상황": "루머성 주장이 같이 돌고 있다",
+                    "먼저 할 것": "확인되지 않은 사생활·추측성 정보는 판단 근거에서 제외한다",
+                },
+                {
+                    "내 상황": "계속 지켜볼지 결정해야 한다",
+                    "먼저 할 것": "공식 추가 공지, 후속 보도, 실제 이용자 변화가 생기는지 확인한다",
+                },
+            ],
+            "actions": [
+                {
+                    "번호": 1,
+                    "행동": "공식 확인 범위 분리",
+                    "설명": f"{subject} 관련 공식 안내, 보도, 커뮤니티 반응을 따로 적어 사실과 해석을 구분한다",
+                },
+                {
+                    "번호": 2,
+                    "행동": "내 영향 항목만 확인",
+                    "설명": "구독, 결제, 이용 조건, 일정, 소비 결정처럼 나에게 직접 영향을 주는 항목이 있는지 확인한다",
+                },
+                {
+                    "번호": 3,
+                    "행동": "추측성 반응 제외",
+                    "설명": "루머, 사생활, 출처 없는 단정은 공유하거나 판단 근거로 쓰지 않는다",
+                },
+            ],
+            "faq": [
+                {
+                    "Q": f"{subject}에 대해 반응이 갈리는 이유는 무엇인가요?",
+                    "A": (
+                        "확인된 사실, 이용자 기대, 커뮤니티 해석이 서로 다른 층위에서 움직이기 때문이다. "
+                        "먼저 공식 확인 내용과 반응 해석을 분리해야 맥락이 선명해진다."
+                    ),
+                },
+                {
+                    "Q": f"{subject}의 화제성과 실제 영향은 어떻게 구분하나요?",
+                    "A": (
+                        "댓글 수나 공유량은 화제성이고, 요금·일정·이용 조건·공식 조치 변화는 실제 영향이다. "
+                        "내 선택에 필요한 것은 실제 영향 항목이다."
+                    ),
+                },
+                {
+                    "Q": f"{subject} 관련 루머와 사실은 어떻게 구분하나요?",
+                    "A": (
+                        "출처가 공식 공지, 언론 보도, 이용자 주장 중 어디인지 확인한다. "
+                        "출처가 없거나 사생활·추측 중심이면 사실 판단에서 제외하는 편이 안전하다."
+                    ),
+                },
+            ],
+            "hashtags": [
+                "#이슈해석",
+                "#반응분석",
+                "#AI트렌드",
+            ],
+            "internal_links": [
+                {
+                    "주제": "공식 안내와 커뮤니티 반응을 구분하는 법",
+                    "content_type": "viral_issue_decode",
+                },
+                {
+                    "주제": "플랫폼 공지 변경 때 먼저 확인할 항목",
+                    "content_type": "viral_issue_decode",
+                },
+                {
+                    "주제": "이슈성 기사에서 루머와 사실을 나누는 기준",
+                    "content_type": "viral_issue_decode",
+                },
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    def _build_ai_work(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                "ChatGPT를 쓰기 시작했는데 오히려 시간이 더 걸리는 경험을 한 적 있다면 나만 그런 게 아니다. "
+                "초안을 받았는데 그대로 쓸 수 없어 전부 다시 쓰거나, 프롬프트를 고치느라 30분이 사라진 날이 있다. "
+                "문제는 AI를 어디에 쓰느냐다. "
+                "작성 시간은 줄지만 검수 시간이 늘어나면 총 업무 시간은 오히려 늘어날 수 있다. "
+                "시간이 줄어드는 업무와 오히려 늘어나는 업무는 구분된다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: AI는 완성본을 만들어주는 도구가 아니라 80점짜리 초안을 3분 안에 만들어주는 도구다. "
+                "AI는 시간을 없애는 도구가 아니라 일의 형태를 바꾸는 도구다. "
+                "판단·검토·맥락 설정은 여전히 내 몫이다. "
+                "검수 비용이 작은 업무(반복 텍스트, 이메일 초안, 요약)부터 적용하면 실질적인 시간 절감이 생긴다. "
+                "지금 내 업무 목록에서 반복되는 텍스트 업무를 먼저 찾아라."
+            ),
+            "misconceptions": [
+                {
+                    "착각": "AI가 완성본을 만들어주면 그대로 제출하면 된다",
+                    "실제": "AI 결과물은 80점 초안이다. 팩트 확인·맥락 수정·문체 조정은 여전히 사람 몫이다",
+                },
+                {
+                    "착각": "1시간 걸리던 일이 AI로 5분이면 55분을 절약한 것이다",
+                    "실제": "검수와 수정에 30~40분이 걸리면 실질 절약은 15~20분이다. 검수 비용을 포함해 계산해야 한다",
+                },
+                {
+                    "착각": "ChatGPT를 많이 쓸수록 업무 효율이 올라간다",
+                    "실제": "맞지 않는 업무에 쓰면 오히려 시간이 더 걸린다. 업무 유형 구분이 먼저다",
+                },
+                {
+                    "착각": "유료 버전(ChatGPT Plus)이 아니면 효과가 없다",
+                    "실제": "무료 버전으로도 반복 텍스트 초안 생성·요약·번역은 충분히 활용 가능하다",
+                },
+            ],
+            "real_criterion": (
+                "패턴 1: 반복 텍스트 업무에 우선 적용 — 매주 작성하는 보고서 형식, 이메일 템플릿, 회의록 요약처럼 "
+                "구조가 고정된 업무에 AI를 먼저 적용하라. 검수 부담이 낮고 시간 절감 효과가 즉각적이다.\n"
+                "패턴 2: 80점 초안 기준 채택 — AI 결과물에 100점을 기대하지 않는다. "
+                "80점 초안을 받아 20점을 채우는 방식으로 사용하면 검수 시간이 일정하게 유지된다.\n"
+                "패턴 3: 프롬프트 템플릿 고정 — 잘 작동한 프롬프트는 저장하고 재사용한다. "
+                "매번 프롬프트를 새로 작성하면 AI 사용 자체에 시간이 더 들어가므로 고정 템플릿이 핵심이다."
+            ),
+            "quick_decision_table": [
+                {
+                    "내 상황": "AI를 써도 시간이 더 걸린다",
+                    "할 일": "현재 쓰는 업무 유형 확인 — 검수 비용이 낮은 반복 텍스트 업무로 먼저 전환",
+                },
+                {
+                    "내 상황": "AI 결과물을 계속 다시 쓰게 된다",
+                    "할 일": "완성본 기대가 문제 — 80점 초안 기준으로 목표를 낮추고 수정 범위를 좁혀라",
+                },
+                {
+                    "내 상황": "프롬프트를 매번 새로 짠다",
+                    "할 일": "잘 작동한 프롬프트 1개를 메모앱이나 문서에 저장 → 다음 번 재사용",
+                },
+                {
+                    "내 상황": "어떤 업무에 써야 할지 모른다",
+                    "할 일": "반복적으로 비슷한 형식을 쓰는 업무(이메일/보고서/요약) 목록화 → 하나씩 적용 테스트",
+                },
+                {
+                    "내 상황": "유료 버전이 없어서 못 쓴다",
+                    "할 일": "무료 버전으로 반복 텍스트 초안 생성 먼저 시도 — 기능 차이보다 사용 패턴이 더 중요하다",
+                },
+            ],
+            "actions": [
+                {
+                    "번호": 1,
+                    "행동": "반복 텍스트 업무 목록화",
+                    "설명": "이번 주 작성한 텍스트 중 비슷한 형식이 반복된 것 3가지를 적어라. 그게 AI 우선 적용 대상이다",
+                },
+                {
+                    "번호": 2,
+                    "행동": "잘 된 프롬프트 저장",
+                    "설명": "AI 결과물이 만족스러웠던 프롬프트를 메모앱이나 Notion에 저장하고 동일 업무에 재사용하라",
+                },
+                {
+                    "번호": 3,
+                    "행동": "5분 수정 룰 적용",
+                    "설명": "AI 결과물을 받은 뒤 5분 이상 수정하게 된다면 프롬프트가 부정확한 것이다. 5분 내 수정 완료 기준으로 프롬프트를 개선하라",
+                },
+            ],
+            "faq": [
+                {
+                    "Q": "ChatGPT 무료 버전으로도 효과가 있나?",
+                    "A": (
+                        "무료 버전으로도 이메일 초안·보고서 요약·반복 텍스트 생성은 충분히 활용 가능하다. "
+                        "복잡한 분석보다 구조화된 텍스트 생성에서는 유료와 차이가 크지 않다."
+                    ),
+                },
+                {
+                    "Q": "좋은 프롬프트는 어떻게 짜나?",
+                    "A": (
+                        "역할 지정(당신은 ~입니다) + 목적(~을 작성해주세요) + 조건(~형식으로, ~분량으로) "
+                        "3가지를 포함하면 결과물 품질이 올라간다. 간단하게 시작해서 결과 보고 조건을 추가하라."
+                    ),
+                },
+                {
+                    "Q": "AI 결과물을 그대로 제출해도 되나?",
+                    "A": (
+                        "팩트 확인 없이 AI 결과물을 그대로 제출하는 것은 위험하다. "
+                        "AI는 그럴듯한 오류를 생성하는 경향이 있다. "
+                        "핵심 사실 2~3가지는 직접 확인한 뒤 제출하라."
+                    ),
+                },
+            ],
+            "hashtags": [
+                "#AI활용",
+                "#업무자동화",
+                "#ChatGPT활용",
+                "#직장인AI",
+                "#생산성향상",
+                "#프롬프트작성",
+                "#업무효율",
+            ],
+            "internal_links": [
+                {
+                    "주제": "ChatGPT 유료 vs 무료 기능 비교 — 직장인이 알아야 할 차이",
+                    "content_type": "ai_work_tip",
+                },
+                {
+                    "주제": "업무자동화 입문 가이드 — 반복 업무 3가지 줄이는 방법",
+                    "content_type": "ai_work_tip",
+                },
+                {
+                    "주제": "AI 사용 시 회사 보안 주의사항",
+                    "content_type": "ai_work_tip",
+                },
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    def _build_ai_tool_comparison(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                "AI 도구를 골랐는데 실제 업무에서 쓰기 어려웠던 경험이 있다면 선택 기준이 잘못된 것일 수 있다. "
+                "기능 수와 가격만 보고 결정했다가 정작 필요한 기능이 없거나, 익히는 데 시간이 더 든 경우가 많다. "
+                "ChatGPT, Claude, Copilot 모두 잘 만든 도구지만 업무 유형에 따라 적합한 도구가 다르다. "
+                "내 반복 업무와 출력 형식을 기준으로 도구를 고르면 시행착오를 줄일 수 있다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: AI 도구 선택의 기준은 기능 목록이 아니라 내 실제 업무 워크플로우와의 적합성이다. "
+                "같은 프롬프트에도 도구마다 출력 형식과 길이가 달라 검수 시간이 달라진다. "
+                "무료 플랜의 제한 항목과 유료 전환 기준을 먼저 파악해야 불필요한 비용을 줄일 수 있다. "
+                "지금 자신이 가장 자주 반복하는 업무 1가지를 기준으로 도구를 먼저 테스트하라."
+            ),
+            "misconceptions": [
+                {
+                    "착각": "기능이 많은 AI 도구가 무조건 더 유용하다",
+                    "실제": "실제 업무에 맞는 출력 형식과 응답 정확도가 더 중요하다. 기능 수보다 적합성이 우선이다",
+                },
+                {
+                    "착각": "유료 버전은 무조건 무료보다 낫다",
+                    "실제": "반복 텍스트 초안 생성은 무료 버전으로도 충분한 경우가 많다. 유료 전환은 한계에 부딪힌 뒤에 판단하라",
+                },
+                {
+                    "착각": "가장 유명한 AI 도구가 내 업무에도 최적이다",
+                    "실제": "업무 유형(텍스트 작성, 코딩, 이미지 생성)에 따라 적합한 도구가 다르다",
+                },
+                {
+                    "착각": "AI 도구는 한 번 익히면 평생 쓸 수 있다",
+                    "실제": "업데이트 주기가 빠르고 새 도구가 계속 출시되므로 6개월마다 재평가가 권장된다",
+                },
+            ],
+            "real_criterion": (
+                "관점 1: 텍스트 생성 업무 — 보고서·이메일·요약처럼 텍스트가 주인 업무라면 ChatGPT 또는 Claude가 적합하다. "
+                "Claude는 긴 문서 분석과 요약에 강점이 있고, ChatGPT는 구조화된 초안 생성에 빠르다.\n"
+                "관점 2: 코딩·기술 업무 — GitHub Copilot이나 GPT-4는 코드 생성·디버깅에서 강점을 보인다. "
+                "반복 코드 패턴이 많은 업무라면 코딩 특화 도구부터 테스트하라.\n"
+                "관점 3: 비용 대비 효율 — 무료 플랜의 실제 한계(메시지 수·파일 업로드 여부)를 먼저 확인하라. "
+                "한계에 자주 부딪히는 업무에만 유료 전환을 적용하면 비용을 줄일 수 있다."
+            ),
+            "quick_decision_table": [
+                {
+                    "내 상황": "보고서·이메일 초안을 자주 쓴다",
+                    "할 일": "ChatGPT 또는 Claude 무료 버전으로 동일 프롬프트 테스트 후 결과 비교",
+                },
+                {
+                    "내 상황": "코드 작성·디버깅이 주 업무다",
+                    "할 일": "GitHub Copilot 또는 GPT-4 코딩 특화 기능 먼저 테스트",
+                },
+                {
+                    "내 상황": "긴 문서를 요약해야 한다",
+                    "할 일": "Claude 무료 버전으로 긴 문서 입력 후 요약 품질 확인",
+                },
+                {
+                    "내 상황": "이미 쓰는 도구가 있는데 한계를 느낀다",
+                    "할 일": "한계 지점(메시지 수·파일 크기·정확도) 확인 후 유료 전환 여부 판단",
+                },
+                {
+                    "내 상황": "어떤 AI 도구를 먼저 써야 할지 모른다",
+                    "할 일": "가장 자주 반복하는 업무 1가지 선택 → ChatGPT 무료 버전으로 일주일 테스트",
+                },
+            ],
+            "actions": [
+                {
+                    "번호": 1,
+                    "행동": "대표 업무 1개로 도구 비교 테스트",
+                    "설명": "동일한 프롬프트를 ChatGPT와 Claude에 각각 입력해 출력 품질·형식·길이를 비교하라",
+                },
+                {
+                    "번호": 2,
+                    "행동": "무료 플랜 한계 먼저 확인",
+                    "설명": "각 도구의 무료 플랜 메시지 수·파일 업로드 가능 여부·모델 버전을 공식 페이지에서 확인하라",
+                },
+                {
+                    "번호": 3,
+                    "행동": "프롬프트 결과 기록 후 비교",
+                    "설명": "같은 업무에 다른 도구를 써본 결과를 메모앱에 기록해 일주일 뒤 비교하라. 체감 차이가 선택 기준이 된다",
+                },
+            ],
+            "faq": [
+                {
+                    "Q": "ChatGPT와 Claude 중 어떤 게 더 낫나?",
+                    "A": (
+                        "업무 유형에 따라 다르다. "
+                        "ChatGPT는 구조화된 텍스트 초안 생성에 빠르고, Claude는 긴 문서 분석과 논리적 요약에 강하다. "
+                        "같은 프롬프트로 둘 다 테스트해보고 내 업무에 맞는 쪽을 선택하라."
+                    ),
+                },
+                {
+                    "Q": "무료 버전으로 업무에 쓸 수 있나?",
+                    "A": (
+                        "반복 텍스트 초안 생성, 요약, 번역은 무료 버전으로 충분히 가능하다. "
+                        "파일 업로드나 긴 대화 이력이 필요한 작업에서 한계가 생기면 그때 유료를 고려하라."
+                    ),
+                },
+                {
+                    "Q": "AI 도구를 쓸 때 회사 보안은 어떻게 하나?",
+                    "A": (
+                        "고객 정보, 내부 기밀 데이터, 개인식별정보는 AI에 입력하지 말아야 한다. "
+                        "회사 AI 사용 정책을 먼저 확인하고, 민감 정보는 가공하거나 익명화한 뒤 입력하라."
+                    ),
+                },
+            ],
+            "hashtags": [
+                "#AI도구비교",
+                "#ChatGPT",
+                "#Claude",
+                "#AI활용",
+                "#업무생산성",
+                "#직장인AI",
+                "#생산성도구",
+            ],
+            "internal_links": [
+                {
+                    "주제": "ChatGPT 무료 vs 유료 기능 비교 — 직장인이 알아야 할 차이",
+                    "content_type": "ai_work_tip",
+                },
+                {
+                    "주제": "AI 업무 활용 전 회사 보안 주의사항",
+                    "content_type": "ai_work_tip",
+                },
+                {
+                    "주제": "업무자동화 입문 — 반복 업무 줄이는 3가지 패턴",
+                    "content_type": "ai_work_tip",
+                },
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    def _build_ai_automation_workflow(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                "반복 업무를 자동화하려고 도구를 설치했는데 처음 설정부터 막힌 경험이 있다면 순서가 잘못된 것일 수 있다. "
+                "도구를 먼저 고르면 도구에 맞춰 업무를 바꾸게 된다. "
+                "자동화에 적합한 업무는 규칙이 명확하고 입력과 출력이 고정된 반복 작업이다. "
+                "도구 설치 전에 자동화할 업무 프로세스를 먼저 정의하면 시행착오를 줄일 수 있다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: 자동화 도구를 고르기 전에 자동화할 업무 프로세스부터 정의해야 한다. "
+                "입력 자료, 처리 규칙, 출력 형식이 명확한 업무만 자동화 효과가 난다. "
+                "검수 루프 없이 자동화하면 오류가 누적되어 수동 수정 비용이 증가한다. "
+                "지금 내 업무 중 매주 동일한 형식으로 반복되는 것 1가지를 찾아 자동화 대상을 정하라."
+            ),
+            "misconceptions": [
+                {
+                    "착각": "자동화 도구를 설치하면 업무가 바로 자동화된다",
+                    "실제": "도구 설치보다 자동화할 프로세스 정의와 검수 기준 설정이 먼저다. 정의 없이 도구를 쓰면 오히려 복잡도가 늘어난다",
+                },
+                {
+                    "착각": "n8n, Zapier 같은 노코드 도구면 코딩 없이 뭐든 자동화된다",
+                    "실제": "규칙이 단순하고 입출력이 명확한 업무만 노코드 자동화가 효과적이다. 예외가 많은 업무는 자동화 비용이 크다",
+                },
+                {
+                    "착각": "자동화하면 검수가 필요 없다",
+                    "실제": "자동화 초기에는 반드시 검수 루프가 필요하다. 예외 케이스를 발견하지 못하면 오류가 축적된다",
+                },
+                {
+                    "착각": "복잡한 업무일수록 자동화 효과가 크다",
+                    "실제": "규칙이 단순한 반복 업무가 자동화 적합도가 높다. 복잡한 판단이 필요한 업무는 AI 보조 + 사람 검수 구조가 더 효과적이다",
+                },
+            ],
+            "real_criterion": (
+                "단계 1: 자동화 대상 업무 선정 — 매주 동일 형식으로 반복되는 업무를 목록화한다. "
+                "입력 자료와 출력 형식이 고정된 업무(보고서 정리, 데이터 정렬, 알림 발송 등)가 자동화에 적합하다.\n"
+                "단계 2: 프로세스 단순화 — 자동화 전에 해당 업무의 단계를 3~5개로 줄인다. "
+                "예외 케이스를 제거하거나 별도 처리로 분리해서 메인 흐름을 단순하게 만든다.\n"
+                "단계 3: 파일럿 테스트와 검수 루프 설정 — 도구 적용 후 1~2주간 결과물을 직접 확인한다. "
+                "예외가 발생하면 프로세스를 보완하고, 검수 없이 자동화 범위를 확대하지 않는다."
+            ),
+            "quick_decision_table": [
+                {
+                    "내 상황": "자동화 도구를 설치했는데 어디서부터 시작해야 할지 모른다",
+                    "할 일": "자동화할 업무 1가지 선정 → 입력·처리·출력 3단계로 정리 → 도구 연결",
+                },
+                {
+                    "내 상황": "자동화를 했는데 오류가 자꾸 생긴다",
+                    "할 일": "예외 케이스 확인 → 프로세스 단순화 → 검수 루프 추가",
+                },
+                {
+                    "내 상황": "어떤 업무를 자동화해야 할지 모른다",
+                    "할 일": "지난 한 달 동안 동일 형식으로 반복한 업무 3가지 목록화 → 가장 단순한 것부터 적용",
+                },
+                {
+                    "내 상황": "노코드 도구가 너무 복잡하다",
+                    "할 일": "Google Sheets 자동화(앱스스크립트)나 이메일 필터 규칙부터 먼저 적용",
+                },
+                {
+                    "내 상황": "자동화 후 결과물 품질이 걱정된다",
+                    "할 일": "처음 2주는 자동화 결과를 직접 검수 → 오류율이 낮으면 점진적으로 검수 빈도 줄이기",
+                },
+            ],
+            "actions": [
+                {
+                    "번호": 1,
+                    "행동": "자동화 대상 업무 1가지 선정",
+                    "설명": "이번 주 반복한 업무 중 입력과 출력이 고정된 것을 1가지 선택해 자동화 대상으로 지정하라",
+                },
+                {
+                    "번호": 2,
+                    "행동": "프로세스 3단계로 단순화",
+                    "설명": "선정한 업무의 단계를 입력→처리→출력 3단계로 정리하고 예외 케이스를 별도 분리하라",
+                },
+                {
+                    "번호": 3,
+                    "행동": "파일럿 테스트 1주 실행",
+                    "설명": "자동화 도구 적용 후 1주간 결과물을 직접 확인하라. 오류 패턴을 발견하면 프로세스를 먼저 보완하라",
+                },
+            ],
+            "faq": [
+                {
+                    "Q": "n8n과 Zapier 중 어떤 걸 써야 하나?",
+                    "A": (
+                        "Zapier는 설정이 간단하고 주요 앱 연동이 쉬워 처음 자동화에 적합하다. "
+                        "n8n은 무료 오픈소스로 복잡한 로직 구현이 가능하지만 초기 설정이 더 어렵다. "
+                        "처음이라면 Zapier 무료 플랜으로 시작하는 것이 권장된다."
+                    ),
+                },
+                {
+                    "Q": "자동화하면 안 되는 업무가 있나?",
+                    "A": (
+                        "판단이 필요한 업무, 예외가 많은 업무, 실시간 대응이 필요한 업무는 자동화 적합도가 낮다. "
+                        "이런 업무는 AI 보조 + 사람 검수 구조가 더 효과적이다."
+                    ),
+                },
+                {
+                    "Q": "자동화 후 오류가 생기면 어떻게 하나?",
+                    "A": (
+                        "오류 원인을 입력 자료 문제인지 처리 규칙 문제인지 먼저 분류하라. "
+                        "입력 자료 문제라면 전처리 단계를 추가하고, 처리 규칙 문제라면 예외 케이스를 별도 분기로 처리하라."
+                    ),
+                },
+            ],
+            "hashtags": [
+                "#업무자동화",
+                "#AI자동화",
+                "#워크플로우",
+                "#반복업무",
+                "#생산성향상",
+                "#직장인AI",
+                "#자동화도구",
+            ],
+            "internal_links": [
+                {
+                    "주제": "AI 도구 비교 — ChatGPT vs Claude 업무용 선택 기준",
+                    "content_type": "ai_work_tip",
+                },
+                {
+                    "주제": "직장인 ChatGPT 활용 패턴 — 시간이 줄어드는 업무 3가지",
+                    "content_type": "ai_work_tip",
+                },
+                {
+                    "주제": "업무자동화 도구 입문 가이드 — n8n·Zapier 비교",
+                    "content_type": "ai_work_tip",
+                },
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    def _build_delivery_money_checklist(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                "배달앱으로 주문 버튼을 누르기 전까지 최종 금액이 얼마인지 정확히 모르는 경우가 많다. "
+                "화면에 보이는 음식 가격에 배달비가 더해지고, 쿠폰 적용 후 최소주문금액 조건이 바뀌어 "
+                "예상보다 비싸게 결제된 경험이 있다면 확인 순서가 잘못된 것이다. "
+                "배달앱마다 배달비 무료 조건, 쿠폰 적용 기준, 최소주문금액이 다르기 때문에 "
+                "주문 전에 3가지 항목을 순서대로 확인하면 결제 후 후회를 줄일 수 있다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: 배달앱 결제금액 비교는 어렵지 않다. "
+                "배달비 조건, 쿠폰 적용 여부, 최소주문금액을 순서대로 확인하면 최종금액이 정해진다. "
+                "비교 없이 주문하면 같은 음식을 더 비싸게 결제하는 상황이 반복될 수 있다. "
+                "지금 주문 전에 배달비 조건부터 먼저 확인하라."
+            ),
+            "misconceptions": [
+                {
+                    "착각": "배달비 0원이면 추가 비용이 없다",
+                    "실제": "배달비 무료는 최소주문금액 충족 시 적용된다. 조건 미달 시 배달비가 추가된다",
+                },
+                {
+                    "착각": "쿠폰이 있으면 항상 결제금액에서 차감된다",
+                    "실제": "쿠폰마다 적용 가능한 최소주문금액·메뉴 카테고리·앱 조건이 다르다. 주문 전 쿠폰 조건을 확인해야 한다",
+                },
+                {
+                    "착각": "배달앱마다 같은 가게 음식 가격은 동일하다",
+                    "실제": "앱별로 입점 수수료 구조와 프로모션이 달라 최종 결제금액이 다를 수 있다. 동일 가게라도 앱별 비교가 필요하다",
+                },
+                {
+                    "착각": "무료배달 구독권이 있으면 언제나 배달비가 무료다",
+                    "실제": "구독권 적용 제외 가게가 있으며, 최소주문금액 조건이 별도로 있는 경우도 있다",
+                },
+            ],
+            "real_criterion": (
+                "1단계: 배달비 조건 확인 — 주문 전 해당 가게의 배달비와 무료 배달 조건(최소주문금액)을 확인한다. "
+                "구독권 보유 시 해당 가게에 구독권이 적용되는지 먼저 체크한다.\n"
+                "2단계: 쿠폰 적용 기준 확인 — 보유 쿠폰의 적용 조건(최소주문금액·카테고리·유효기간)을 확인한다. "
+                "쿠폰 적용 후 달라지는 최소주문금액 충족 여부를 재확인한다.\n"
+                "3단계: 최종 결제금액 확인 후 주문 — 가상의 계산 예시로 음식 12,000원 + 배달비 3,000원 − 쿠폰 2,000원 = 최종 결제금액 13,000원처럼 "
+                "최종금액을 확인한다. 다른 앱에서 동일 가게를 검색해 최종 결제금액을 비교한 뒤 주문을 확정한다."
+            ),
+            "quick_decision_table": [
+                {
+                    "내 상황": "주문 금액이 예상보다 많이 나왔다",
+                    "할 일": "배달비 조건 재확인 — 최소주문금액 미달로 배달비가 붙었는지 체크",
+                },
+                {
+                    "내 상황": "쿠폰이 있는데 적용이 안 된다",
+                    "할 일": "쿠폰 적용 조건 확인 — 최소주문금액·카테고리·유효기간 중 어떤 조건을 충족 못했는지 확인",
+                },
+                {
+                    "내 상황": "배달앱 구독권이 있다",
+                    "할 일": "주문할 가게가 구독권 적용 대상인지 먼저 확인 후 주문",
+                },
+                {
+                    "내 상황": "어떤 배달앱이 더 저렴한지 모른다",
+                    "할 일": "동일 가게를 배달의민족·쿠팡이츠·요기요에서 각각 검색해 최종금액 비교",
+                },
+                {
+                    "내 상황": "배달비가 너무 비싸게 느껴진다",
+                    "할 일": "최소주문금액 추가 주문으로 무료배달 조건 충족 여부 확인 또는 포장 주문 비교",
+                },
+            ],
+            "actions": [
+                {
+                    "번호": 1,
+                    "행동": "주문 전 배달비 조건 먼저 확인",
+                    "설명": "앱에서 가게 선택 후 배달비와 무료배달 최소주문금액을 주문 전에 반드시 확인하라",
+                },
+                {
+                    "번호": 2,
+                    "행동": "쿠폰 적용 조건 체크 후 사용",
+                    "설명": "쿠폰함에서 사용 가능한 쿠폰의 적용 조건을 확인하고 조건 충족 여부를 먼저 파악하라",
+                },
+                {
+                    "번호": 3,
+                    "행동": "앱별 최종금액 비교 후 주문",
+                    "설명": "같은 가게를 2개 이상 앱에서 검색해 최종 결제금액을 비교한 뒤 더 저렴한 쪽으로 주문하라",
+                },
+            ],
+            "faq": [
+                {
+                    "Q": "배달비 무료 조건은 어떻게 확인하나?",
+                    "A": (
+                        "앱에서 가게를 선택한 뒤 배달비 항목을 탭하면 무료배달 최소주문금액을 확인할 수 있다. "
+                        "구독권 보유 시에도 해당 가게에 적용 여부가 별도로 표시된다."
+                    ),
+                },
+                {
+                    "Q": "쿠폰을 중복으로 적용할 수 있나?",
+                    "A": (
+                        "대부분의 배달앱은 1회 주문 시 쿠폰 1개만 적용된다. "
+                        "쿠폰과 구독 할인은 중복 적용되는 경우가 있지만, 앱별·쿠폰 종류별로 다르므로 결제 화면에서 확인해야 한다."
+                    ),
+                },
+                {
+                    "Q": "같은 가게인데 앱마다 가격이 다른 이유는?",
+                    "A": (
+                        "앱별로 입점 수수료 구조, 자체 프로모션, 최소주문금액 설정이 다를 수 있다. "
+                        "가게가 앱마다 가격을 다르게 설정하는 경우도 있으므로 주문 전 2개 앱 이상 비교가 도움된다."
+                    ),
+                },
+            ],
+            "hashtags": [
+                "#배달앱",
+                "#배달비절약",
+                "#생활비절약",
+                "#배달의민족",
+                "#쿠팡이츠",
+                "#배달비비교",
+                "#소비절약",
+                "#AI활용",
+            ],
+            "internal_links": [
+                {
+                    "주제": "OTT 구독료 비교 — 넷플릭스·티빙·쿠팡플레이 월정액 따져보기",
+                    "content_type": "money_checklist",
+                },
+                {
+                    "주제": "생활비 줄이는 소비 패턴 정리 — 고정비 점검 체크리스트",
+                    "content_type": "money_checklist",
+                },
+                {
+                    "주제": "배달앱 구독권 실제 이득 되는 조건과 안 되는 조건",
+                    "content_type": "money_checklist",
+                },
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    # ------------------------------------------------------------------ #
+    # platform_change_service_update                                       #
+    # ------------------------------------------------------------------ #
+
+    def _build_platform_change(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                "플랫폼 서비스 변경 공지가 떴는데 정작 내 계정·결제·기기가 변경 대상에 포함되는지 확인이 늦으면 "
+                "갑자기 서비스 이용이 막히거나 자동결제가 그대로 빠져나가 손해가 생길 수 있다. "
+                "변경 공지에는 적용 일자, 영향 범위, 기존 사용자 처리 기준이 함께 안내되는데 "
+                "이용자가 직접 확인해야 하는 항목이 의외로 많다. "
+                "변경 일자 전에 내 계정·결제·기기 상태를 순서대로 점검하면 갑작스러운 불편을 줄일 수 있다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: 플랫폼 변경 공지가 떴다면 알림을 기다리지 말고 지금 직접 확인하라. "
+                "내 계정이 적용 대상인지, 결제 수단이 변경되는지, 사용 중인 기기가 호환되는지 "
+                "공식 안내에서 확인하면 변경 일자 이후 당황할 일을 피할 수 있다. "
+                "공식 페이지 안내 외 출처는 사실 확인이 필요하다."
+            ),
+            "misconceptions": [
+                {"착각": "알림이 안 왔으니 내 계정은 대상이 아니다",
+                 "실제": "알림이 모든 이용자에게 동일하게 가지 않는 경우가 있다. 변경 공지 페이지에서 직접 확인해야 한다"},
+                {"착각": "기존 사용자는 자동으로 예외 처리된다",
+                 "실제": "기존 사용자 처리 기준은 변경마다 다르다. 공식 공지에서 적용 대상과 예외 조건을 확인해야 한다"},
+                {"착각": "변경 일자 이후 천천히 대응해도 된다",
+                 "실제": "결제·자동결제·로그인 등이 변경 일자에 즉시 적용되는 경우가 많다. 변경 전에 확인하고 조치해야 한다"},
+                {"착각": "취소·환불 정책은 변경 전후 동일하다",
+                 "실제": "약관 변경에 따라 취소·환불 기준이 함께 바뀔 수 있다. 변경 공지에 함께 안내된 정책을 확인해야 한다"},
+            ],
+            "real_criterion": (
+                "1단계: 변경 공지 원문 확인 — 적용 일자·영향 범위·기존 사용자 처리 기준을 공식 안내에서 직접 확인한다. "
+                "캡처 또는 URL을 저장해 둔다.\n"
+                "2단계: 내 계정·결제·기기 점검 — 변경 대상에 내 계정 유형이 포함되는지, "
+                "등록된 결제 수단이 변경 영향권에 있는지, 사용 중인 기기·앱 버전이 변경 후에도 호환되는지 확인한다.\n"
+                "3단계: 변경 전 조치 — 자동결제 해지 또는 유지 여부 결정, 백업 필요 데이터 추출, "
+                "필요 시 대체 서비스나 새 결제 수단 등록을 변경 일자 전에 마친다."
+            ),
+            "quick_decision_table": [
+                {"내 상황": "변경 공지를 받았는데 내가 대상인지 모르겠다",
+                 "확인할 것": "공식 공지에서 '적용 대상' 섹션 확인 — 내 계정 유형·요금제·가입일이 해당되는지 체크"},
+                {"내 상황": "자동결제가 등록되어 있다",
+                 "확인할 것": "결제 수단·요금이 변경 후에도 그대로 빠져나가는지 확인. 원치 않으면 변경 전 해지"},
+                {"내 상황": "사용 중인 기기가 오래되었다",
+                 "확인할 것": "지원 종료 기기 목록 확인. 필요 시 변경 전 데이터 백업 또는 기기 교체 일정 검토"},
+                {"내 상황": "약관·이용 조건이 함께 바뀐다",
+                 "확인할 것": "취소·환불·해지 기준이 어떻게 바뀌는지 확인. 불리하면 변경 전 정리"},
+                {"내 상황": "기존 사용자 예외가 있다는 안내를 봤다",
+                 "확인할 것": "예외 적용 조건과 기한 확인. 신청이 필요한 예외인지, 자동 적용인지 구분"},
+            ],
+            "actions": [
+                {"번호": 1, "행동": "공식 공지 원문 확인",
+                 "설명": "변경 일자·적용 대상·예외 조건을 운영사 공식 안내에서 직접 확인하고 캡처를 남긴다"},
+                {"번호": 2, "행동": "내 계정·결제·기기 점검",
+                 "설명": "변경 대상 여부, 등록된 결제 수단, 사용 기기 호환성을 변경 일자 전에 확인한다"},
+                {"번호": 3, "행동": "변경 전 조치 완료",
+                 "설명": "자동결제 정리, 데이터 백업, 대체 수단 마련 등 필요한 조치를 변경 일자 전에 마친다"},
+            ],
+            "faq": [
+                {"Q": "공식 공지는 어디서 확인하나?",
+                 "A": "운영사 공식 홈페이지의 공지사항 또는 앱 내 공지 배너에서 확인할 수 있다. "
+                      "검색엔진 결과나 SNS 게시물만으로 단정하지 말고 운영사 안내를 직접 확인하라."},
+                {"Q": "기존 사용자도 변경이 적용되나?",
+                 "A": "변경마다 기준이 다르다. 공식 안내의 '기존 사용자 처리' 또는 '경과 조치' 섹션을 확인해야 한다. "
+                      "예외가 있는 경우 적용 조건과 기한이 별도로 표시된다."},
+                {"Q": "변경 후 취소·환불은 어떻게 하나?",
+                 "A": "약관 변경과 함께 취소·환불 기준이 바뀔 수 있다. 변경 공지에 함께 안내된 정책을 확인하고, "
+                      "불리한 변경이라면 변경 일자 전에 해지하거나 환불 신청을 마치는 것이 안전하다."},
+            ],
+            "hashtags": [
+                "#플랫폼변경", "#서비스변경", "#약관변경", "#멤버십변경",
+                "#서비스종료", "#디지털생존", "#앱업데이트", "#계정관리",
+            ],
+            "internal_links": [
+                {"주제": "OTT 구독료 비교 — 변경 전 점검할 항목", "content_type": "money_checklist"},
+                {"주제": "환불·결제 피해 대응 체크리스트", "content_type": "consumer_warning"},
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    # ------------------------------------------------------------------ #
+    # consumer_warning_refund                                              #
+    # ------------------------------------------------------------------ #
+
+    def _build_consumer_warning(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                "환불·결제 오류·개인정보 유출 같은 소비자 피해 상황에서 가장 먼저 해야 할 일은 "
+                "고객센터 전화가 아니라 증거를 남기는 것이다. "
+                "결제내역·주문번호·상담 기록·캡처를 늦게 챙기면 환불 지연이 길어지거나 "
+                "분쟁이 생겼을 때 손해를 줄이기 어렵다. "
+                "피해 발생 직후 30분 안에 무엇을 어떤 순서로 남기느냐가 이후 대응 속도와 결과를 좌우한다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: 소비자 피해는 기다리면 자동 해결되지 않는다. "
+                "결제내역·상담 기록·캡처를 먼저 확보하고, 운영사 공식 고객센터 → 소비자원 순으로 단계별 대응하라. "
+                "지금 결제 화면, 주문번호, 챗·전화 기록부터 캡처해 두라. "
+                "공식 확인이 필요한 단정은 피하고, 객관적 기록 중심으로 정리한다."
+            ),
+            "misconceptions": [
+                {"착각": "기다리면 자동으로 해결된다",
+                 "실제": "환불·보상은 신청·증빙이 필요한 경우가 대부분이다. 증거 확보가 늦으면 처리 속도와 결과가 달라진다"},
+                {"착각": "고객센터에 전화만 하면 충분하다",
+                 "실제": "전화 통화 내용은 별도로 남지 않을 수 있다. 채팅·이메일 등 기록이 남는 채널 사용을 권장한다"},
+                {"착각": "결제 취소를 누르면 환불이 끝난 것이다",
+                 "실제": "결제 취소 요청과 실제 환불 처리는 다르다. 환불 완료 안내·입금 확인까지 추적해야 한다"},
+                {"착각": "개인정보 유출 안내를 받아도 별로 할 일이 없다",
+                 "실제": "유출 종류에 따라 비밀번호 변경·2차 인증 설정·금융 거래 점검 등 즉시 조치가 필요할 수 있다"},
+            ],
+            "real_criterion": (
+                "1단계: 즉시 캡처 — 결제 화면, 주문번호, 결제 시각, 상품/서비스명, "
+                "오류 메시지나 상태 표시를 화면 캡처로 남긴다. 스크린샷 파일명에 날짜를 포함한다.\n"
+                "2단계: 기록이 남는 채널로 문의 — 운영사 앱·웹 고객센터 채팅, 이메일 등 텍스트 기록이 남는 경로로 "
+                "피해 내용·요청 사항·접수 일시를 명확히 전달한다. 통화는 통화 후 메모로 보완한다.\n"
+                "3단계: 공식 기관 단계 진행 — 운영사 1차 대응이 미흡하면 한국소비자원(1372), "
+                "개인정보침해 신고센터(118), 금융 분쟁 시 금융감독원 등 공식 기관에 증빙과 함께 신고한다."
+            ),
+            "quick_decision_table": [
+                {"내 상황": "결제 오류로 이중 결제되었다",
+                 "즉시 할 일": "결제 화면·결제내역·시간 캡처 → 운영사 채널로 환불 요청 접수 → 영업일 처리 기한 확인"},
+                {"내 상황": "환불 신청했는데 처리가 늦다",
+                 "즉시 할 일": "접수 번호·접수 일자 확인 → 운영사 약관상 환불 기한 확인 → 기한 초과 시 소비자원 신고 검토"},
+                {"내 상황": "개인정보 유출 안내를 받았다",
+                 "즉시 할 일": "유출 항목 확인 → 해당 서비스 비밀번호 변경·2차 인증 설정 → 다른 서비스 같은 비밀번호 사용 시 동시 변경"},
+                {"내 상황": "예약·티켓팅 실패 또는 취소 분쟁",
+                 "즉시 할 일": "결제 영수증·취소 사유 캡처 → 운영사 공식 약관의 취소·환불 기준 확인 → 기준 위반 시 신고"},
+                {"내 상황": "운영사가 답을 주지 않는다",
+                 "즉시 할 일": "문의 접수 기록·기한·답변 부재 사실을 정리 → 소비자원 1372 또는 관할 기관에 신고"},
+            ],
+            "actions": [
+                {"번호": 1, "행동": "피해 발생 직후 캡처",
+                 "설명": "결제 화면, 주문번호, 결제 시각, 오류·상태 표시를 모두 화면 캡처한다. 파일명에 날짜를 포함한다"},
+                {"번호": 2, "행동": "기록 남는 채널로 접수",
+                 "설명": "앱·웹 채팅, 이메일 등 텍스트 기록이 남는 경로로 피해 내용을 명확히 접수하고 접수 번호를 받는다"},
+                {"번호": 3, "행동": "공식 기관 신고 단계",
+                 "설명": "운영사 대응이 부족하면 한국소비자원 1372·개인정보침해 신고센터 118 등 공식 채널에 증빙과 함께 신고한다"},
+            ],
+            "faq": [
+                {"Q": "환불을 거부당하면 어떻게 해야 하나?",
+                 "A": "운영사 약관과 공정거래위원회 표준약관을 비교해 환불 거부 사유가 정당한지 확인한다. "
+                      "부당하다고 판단되면 한국소비자원(1372)에 피해 구제 신청을 할 수 있다."},
+                {"Q": "한국소비자원에는 어떻게 신고하나?",
+                 "A": "전화 1372 또는 소비자24 누리집에서 온라인 신청이 가능하다. "
+                      "결제내역, 운영사와의 상담 기록, 약관 위반 정황을 함께 제출하면 처리 속도가 빨라진다."},
+                {"Q": "어떤 증거를 남겨야 하나?",
+                 "A": "결제 영수증·주문번호·상담 기록·오류 화면·접수 일시가 핵심이다. "
+                      "통화 내용은 통화 후 메모와 함께 채팅·이메일로 한 번 더 확인 요청을 남기는 것이 안전하다."},
+            ],
+            "hashtags": [
+                "#소비자피해", "#환불대응", "#결제오류", "#개인정보보호",
+                "#소비자원", "#증거보존", "#소비자권익", "#피해구제",
+            ],
+            "internal_links": [
+                {"주제": "환불 지연 대응 — 운영사·소비자원 단계별 진행", "content_type": "consumer_warning"},
+                {"주제": "개인정보 유출 안내 후 점검할 항목", "content_type": "consumer_warning"},
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    # ------------------------------------------------------------------ #
+    # policy_deadline_support                                              #
+    # ------------------------------------------------------------------ #
+
+    def _build_policy_deadline(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        facts = _policy_fact_pack(topic, raw)
+        subject = str(facts.get("subject") or topic or "지원금 공고")
+        region_text = _fact_text(facts.get("regions") or [], "공고문에 표시된 지역")
+        amount_text = _fact_text(facts.get("amounts") or [], "공고문에 표시된 지원 금액")
+        target_text = _fact_text(facts.get("targets") or [], "공고문에 표시된 신청 대상")
+        payment_text = _fact_text(facts.get("payments") or [], "공고문에 표시된 지급 방식")
+        deadline_text = _fact_text(facts.get("deadlines") or [], "공고문에 표시된 신청 기간")
+        contact_text = _fact_text(facts.get("contacts") or [], "공고문 담당 부서 또는 문의처")
+        source_name_text = _fact_text(facts.get("source_names") or [], "공식 공고")
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                f"{subject}은 이름만 보고 일반 지원금처럼 넘기면 안 된다. "
+                f"이 공고에서 먼저 볼 값은 지역 {region_text}, 대상 {target_text}, 금액 {amount_text}, 지급 방식 {payment_text}이다. "
+                f"신청 여부는 {source_name_text} 기준으로 달라지므로, 마감 {deadline_text}와 문의처 {contact_text}를 같이 확인해야 한다. "
+                "본문에서는 공고에서 독자가 바로 확인해야 할 조건만 순서대로 정리한다."
+            ),
+            "yomi_judgment": (
+                f"핵심 관점: {subject}은 대상과 지급 방식이 정해진 공고형 지원이다. "
+                f"내가 {target_text}에 해당하는지 먼저 보고, {amount_text}와 {payment_text} 조건을 확인한 뒤 신청해야 한다. "
+                f"최종 기준은 {source_name_text}의 공고문과 담당 문의처다."
+            ),
+            "misconceptions": [
+                {"착각": f"{subject}은 누구나 신청할 수 있다",
+                 "실제": f"공고의 신청 대상은 {target_text}처럼 정해져 있다. 대상 조건이 맞지 않으면 신청해도 제외될 수 있다"},
+                {"착각": "금액만 보면 된다",
+                 "실제": f"금액 {amount_text}와 함께 지급 방식 {payment_text}, 사용처, 사용 기한을 같이 봐야 한다"},
+                {"착각": "전국 공통 지원금이다",
+                 "실제": f"이 공고는 지역 {region_text}와 담당 기관 {source_name_text} 기준으로 확인해야 한다"},
+                {"착각": "마감 뒤에도 보완하면 된다",
+                 "실제": f"신청 기간은 {deadline_text} 기준으로 달라질 수 있으므로 접수 전 담당 문의처 {contact_text}를 확인해야 한다"},
+            ],
+            "real_criterion": (
+                f"1단계: 공고명 확인 — {subject}이 내가 찾는 공고가 맞는지 {source_name_text}에서 확인한다.\n"
+                f"2단계: 대상 조건 확인 — 지역 {region_text}, 대상 {target_text}, 제외 조건을 공고문에서 대조한다.\n"
+                f"3단계: 금액·지급 방식 확인 — 지원 금액 {amount_text}, 지급 방식 {payment_text}, 사용처와 사용 기한을 같이 본다.\n"
+                f"4단계: 신청 기간·서류 확인 — 마감 {deadline_text}, 신청 경로, 제출 서류, 보완 가능 여부를 확인한다.\n"
+                f"5단계: 문의처 기록 — 접수 전 담당 문의처 {contact_text}와 접수 번호 보관 기준을 기록한다."
+            ),
+            "quick_decision_table": [
+                {"내 상황": f"{subject} 대상인지 모르겠다",
+                 "확인할 조건": f"지원 대상 항목에서 {target_text}에 해당하는지 먼저 확인"},
+                {"내 상황": "지역 조건이 헷갈린다",
+                 "확인할 조건": f"지역 기준 {region_text}와 사업장·거주지 기준 중 무엇을 보는지 확인"},
+                {"내 상황": "얼마를 어떤 방식으로 받는지 궁금하다",
+                 "확인할 조건": f"지원 금액 {amount_text}, 지급 방식 {payment_text}, 사용처 제한 확인"},
+                {"내 상황": "신청 마감이 걱정된다",
+                 "확인할 조건": f"신청 기간 {deadline_text}와 예산 소진·조기 마감 여부 확인"},
+                {"내 상황": "공고문만 보고 확신이 안 선다",
+                 "확인할 조건": f"담당 문의처 {contact_text}에 대상·서류·접수 방법을 확인"},
+            ],
+            "actions": [
+                {"번호": 1, "행동": "공고명과 대상 대조",
+                 "설명": f"{subject} 공고에서 {target_text} 조건과 제외 조건을 먼저 대조한다"},
+                {"번호": 2, "행동": "금액·지급 방식 확인",
+                 "설명": f"{amount_text}와 {payment_text}가 실제로 어떻게 지급되는지 사용처까지 확인한다"},
+                {"번호": 3, "행동": "마감·문의처 기록",
+                 "설명": f"신청 기간 {deadline_text}, 접수 경로, 담당 문의처 {contact_text}를 저장하고 접수 번호를 보관한다"},
+            ],
+            "faq": [
+                {"Q": f"{subject} 신청 대상은 누구인가요?",
+                 "A": f"공고문에서 {target_text}, 지역 {region_text}, 제외 조건을 함께 확인해야 합니다."},
+                {"Q": f"{subject} 지원 금액과 지급 방식은 어떻게 되나요?",
+                 "A": f"현재 본문 기준으로 확인할 핵심값은 지원 금액 {amount_text}, 지급 방식 {payment_text}입니다. 사용처와 사용 기한은 공고문을 같이 봐야 합니다."},
+                {"Q": f"{subject} 신청 기간과 문의처는 어디서 보나요?",
+                 "A": f"신청 기간은 {deadline_text} 기준으로 확인하고, 불명확한 부분은 {contact_text} 또는 {source_name_text} 공고 담당 부서에 확인해야 합니다."},
+            ],
+            "hashtags": _policy_hashtags(facts),
+            "internal_links": [],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    # ------------------------------------------------------------------ #
+    # corporate_issue_decode — 기업 이슈 해석                              #
+    # ------------------------------------------------------------------ #
+
+    def _build_corporate_issue(
+        self, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        # discovery 후보의 entities를 활용 — 첫 entity를 기업명으로 가정
+        entities = raw.get("entities") or []
+        primary_entity = next(
+            (e for e, t in zip(entities, raw.get("entity_types") or [])
+             if t in ("platform", "telecom", "card", "acronym")),
+            entities[0] if entities else "이 기업",
+        )
+        slots: dict[str, Any] = {
+            "hook_opening": (
+                f"{primary_entity}이/가 오늘 공식 입장 또는 발표를 내놓으면서 소비자·직원·투자자에게 어떤 영향이 있는지 정리할 필요가 생겼다. "
+                "기업 이슈는 공식 발표와 외부 추측이 섞이기 쉬워, 무엇이 확인된 사실이고 무엇이 단순 관측인지 구분하는 것이 중요하다. "
+                "공시·공식 채널·신뢰할 수 있는 매체 보도를 우선 확인해야 한다. "
+                "오늘 이슈에서 사람들이 가장 궁금해할 포인트와 직접 확인할 수 있는 채널을 정리한다."
+            ),
+            "yomi_judgment": (
+                "요미 판단: 기업 이슈에서 가장 안전한 접근은 공식 발표·공시·운영사 공식 채널을 기준으로 보는 것이다. "
+                "SNS 추측이나 단편 보도는 사실 확인이 필요하다. "
+                "이용자·소비자라면 본인이 영향을 받는 범위(서비스·결제·계정·고용)만 우선 확인하면 충분하다. "
+                "투자 판단은 공시 기준으로 별도 확인해야 한다."
+            ),
+            "misconceptions": [
+                {"착각": "한 매체 보도만 보고 사실로 단정해도 된다",
+                 "실제": "기업 이슈는 공시·공식 입장·복수 매체 교차 확인이 필요하다. SNS 추측은 사실과 다를 수 있다"},
+                {"착각": "이슈 직후 즉시 행동해야 한다",
+                 "실제": "급하게 결정하지 말고 공식 안내 시점까지 기다리는 것이 일반적으로 안전하다"},
+                {"착각": "기업 발표가 곧 소비자 영향과 동일하다",
+                 "실제": "내부 결정/노사 협의/사업 변경이 곧바로 소비자 서비스에 반영되지 않는 경우가 많다"},
+                {"착각": "주가/시세 반응이 이슈의 실제 영향을 반영한다",
+                 "실제": "단기 시세는 심리·외부 변수 영향을 받는다. 실제 영향은 후속 발표로 확인된다"},
+            ],
+            "real_criterion": (
+                "1단계: 공식 발표 위치 확인 — 기업 공식 홈페이지 보도자료, 공시 시스템(DART), 운영사 공식 채널에서 직접 확인한다. "
+                "캡처 또는 URL을 저장한다.\n"
+                "2단계: 내가 영향받는 범위 점검 — 서비스 이용/결제/계정/고용/배송/예약 중 어떤 항목이 변경 영향에 들어가는지 확인한다. "
+                "공식 안내에 명시되지 않은 부분은 추측하지 않는다.\n"
+                "3단계: 후속 발표 기다리기 — 1차 발표 이후 보통 후속 공지가 따른다. 공식 채널 알림을 켜두고 "
+                "기간 내 변화를 추적한다."
+            ),
+            "quick_decision_table": [
+                {"이해관계자": "일반 소비자/이용자",
+                 "확인 포인트": "서비스 이용·결제·요금에 변화가 있는지 공식 안내 확인"},
+                {"이해관계자": "직원/임직원",
+                 "확인 포인트": "고용·근무·복지 변화 여부, 공식 사내 안내 확인"},
+                {"이해관계자": "투자자/주주",
+                 "확인 포인트": "공시 시스템(DART) 공시 내용, 후속 IR 발표 일정"},
+                {"이해관계자": "협력사/거래처",
+                 "확인 포인트": "거래 조건·결제 일정 변경 여부, 운영사 공문 확인"},
+                {"이해관계자": "관심 일반 독자",
+                 "확인 포인트": "공식 보도자료·복수 매체 교차 확인 후 결론 판단"},
+            ],
+            "actions": [
+                {"번호": 1, "행동": "공식 발표 위치 확인",
+                 "설명": "기업 공식 홈페이지·공시(DART)·공식 SNS에서 1차 발표 원문을 확인하고 URL을 저장한다"},
+                {"번호": 2, "행동": "내가 영향받는 범위 점검",
+                 "설명": "서비스/결제/계정/고용/거래 중 변경 대상에 본인이 포함되는지 공식 안내로 확인한다"},
+                {"번호": 3, "행동": "후속 발표 추적",
+                 "설명": "공식 채널 알림을 켜두고 후속 발표·업데이트를 일정 기간 추적한다"},
+            ],
+            "faq": [
+                {"Q": "공식 발표는 어디서 확인할 수 있나?",
+                 "A": "기업 공식 홈페이지의 IR/공지사항, 금융감독원 공시 시스템(DART), 운영사 공식 SNS 채널에서 확인할 수 있다. "
+                      "검색엔진의 단편 기사보다 공식 채널의 원문이 가장 신뢰 가능한 기준이다."},
+                {"Q": "이슈가 소비자에게 즉시 영향을 미치나?",
+                 "A": "발표 내용에 따라 다르다. 서비스·요금·계정 변경이 명시되면 즉시 영향, "
+                      "내부 결정(노사·인사·경영)은 즉각적인 소비자 영향이 작을 수 있다. 공식 안내를 직접 확인해야 한다."},
+                {"Q": "후속 발표는 언제쯤 나오나?",
+                 "A": "기업마다 다르지만 보통 1차 발표 후 며칠 내 후속 공지 또는 IR 발표가 따른다. "
+                      "공식 채널 알림을 켜두는 것이 가장 빠른 확인 방법이다."},
+            ],
+            "hashtags": [
+                "#기업이슈", "#공식입장", "#투자자", "#공시",
+                "#AI뉴스해석", "#AI트렌드", "#사실확인", "#공식안내",
+            ],
+            "internal_links": [
+                {"주제": "공시 정보 직접 확인하는 법 — DART 활용 가이드", "content_type": "viral_issue_decode"},
+                {"주제": "기업 이슈, SNS 소문과 공식 발표를 구분하는 기준", "content_type": "viral_issue_decode"},
+            ],
+        }
+        fill_strategy = {k: "derived" for k in slots}
+        fill_strategy["real_criterion"] = "lookup"
+        fill_strategy["actions"] = "lookup"
+        return slots, fill_strategy
+
+    # ------------------------------------------------------------------ #
+    # Generic fallback for unregistered patterns                           #
+    # ------------------------------------------------------------------ #
+
+    def _build_generic(
+        self, pattern: dict, topic: str, raw: dict
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        strategy = pattern.get("slot_filling_strategy", {})
+        required = list(pattern.get("required_slots", {}).keys())
+        slots: dict[str, Any] = {}
+        fill_strategy: dict[str, str] = {}
+        for slot_name in required:
+            hint = strategy.get(slot_name, "")
+            if hint:
+                slots[slot_name] = hint
+                fill_strategy[slot_name] = "lookup"
+            else:
+                slots[slot_name] = ""
+                fill_strategy[slot_name] = "empty"
+        return slots, fill_strategy

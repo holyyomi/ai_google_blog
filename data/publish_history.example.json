@@ -1,0 +1,22 @@
+[
+  {
+    "run_at": "2026-05-01T23:47:13",
+    "date": "2026-05-01",
+    "title": "카카오톡 지원 종료, 내 폰도 해당될까",
+    "selected_topic": "카카오톡 지원 종료 내 폰 해당 여부 확인법",
+    "search_demand_topic": "카카오톡 지원 종료 내 폰 해당 여부 확인법",
+    "topic_group": "platform_issue",
+    "content_type": "platform_change",
+    "source_type": "evergreen_fallback",
+    "evergreen_axis": "digital_survival",
+    "fallback_reason": "forced_evergreen_fallback",
+    "published": false,
+    "dry_run": true,
+    "quality_passed": true,
+    "reader_value_score": 92,
+    "article_focus_score": 100,
+    "hashtags": ["#카카오톡", "#지원종료", "#스마트폰"],
+    "artifact_dir": "runs/news_20260501_234713",
+    "status": "dry_run_saved"
+  }
+]

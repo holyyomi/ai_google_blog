@@ -1,0 +1,22 @@
+name: Naver to Blogspot Auto Rewrite Disabled
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_confirm:
+        description: 'This workflow is disabled. Type ENABLE_NAVER_AI to confirm you tried to override.'
+        required: true
+        default: ''
+
+jobs:
+  disabled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Naver AI pipeline disabled
+        run: |
+          echo "Naver AI rewrite pipeline is disabled for news-only operation."
+          echo "Use .github/workflows/news_blog.yml for publishing."
+          if [ "${{ github.event.inputs.publish_confirm }}" = "ENABLE_NAVER_AI" ]; then
+            echo "Override is intentionally blocked in workflow. Re-enable in code only if AI publishing is needed again."
+            exit 1
+          fi

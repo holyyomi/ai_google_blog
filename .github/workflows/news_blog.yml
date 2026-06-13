@@ -1,0 +1,202 @@
+name: holyyomi AI Blog Automation
+
+on:
+  schedule:
+    # Wake every 30 minutes; the fixed-slot gate below publishes at most once per KST slot.
+    # This gives catch-up chances when GitHub schedule events are delayed or dropped.
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+    inputs:
+      publish_mode:
+        description: 'News publish mode'
+        required: true
+        default: 'publish'
+        type: choice
+        options:
+          - publish
+          - dry_run
+
+concurrency:
+  group: news-blog-publish
+  cancel-in-progress: false
+
+jobs:
+  news_run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Check Schedule Gate
+        id: schedule_gate
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          NEWS_SCHEDULE_TIMEZONE: "Asia/Seoul"
+          NEWS_SCHEDULE_SLOTS: "08:13"
+          NEWS_DAILY_PUBLISH_TARGET: "1"
+          NEWS_FAILED_SCHEDULE_INTERVAL_MINUTES: "20"
+        run: |
+          python tools/should_run_news_schedule.py
+
+      - name: Log Schedule Skip
+        if: ${{ github.event_name == 'schedule' && steps.schedule_gate.outputs.should_run != 'true' }}
+        run: |
+          echo "Schedule gate skipped this wake-up."
+          echo "reason=${{ steps.schedule_gate.outputs.reason }}"
+          echo "slot_start_at=${{ steps.schedule_gate.outputs.slot_start_at }}"
+          echo "slot_end_at=${{ steps.schedule_gate.outputs.slot_end_at }}"
+          echo "next_run_at=${{ steps.schedule_gate.outputs.next_run_at }}"
+
+      - name: Install Dependencies
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true' }}
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Validate News Environment
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true' }}
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'true' || 'false' }}
+          NEWS_PUBLISH_MODE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode || 'publish' }}
+          AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'false' || 'true' }}
+          ENABLE_GOOGLE_CUSTOM_SEARCH: "false"
+          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+          GEMINI_MODEL: "gemini-2.5-flash"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: "gpt-5-mini"
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          ENABLE_NAVER_SEARCH: "true"
+          ENABLE_NAVER_DATALAB: "true"
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          ENABLE_TAVILY_SEARCH: "true"
+          ENABLE_EXA_SEARCH: "true"
+          ENABLE_FIRECRAWL_SEARCH: "true"
+          BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
+          BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
+          BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
+          BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+          BLOGSPOT_HOME_URL: "https://holyyomiai.blogspot.com/"
+          BLOG_BRAND_NAME: "holyyomi AI"
+          BLOG_AUTHOR_NAME: "holyyomi AI"
+        run: |
+          PYTHONPATH=src python scripts/validate_news_env.py --strict
+
+      - name: Run News Pipeline
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true' }}
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'true' || 'false' }}
+          NEWS_PUBLISH_MODE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode || 'publish' }}
+          PUBLISH_HOLD_PHASE2: "false"
+          AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'false' || 'true' }}
+          NEWS_MAX_PUBLISH_ATTEMPTS: "12"
+          DISABLE_IMAGE_GENERATION: "true"
+          DISABLE_IMAGE_UPLOAD: "true"
+          NEWS_COVER_IMAGE_URL: ${{ secrets.NEWS_COVER_IMAGE_URL }}
+          REQUIRE_NEWS_COVER_IMAGE: "false"
+          # 커버 이미지 자동 생성 (Cloudflare 무료 1순위 → Gemini 2순위 → imgbb 호스팅, 비치명)
+          ENABLE_COVER_IMAGE_AUTOGEN: "true"
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NEWS_MODE: "news"
+          AI_BLOG_MODE: "true"
+          NEWS_EXCLUDED_QUERY_GROUPS: ""
+          ALLOW_AI_NEWS_TOPICS: "true"
+          MIN_TOPIC_SCORE: "70"
+          TOPIC_CANDIDATE_LIMIT: "120"
+          DEDUP_DAYS: "7"
+          TITLE_CANDIDATE_COUNT: "8"
+          RUNS_DIR: "runs"
+          GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+          GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
+          ENABLE_GOOGLE_CUSTOM_SEARCH: "false"
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          ENABLE_NAVER_SEARCH: "true"
+          ENABLE_NAVER_DATALAB: "true"
+          NEWS_NAVER_SEARCH_TYPES: "news,webkr"
+          NEWS_NAVER_MAX_REQUESTS: "36"
+          NEWS_NAVER_DISPLAY: "10"
+          NEWS_NAVER_DATALAB_MAX_REQUESTS: "5"
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          ENABLE_TAVILY_SEARCH: "true"
+          ENABLE_EXA_SEARCH: "true"
+          ENABLE_FIRECRAWL_SEARCH: "true"
+          NEWS_TAVILY_MAX_REQUESTS: "3"
+          NEWS_EXA_MAX_REQUESTS: "1"
+          NEWS_FIRECRAWL_MAX_REQUESTS: "1"
+          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+          GEMINI_MODEL: "gemini-2.5-flash"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: "gpt-5-mini"
+          BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
+          BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
+          BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
+          BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+          BLOGSPOT_HOME_URL: "https://holyyomiai.blogspot.com/"
+          BLOG_BRAND_NAME: "holyyomi AI"
+          BLOG_AUTHOR_NAME: "holyyomi AI"
+        run: |
+          PYTHONPATH=src python src/blogspot_automation/cli_news.py
+
+      - name: Normalize Publish History
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true') }}
+        run: |
+          PYTHONPATH=src python tools/sync_publish_history.py --verify-live-urls
+
+      - name: List Runs Output
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true') }}
+        run: |
+          if [ -d runs ]; then
+            find runs -maxdepth 3 -type f -print
+          else
+            echo "runs directory not found"
+          fi
+
+      - name: Ensure Runs Artifact Placeholder
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true') }}
+        run: |
+          mkdir -p runs
+          if ! find runs -type f -print -quit | grep -q .; then
+            {
+              echo "No files were produced under runs/."
+              date -u +"generated_at_utc=%Y-%m-%dT%H:%M:%SZ"
+            } > runs/no_artifacts_found.txt
+          fi
+
+      - name: Upload News Run Output
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-run-output
+          path: runs/
+          if-no-files-found: warn
+
+      - name: Persist Publish History
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true') }}
+        run: |
+          if git status --short data/publish_history.json | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git pull --rebase --autostash origin "${{ github.ref_name }}"
+            git add data/publish_history.json
+            git commit -m "chore: update publish history [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "data/publish_history.json unchanged, skipping commit"
+          fi

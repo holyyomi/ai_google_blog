@@ -1,0 +1,1539 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-05-03",
+  "description": "golden_samples 기반 패턴 매칭 품질 기준 정의. Phase 2에서 golden_pattern_service.py가 이 파일을 로드해 content_type별 publish 허용 여부를 판단한다.",
+  "patterns": [
+    {
+      "pattern_id": "tax_refund_hometax_check",
+      "title": "홈택스 세금 환급금 조회 체크리스트",
+      "content_type": "tax_refund",
+      "topic_group": "policy_benefit",
+      "match_keywords": [
+        "환급금",
+        "홈택스",
+        "국세환급금",
+        "손택스",
+        "세금환급",
+        "환급계좌",
+        "경정청구",
+        "환급 조회",
+        "세금 돌려받기",
+        "종합소득세 환급",
+        "환급금 조회",
+        "환급 신청",
+        "홈택스 조회",
+        "세금 환급",
+        "미수령 환급금",
+        "환급 계좌",
+        "연말정산 환급",
+        "국세 환급",
+        "환급 대상",
+        "환급 확인",
+        "홈택스 환급",
+        "종합소득세",
+        "환급 지연",
+        "환급 처리",
+        "환급금 확인",
+        "세금 환급금 조회",
+        "손택스 환급"
+      ],
+      "match_negative": [
+        "지원금",
+        "바우처",
+        "신청마감",
+        "대상조건",
+        "사용처",
+        "가맹점",
+        "지역상품권",
+        "청년수당",
+        "복지급여",
+        "장려금"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "독자가 실제로 겪는 환급금 미수령 상황 공감 제시",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "환급금",
+            "통장",
+            "계좌"
+          ],
+          "tone": "공감형 — 독자 상황을 먼저 확인한 뒤 원인 열거",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "복잡하지 않다 + 구체 단계 요약 + 지금 당장 행동 촉구",
+          "must_contain_marker": "요미 판단:",
+          "must_end_with_action_prompt": true,
+          "tone": "단호하고 명쾌 — '어렵지 않다, 지금 하면 된다'",
+          "forbidden_phrases": [
+            "~것 같습니다",
+            "도움이 되셨으면"
+          ]
+        },
+        "misconceptions": {
+          "description": "환급금 자동지급 오해, 대상 오해 등 실제 착각 열거",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "자동 입금 오해 (환급금이 자동으로 들어온다는 착각)"
+        },
+        "real_criterion": {
+          "description": "홈택스/손택스 실제 경로 포함한 단계별 체크리스트",
+          "format": "단계별 구조 (1단계 / 2단계 / 3단계)",
+          "must_include_service_one_of": [
+            "홈택스",
+            "손택스"
+          ],
+          "min_steps": 3
+        },
+        "quick_decision_table": {
+          "description": "내 상황별 즉시 할 일 매핑",
+          "format": "2열 표",
+          "column_labels": [
+            "내 상황",
+            "할 일"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "지금 바로 실행 가능한 구체 행동 3개",
+          "count_exact": 3,
+          "format": "번호 리스트, 볼드 행동명 + 구체 경로 또는 메모",
+          "must_be_immediately_actionable": true
+        },
+        "faq": {
+          "description": "계좌등록 방법 / 미입금 원인 / 소멸시효 커버",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "계좌 등록 경로",
+            "미입금 원인 진단",
+            "소멸시효 또는 경정청구"
+          ]
+        },
+        "hashtags": {
+          "description": "세금환급/홈택스 관련 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#세금환급",
+            "#홈택스",
+            "#국세환급금"
+          ],
+          "banned_tags": [
+            "#지원금",
+            "#신청마감",
+            "#대상조건",
+            "#바우처"
+          ]
+        },
+        "internal_links": {
+          "description": "관련 content_type 명시된 내부링크 후보",
+          "min_count": 2,
+          "format": "주제 설명 + (content_type 명시)"
+        }
+      },
+      "optional_slots": {
+        "hometax_ui_caveat": {
+          "description": "홈택스 UI 변경 가능성 안내 문구",
+          "trigger": "홈택스 메뉴 경로를 상세히 언급할 때"
+        },
+        "five_year_legal_note": {
+          "description": "5년 소멸시효 법적 면책 및 세무사 상담 권장 문구",
+          "trigger": "경정청구 또는 소멸시효 언급 시"
+        }
+      },
+      "slot_filling_strategy": {
+        "hook_opening": "독자가 '환급금 있다는 문자를 받았는데 통장에 안 들어온 상황' 공감에서 시작 → 원인 3가지(계좌미등록/주소불일치/조회미실시) 열거로 마무리",
+        "yomi_judgment": "결론(단계 요약)을 첫 문장에 배치 → '복잡하지 않다' 단언 → 확인 안 하면 생기는 결과 경고 → 지금 당장 행동 촉구",
+        "misconceptions": "독자가 실제로 믿는 오해(자동입금/신고자만 해당/문자=입금 등) 기준으로 선정 — 제도적 사실로 반박",
+        "real_criterion": "홈택스 실제 메뉴 경로를 1단계/2단계/3단계로 구조화 — 각 단계에서 막히는 원인 해결 포함",
+        "quick_decision_table": "독자 현재 상태(조회미실시/금액없음/입금안됨 등)를 행으로 정의 — 각 상태에 맞는 즉시 할 일 매핑",
+        "actions": "가장 임팩트 큰 행동 순서 정렬 — PC(홈택스 조회) → 모바일(손택스) → 계좌등록 순이 기본 구조",
+        "faq": "가장 자주 나오는 질문 3가지 — 계좌등록 경로 / 미입금 원인 진단 / 기간 지난 경우 대처",
+        "hashtags": "세금/환급 관련 + 생활정보 계열 혼합, #지원금 계열 제외",
+        "internal_links": "동일 독자가 다음에 궁금해할 것 기준 — 종합소득세 신고 / 연말정산 차이 / 홈택스 활용법"
+      },
+      "quality_checks": {
+        "hook_opening_has_relatable_situation": true,
+        "yomi_judgment_contains_marker": "요미 판단:",
+        "yomi_judgment_ends_with_action_prompt": true,
+        "misconceptions_min_rows": 3,
+        "misconceptions_covers_auto_deposit_myth": true,
+        "real_criterion_includes_hometax_path": true,
+        "real_criterion_min_steps": 3,
+        "quick_decision_table_min_rows": 4,
+        "actions_count_exact": 3,
+        "faq_count_exact": 3,
+        "hashtags_include_tax_keyword": true,
+        "internal_links_min_count": 2,
+        "no_ui_path_without_change_caveat": true
+      },
+      "banned_default_phrases": [
+        "이 글에서는 ~에 대해 알아보겠습니다",
+        "환급금 신청 방법을 알아보겠습니다",
+        "세금 환급에 대해 알아볼게요",
+        "쉽게 설명해 드리겠습니다",
+        "아래에서 자세히 설명합니다",
+        "이 포스팅이 도움이 되셨으면 좋겠습니다",
+        "오늘은 세금환급에 대해 포스팅합니다",
+        "많은 분들이 궁금해하시는",
+        "함께 알아볼게요",
+        "정리해 보았습니다",
+        "안녕하세요 요미입니다"
+      ],
+      "minimum_slot_fill_rate": 0.8,
+      "minimum_pattern_confidence": 80,
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
+      "pattern_id": "viral_ott_reaction_decode",
+      "title": "OTT 신작 반응 갈림 이유 해석",
+      "content_type": "viral_issue_decode",
+      "topic_group": "ott_platform",
+      "match_keywords": [
+        "OTT",
+        "넷플릭스",
+        "드라마",
+        "시청자",
+        "반응",
+        "호불호",
+        "티빙",
+        "웨이브",
+        "디즈니플러스",
+        "완주율",
+        "시청률",
+        "반응 갈린",
+        "이슈",
+        "극과 극",
+        "몰아보기",
+        "정주행",
+        "신작",
+        "예능",
+        "팬덤",
+        "콘텐츠 반응",
+        "화제 된 이유",
+        "시청자 반응",
+        "반응 분석",
+        "팬 반응",
+        "결말 반응",
+        "OTT 반응"
+      ],
+      "match_negative": [
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "업무자동화",
+        "프롬프트",
+        "ChatGPT",
+        "AI활용"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "같은 작품에 반응이 갈리는 상황 제시 — 취향 차이 외 다른 원인이 있다는 관점 유도",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "반응",
+            "드라마",
+            "시청"
+          ],
+          "tone": "의문 제기형 — '왜 이렇게 다를까'로 시작해 원인 암시",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "반응 갈림 = 콘텐츠 실패 신호 아님 관점 — 기대값 또는 시청방식 차이로 재해석",
+          "must_contain_marker": "요미 판단:",
+          "must_contain_reframe": true,
+          "tone": "분석적 — 단정하지 않고 '~일 수도 있다' 여지 남기되 핵심 관점은 명확히",
+          "forbidden_phrases": [
+            "강추",
+            "꼭 보세요",
+            "최고입니다",
+            "망작입니다"
+          ]
+        },
+        "misconceptions": {
+          "description": "순위=퀄리티, 해외반응=국내반응, 반응갈림=망작 등 흔한 착각",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "넷플릭스 순위 = 작품 퀄리티 오해"
+        },
+        "real_criterion": {
+          "description": "반응이 갈리는 실제 원인 3가지 관점 — 시청방식/기대값/유입시점 등",
+          "format": "관점별 소제목 구조 (관점 1 / 관점 2 / 관점 3 또는 이유 1/2/3)",
+          "min_viewpoints": 3,
+          "must_avoid": "특정 작품 단정 평가"
+        },
+        "quick_decision_table": {
+          "description": "독자 자신의 반응 감정을 의미로 해석해주는 표",
+          "format": "2열 표",
+          "column_labels": [
+            "내 반응",
+            "의미"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "시청 전/후 판단에 도움이 되는 구체 행동 3개",
+          "count_exact": 3,
+          "format": "번호 리스트, 볼드 행동명 + 이유 또는 방법",
+          "must_be_actionable": true
+        },
+        "faq": {
+          "description": "순위 의미 / 국내외 반응 차이 / 호불호 갈림 ≠ 망작 커버",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "순위와 퀄리티 관계",
+            "국내외 반응 차이 이유",
+            "호불호 갈림 해석"
+          ]
+        },
+        "hashtags": {
+          "description": "이슈해석/OTT반응 계열 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#이슈해석",
+            "#OTT반응",
+            "#드라마반응"
+          ],
+          "banned_tags": [
+            "#강추",
+            "#꿀잼",
+            "#최고의드라마",
+            "특정작품명태그"
+          ]
+        },
+        "internal_links": {
+          "description": "OTT 구독/콘텐츠 소비 관련 내부링크 후보",
+          "min_count": 2,
+          "format": "주제 설명 + (content_type 명시)"
+        }
+      },
+      "optional_slots": {
+        "viral_safety_note": {
+          "description": "특정 작품명/배우명/감독명 언급 시 사실확인 안내",
+          "trigger": "고유명사 직접 언급 시"
+        },
+        "platform_comparison_link": {
+          "description": "OTT 플랫폼 구독 비교 내부링크",
+          "trigger": "여러 플랫폼 비교 언급 시"
+        }
+      },
+      "slot_filling_strategy": {
+        "hook_opening": "같은 작품 봤는데 반응이 다른 상황 → '취향 차이만이 아닐 수 있다' 반전 → 시청방식/기대값 차이라는 관점 암시로 마무리",
+        "yomi_judgment": "단정 피하기 — '반응 갈림 = 이슈 크다는 증거로 재해석' → 시청 전 장르 확인 또는 기대값 설정 관련 행동 촉구",
+        "misconceptions": "순위=퀄리티 / 해외반응=국내반응 / 반응갈림=망작 3가지 핵심 오해로 구성 — 알고리즘/완주율 개념으로 반박",
+        "real_criterion": "시청 방식 차이(몰아보기/주1회) / 장르 기대값 미스매치 / 커뮤니티 유입 시점 차이 3관점으로 구조화",
+        "quick_decision_table": "독자의 반응 감정(지루함/기대이하/주변과 다름/순위1위인데 별로 등)을 행으로 — 그 의미와 해석을 열로",
+        "actions": "장르 태그 확인 → 커뮤니티 전 2화 직접 시청 → 완주율 기반 판단 순서가 기본 구조",
+        "faq": "순위 집계 방식 설명 / 서사문법·정서코드 차이 설명 / 호불호 갈림 = 개성 있는 작품 특징으로 재해석",
+        "hashtags": "이슈해석/OTT/드라마반응 계열 + 오늘이슈 혼합, 특정 작품명 해시태그 지양",
+        "internal_links": "구독 플랫폼 비교 / 알고리즘 추천 신뢰도 / 시청방식 만족도 비교 연결"
+      },
+      "quality_checks": {
+        "hook_opening_presents_reaction_gap": true,
+        "yomi_judgment_contains_marker": "요미 판단:",
+        "yomi_judgment_avoids_definitive_verdict": true,
+        "misconceptions_min_rows": 3,
+        "misconceptions_covers_ranking_myth": true,
+        "real_criterion_min_viewpoints": 3,
+        "real_criterion_no_single_work_verdict": true,
+        "quick_decision_table_min_rows": 4,
+        "actions_count_exact": 3,
+        "faq_count_exact": 3,
+        "hashtags_include_issue_keyword": true,
+        "internal_links_min_count": 2,
+        "no_specific_work_defamation": true,
+        "no_specific_person_defamation": true
+      },
+      "banned_default_phrases": [
+        "이번에 화제가 된 드라마를 소개합니다",
+        "많은 분들이 궁금해하시는",
+        "~가 인기를 끌고 있습니다",
+        "호불호가 많이 갈리네요",
+        "개인 취향에 따라 다를 수 있습니다",
+        "이 작품은 꼭 보셔야 합니다",
+        "강추합니다",
+        "별점 5점 드립니다",
+        "정말 재미있었습니다",
+        "함께 알아볼게요"
+      ],
+      "minimum_slot_fill_rate": 0.8,
+      "minimum_pattern_confidence": 80,
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
+      "pattern_id": "ai_work_time_savings",
+      "title": "직장인 AI 도구 업무 효율 미스매치 해결",
+      "content_type": "ai_work_tip",
+      "topic_group": "ai_work",
+      "match_keywords": [
+        "ChatGPT",
+        "AI",
+        "인공지능",
+        "업무자동화",
+        "프롬프트",
+        "생산성",
+        "직장인",
+        "시간절감",
+        "GPT",
+        "생성AI",
+        "업무효율",
+        "AI활용",
+        "자동화",
+        "초안",
+        "업무 시간",
+        "챗GPT",
+        "AI 업무",
+        "반복 업무",
+        "검수 시간",
+        "AI 도구",
+        "업무 효율",
+        "시간 절약",
+        "생산성 도구",
+        "AI 생산성",
+        "직장인 AI",
+        "무료 AI",
+        "AI 활용법",
+        "AI 업무 활용",
+        "업무 AI",
+        "AI 한계",
+        "보고서 자동화",
+        "업무 생산성",
+        "AI 활용 업무",
+        "자동화 한계"
+      ],
+      "match_negative": [
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "OTT",
+        "드라마",
+        "넷플릭스",
+        "시청자",
+        "반응"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "AI 써도 효과를 못 느끼는 독자 공감 상황 제시",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "ChatGPT",
+            "AI",
+            "시간"
+          ],
+          "tone": "공감형 — '나만 그런가?' 의문을 독자와 함께 제기하는 방식",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "AI = 초안 도구 (완성본 도구 아님) 관점 명확히 제시",
+          "must_contain_marker": "요미 판단:",
+          "must_define_ai_role": true,
+          "tone": "현실적 재정의 — AI가 해줄 수 있는 것과 없는 것의 경계를 명확히",
+          "forbidden_phrases": [
+            "AI가 다 해줍니다",
+            "AI면 충분합니다",
+            "~것 같습니다"
+          ]
+        },
+        "misconceptions": {
+          "description": "AI 완성본 기대, 만능 도구 오해, 유료 필수 오해 등",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "AI가 완성본을 만들어준다는 오해"
+        },
+        "real_criterion": {
+          "description": "실제로 시간이 줄어드는 AI 사용 패턴 3가지",
+          "format": "패턴별 소제목 구조 (패턴 1 / 패턴 2 / 패턴 3)",
+          "min_patterns": 3,
+          "must_include_topic": "반복 텍스트 업무에 우선 적용",
+          "must_include_actionable_tip": true
+        },
+        "quick_decision_table": {
+          "description": "독자 현재 상황별 즉시 할 일 매핑",
+          "format": "2열 표",
+          "column_labels": [
+            "내 상황",
+            "할 일"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "지금 바로 시작할 수 있는 구체 행동 3개",
+          "count_exact": 3,
+          "format": "번호 리스트, 볼드 행동명 + 구체 방법",
+          "must_be_immediately_actionable": true
+        },
+        "faq": {
+          "description": "무료 버전 효과 / 프롬프트 작성법 / 결과물 그대로 사용 여부 커버",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "무료 버전 활용 가능 여부",
+            "프롬프트 작성 방법",
+            "AI 결과물 검토 필요성"
+          ]
+        },
+        "hashtags": {
+          "description": "AI활용/업무자동화 계열 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#AI활용",
+            "#업무자동화",
+            "#ChatGPT활용",
+            "#직장인AI"
+          ],
+          "banned_tags": [
+            "#환급",
+            "#지원금",
+            "#OTT",
+            "#드라마"
+          ]
+        },
+        "internal_links": {
+          "description": "AI 도구 비교/보안/입문 관련 내부링크 후보",
+          "min_count": 2,
+          "format": "주제 설명 + (content_type 명시)"
+        }
+      },
+      "optional_slots": {
+        "company_policy_disclaimer": {
+          "description": "회사 내 AI 사용 정책 확인 권장 문구",
+          "trigger": "업무 데이터 AI 입력 관련 내용 포함 시"
+        },
+        "ai_hallucination_warning": {
+          "description": "AI 허위 정보 생성(환각) 주의 및 팩트 체크 권장",
+          "trigger": "AI 결과물 그대로 사용 언급 시"
+        }
+      },
+      "slot_filling_strategy": {
+        "hook_opening": "ChatGPT를 쓰는데 오히려 시간이 더 걸리는 경험 → '나만 그런 게 아닐 수 있다' → 차이는 '어디에 쓰느냐'라는 관점 암시로 마무리",
+        "yomi_judgment": "AI = 완성본 도구가 아닌 초안 도구로 명확히 재정의 → '80점 초안을 3분에'가 올바른 기대값 → 판단/검토는 여전히 내 몫이라는 경계 설정 → 구체 실천 행동 촉구",
+        "misconceptions": "완성본 기대 / AI 만능 오해 / 무조건 많이 쓸수록 좋다 / 유료 필수 착각 4가지로 구성",
+        "real_criterion": "반복 텍스트 업무 우선 적용 / 80점 기준 채택 / 프롬프트 템플릿 고정 — 각 패턴에 실천법 포함",
+        "quick_decision_table": "독자 현재 증상(시간 더 걸림 / 계속 다시 짬 / 매번 새로 짬 / 어디 써야 할지 모름 등)을 행으로 — 즉시 할 일을 열로",
+        "actions": "반복 텍스트 업무 목록화 → 잘 된 프롬프트 저장 → 5분 수정 룰 적용 순서가 기본 구조",
+        "faq": "무료 버전 활용 범위 / 프롬프트 작성 최소 구성 / AI 결과물 그대로 사용 위험성 커버",
+        "hashtags": "AI활용/업무자동화/AI도구/프롬프트 계열 + 생산성·보안 태그 혼합",
+        "internal_links": "AI 유료 vs 무료 비교 / 업무자동화 입문 / AI 보안 주의점 연결"
+      },
+      "quality_checks": {
+        "hook_opening_has_ai_inefficiency_scenario": true,
+        "yomi_judgment_contains_marker": "요미 판단:",
+        "yomi_judgment_defines_ai_as_draft_tool": true,
+        "misconceptions_min_rows": 3,
+        "misconceptions_covers_ai_as_finisher_myth": true,
+        "real_criterion_min_patterns": 3,
+        "real_criterion_includes_repetitive_task_tip": true,
+        "quick_decision_table_min_rows": 4,
+        "actions_count_exact": 3,
+        "faq_count_exact": 3,
+        "hashtags_include_ai_keyword": true,
+        "internal_links_min_count": 2,
+        "no_specific_salary_or_performance_claim_without_source": true,
+        "no_ai_can_replace_human_judgment_claim": true
+      },
+      "banned_default_phrases": [
+        "ChatGPT 사용법을 알아보겠습니다",
+        "AI에 대해 소개해드리겠습니다",
+        "요즘 AI가 많이 사용되고 있습니다",
+        "AI를 잘 활용하면 좋습니다",
+        "업무 효율이 향상됩니다",
+        "다양한 기능을 제공합니다",
+        "함께 알아볼게요",
+        "쉽게 설명해 드리겠습니다",
+        "이번 포스팅에서는",
+        "정리해 보았습니다"
+      ],
+      "minimum_slot_fill_rate": 0.8,
+      "minimum_pattern_confidence": 80,
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
+      "pattern_id": "ai_tool_comparison",
+      "title": "AI 도구 비교·선택 기준",
+      "content_type": "ai_work_tip",
+      "topic_group": "ai_work",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+        "AI 도구",
+        "도구 비교",
+        "ChatGPT vs",
+        "Claude",
+        "코파일럿",
+        "Copilot",
+        "AI 비교",
+        "어떤 AI",
+        "AI 선택",
+        "무료 AI",
+        "유료 AI",
+        "AI 추천",
+        "AI 도구 추천",
+        "업무용 AI",
+        "AI 성능",
+        "프롬프트 비교",
+        "AI 도구 차이",
+        "어시스턴트",
+        "생산성 도구 비교",
+        "AI 플랫폼"
+      ],
+      "match_negative": [
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "OTT",
+        "드라마",
+        "넷플릭스",
+        "시청자"
+      ],
+      "required_slots": {
+        "hook_opening": true,
+        "yomi_judgment": true,
+        "quick_decision_table": true,
+        "actions": true,
+        "faq": true,
+        "hashtags": true,
+        "internal_links": true
+      },
+      "quality_checks": {
+        "comparison_table_required": true,
+        "must_compare_free_paid_limits": true,
+        "must_include_security_risk": true,
+        "must_include_result_verification": true,
+        "no_unconditional_recommendation": true,
+        "no_unverified_price_or_performance_claim": true
+      },
+      "banned_default_phrases": [
+        "무조건 이 도구를 쓰세요",
+        "가장 좋은 AI 도구입니다",
+        "완벽하게 해결합니다",
+        "가격은 항상 같습니다",
+        "직접 써보니 최고였습니다",
+        "함께 알아볼게요",
+        "이번 포스팅에서는"
+      ],
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
+      "pattern_id": "ai_automation_workflow",
+      "title": "AI 자동화 워크플로우 설계",
+      "content_type": "ai_work_tip",
+      "topic_group": "ai_work",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+        "자동화 워크플로우",
+        "AI 자동화",
+        "업무 자동화",
+        "workflow",
+        "워크플로우",
+        "n8n",
+        "Zapier",
+        "Make",
+        "자동화 도구",
+        "반복 업무 자동화",
+        "API 연동",
+        "자동화 설계",
+        "스크립트 자동화",
+        "RPA",
+        "업무 흐름",
+        "자동화 구축",
+        "자동화 파이프라인",
+        "업무 프로세스",
+        "자동 처리"
+      ],
+      "match_negative": [
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "OTT",
+        "드라마",
+        "넷플릭스"
+      ],
+      "required_slots": {
+        "hook_opening": true,
+        "yomi_judgment": true,
+        "actions": true,
+        "quick_decision_table": true,
+        "faq": true,
+        "hashtags": true,
+        "internal_links": true
+      },
+      "quality_checks": {
+        "workflow_steps_required": true,
+        "must_include_failure_points": true,
+        "must_include_human_review_points": true,
+        "must_include_sensitive_data_policy": true,
+        "must_start_with_manual_test": true,
+        "no_secret_or_personal_data_input_recommendation": true
+      },
+      "banned_default_phrases": [
+        "완전 자동으로 끝납니다",
+        "사람이 확인할 필요 없습니다",
+        "회사 자료를 그대로 넣으면 됩니다",
+        "개인정보를 그대로 붙여넣으세요",
+        "무조건 자동화하세요",
+        "함께 알아볼게요",
+        "이번 포스팅에서는"
+      ],
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
+      "pattern_id": "delivery_money_checklist",
+      "title": "배달앱 결제금액 비교 체크리스트",
+      "content_type": "money_checklist",
+      "topic_group": "delivery_money",
+      "match_keywords": [
+        "배달앱",
+        "배달료",
+        "결제금액",
+        "쿠폰",
+        "무료배달",
+        "최소주문금액",
+        "최종금액",
+        "생활비",
+        "비용비교",
+        "배달비",
+        "주문금액",
+        "배달 쿠폰",
+        "무료 배달",
+        "배달비 절약",
+        "주문 비교",
+        "배민",
+        "쿠팡이츠",
+        "요기요",
+        "배달의민족",
+        "할인쿠폰",
+        "배달앱 비교",
+        "최소 주문",
+        "배달비 차이",
+        "생활비 절약",
+        "음식 배달",
+        "배달 할인",
+        "비교",
+        "결제 전",
+        "주문 전",
+        "확인할 조건"
+      ],
+      "match_negative": [
+        "지원금",
+        "환급",
+        "신청마감",
+        "홈택스",
+        "손택스",
+        "세금",
+        "바우처",
+        "복지급여",
+        "청년수당",
+        "장려금",
+        "ChatGPT",
+        "AI",
+        "드라마",
+        "OTT"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "배달앱 결제 전 최종금액이 예상보다 많이 나온 경험 공감",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "배달",
+            "결제",
+            "금액"
+          ],
+          "tone": "공감형 — 독자가 겪는 비용 불확실 상황 제시",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "배달앱 결제 전 체크포인트 요약 + 지금 확인 촉구",
+          "must_contain_marker": "요미 판단:",
+          "must_end_with_action_prompt": true,
+          "tone": "단호하고 명쾌",
+          "forbidden_phrases": [
+            "~것 같습니다",
+            "도움이 되셨으면"
+          ]
+        },
+        "misconceptions": {
+          "description": "쿠폰·무료배달·최소주문 관련 흔한 착각",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "무료배달 조건과 최소주문금액 착각"
+        },
+        "real_criterion": {
+          "description": "배달앱 주문 전 결제금액 확정까지 확인할 3단계",
+          "format": "단계별 구조 (1단계 / 2단계 / 3단계)",
+          "min_steps": 3
+        },
+        "quick_decision_table": {
+          "description": "독자 주문 상황별 즉시 확인할 항목 매핑",
+          "format": "2열 표",
+          "column_labels": [
+            "내 상황",
+            "할 일"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "주문 전 비용 최소화를 위한 구체 행동 3개",
+          "count_exact": 3,
+          "format": "번호 리스트, 볼드 행동명 + 구체 방법",
+          "must_be_immediately_actionable": true
+        },
+        "faq": {
+          "description": "배달비 0원 조건 / 쿠폰 적용 기준 / 앱별 가격 차이 커버",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "무료배달 적용 조건",
+            "쿠폰 중복 적용 여부",
+            "앱별 최종금액 차이"
+          ]
+        },
+        "hashtags": {
+          "description": "배달앱/생활비 절약 계열 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#배달앱",
+            "#배달비절약",
+            "#생활비절약"
+          ],
+          "banned_tags": [
+            "#지원금",
+            "#환급",
+            "#세금",
+            "#홈택스"
+          ]
+        },
+        "internal_links": {
+          "description": "생활비 절약/소비 비교 관련 내부링크 후보",
+          "min_count": 2,
+          "format": "주제 설명 + (content_type 명시)"
+        }
+      },
+      "slot_filling_strategy": {
+        "hook_opening": "배달앱 주문 시 최종 결제금액이 처음 예상보다 높았던 경험 → 배달비·쿠폰 조건·최소주문금액을 따로 확인하지 않아서 생긴 차이 → 주문 전 확인 단계가 필요하다는 관점 암시",
+        "yomi_judgment": "결론(체크 순서 요약)을 첫 문장에 배치 → 비교 없이 주문하면 생기는 비용 손실 경고 → 지금 바로 확인 촉구",
+        "misconceptions": "무료배달=배달비 없음 착각 / 쿠폰은 항상 적용됨 착각 / 최소주문금액=배달비 포함 착각으로 구성",
+        "real_criterion": "1단계 배달비 조건 확인 → 2단계 쿠폰 적용 가능 여부 확인 → 3단계 최종결제금액 확인 후 주문",
+        "quick_decision_table": "독자 현재 상황(처음 주문/쿠폰 있음/비교 중/배달비 비쌈 등)을 행으로 — 즉시 할 일 열로",
+        "actions": "배달비 무료 조건 확인 → 쿠폰 적용 기준 확인 → 앱별 최종금액 비교 순서가 기본 구조",
+        "faq": "무료배달 조건 구체 설명 / 쿠폰 중복 적용 불가 이유 / 앱별 가격 차이 발생 원인",
+        "hashtags": "배달앱/배달비/생활비절약 계열 + 소비정보 혼합, 지원금·환급 계열 제외",
+        "internal_links": "OTT 구독 비용 비교 / 생활비 절약 방법 / 소비 패턴 정리 연결"
+      },
+      "quality_checks": {
+        "hook_opening_has_billing_surprise_scenario": true,
+        "yomi_judgment_contains_marker": "요미 판단:",
+        "yomi_judgment_ends_with_action_prompt": true,
+        "misconceptions_min_rows": 3,
+        "misconceptions_covers_free_delivery_myth": true,
+        "real_criterion_min_steps": 3,
+        "quick_decision_table_min_rows": 4,
+        "actions_count_exact": 3,
+        "faq_count_exact": 3,
+        "hashtags_include_delivery_keyword": true,
+        "internal_links_min_count": 2,
+        "no_government_support_phrases": true
+      },
+      "banned_default_phrases": [
+        "배달앱에 대해 알아보겠습니다",
+        "배달비를 아끼는 방법을 소개합니다",
+        "많은 분들이 궁금해하시는",
+        "쉽게 설명해 드리겠습니다",
+        "함께 알아볼게요",
+        "정리해 보았습니다",
+        "지원금 신청 마감",
+        "지원금",
+        "환급",
+        "안녕하세요 요미입니다"
+      ],
+      "minimum_slot_fill_rate": 0.8,
+      "minimum_pattern_confidence": 80,
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
+      "pattern_id": "platform_change_service_update",
+      "title": "플랫폼 서비스 변경 대응 체크리스트",
+      "content_type": "platform_change",
+      "topic_group": "platform_issue",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+          "서비스 변경",
+          "약관 변경",
+          "배달앱 운영",
+          "배달앱 새벽배달",
+          "새벽배달",
+          "심야배달",
+          "라이더 안전",
+          "배차 정책",
+          "요금제 변경",
+        "멤버십 변경",
+        "서비스 종료",
+        "앱 개편",
+        "정책 변경",
+          "플랫폼 변경",
+          "변경 전에 확인",
+          "구글 수수료",
+          "수수료 변경",
+          "수수료 인하",
+          "수수료",
+          "플랫폼 수수료",
+          "앱마켓 수수료",
+          "인앱결제 수수료",
+          "요금 인상",
+        "구독료 인상",
+        "쿠팡 멤버십",
+        "네이버페이",
+        "유튜브 요금",
+        "OTT 요금",
+        "플랫폼 개편",
+        "앱 업데이트",
+        "서비스 중단",
+        "계정 변경",
+        "가격 인상",
+        "이용 약관",
+        "결제 변경",
+        "자동결제",
+        "멤버십 가격",
+        "구독 취소",
+        "지원 종료",
+        "지원 중단",
+        "서비스 지원",
+        "단종",
+        "공식 지원",
+        "버전 지원",
+        "지원 정책",
+        "노조",
+        "노동조합",
+        "대화",
+        "교섭",
+        "임금협상",
+        "임단협",
+        "추가 대화",
+        "사측",
+        "노사",
+        "협상",
+        "협의",
+        "사업 구조",
+        "조직 개편",
+        "구조조정",
+        "인사",
+        "대표이사",
+        "이사회",
+        "주주",
+        "투자자",
+        "M&A",
+        "인수",
+        "합병",
+        "분사",
+        "출자",
+        "사업 부진",
+        "실적 발표",
+        "공식 입장",
+        "공시",
+        "발표",
+        "기업 입장",
+        "공식 안내",
+        "직원",
+        "임직원",
+        "고객 안내",
+        "주주총회"
+      ],
+      "match_negative": [
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "ChatGPT",
+        "AI활용",
+        "드라마",
+        "경기 반응",
+        "환불 논란"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "서비스 변경을 늦게 알면 결제·계정에서 불편이 생기는 상황 제시",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "변경",
+            "서비스",
+            "계정"
+          ],
+          "tone": "주의 환기형 — 변경 전 확인이 필요한 이유 제시",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "변경 전 내 계정·결제 상태 확인이 핵심 + 지금 바로 확인 촉구",
+          "must_contain_marker": "요미 판단:",
+          "must_end_with_action_prompt": true,
+          "tone": "단호하고 명쾌",
+          "forbidden_phrases": [
+            "~것 같습니다",
+            "도움이 되셨으면"
+          ]
+        },
+        "misconceptions": {
+          "description": "자동 적용, 기존 사용자 예외, 알림이 온다는 흔한 착각",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "알림이 왔을 것이라는 착각"
+        },
+        "real_criterion": {
+          "description": "서비스 변경 전 내 계정·결제·기기에서 확인할 3단계",
+          "format": "단계별 구조 (1단계 / 2단계 / 3단계)",
+          "min_steps": 3
+        },
+        "quick_decision_table": {
+          "description": "내 상황별 즉시 확인할 항목",
+          "format": "2열 표",
+          "column_labels": [
+            "내 상황",
+            "확인할 것"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "변경 전 내 계정·결제·기기 보호를 위한 구체 행동 3개",
+          "count_exact": 3,
+          "format": "번호 리스트, 볼드 행동명 + 이유 또는 방법",
+          "must_be_actionable": true
+        },
+        "faq": {
+          "description": "변경 영향 범위 / 기존 사용자 처리 / 취소·환불 기준",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "변경 적용 시점",
+            "기존 사용자 처리",
+            "취소 방법"
+          ]
+        },
+        "hashtags": {
+          "description": "플랫폼변경/서비스개편 계열 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#플랫폼변경",
+            "#서비스변경",
+            "#약관변경"
+          ],
+          "banned_tags": [
+            "#강추",
+            "#꿀팁만",
+            "#최고"
+          ]
+        }
+      },
+      "publish_policy": {
+        "human_review_required": true,
+        "sge_optimized": true
+      },
+      "quality_checks": {
+        "min_word_count": 800,
+        "faq_required": true,
+        "table_required": true
+      },
+      "banned_default_phrases": [
+        "~것 같습니다",
+        "도움이 되셨으면",
+        "오늘은",
+        "이번 포스팅에서는"
+      ]
+    },
+    {
+      "pattern_id": "consumer_warning_refund",
+      "title": "소비자 피해 대응 체크리스트",
+      "content_type": "consumer_warning",
+      "topic_group": "refund_consumer",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+        "환불 논란",
+        "소비자 피해",
+        "결제 오류",
+        "개인정보 유출",
+        "서비스 장애",
+        "약관 논란",
+        "취소 오류",
+        "결제 취소",
+        "환불 지연",
+        "서비스 중단",
+        "피해 대응",
+        "증거 보존",
+        "결제내역",
+        "고객센터",
+        "소비자원",
+        "환불 증거",
+        "피해 보상",
+        "이용약관",
+        "결제 피해",
+        "환불 거부",
+        "개인정보 확인",
+        "개인정보 유출 피해",
+        "약관 확인",
+        "결제 확인",
+        "환불 확인",
+        "주의점",
+        "확인 전에",
+        "결제 내역 확인",
+        "개인정보 보호"
+      ],
+      "match_negative": [
+        "지원금",
+        "세금",
+        "홈택스",
+        "ChatGPT",
+        "AI활용",
+        "드라마",
+        "티켓팅 구조",
+        "팬덤 소비"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "환불·결제 피해 상황에서 증거를 늦게 챙기면 손해가 커지는 상황 제시",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "환불",
+            "결제",
+            "피해"
+          ],
+          "tone": "공감형 — 피해 상황을 먼저 확인한 뒤 원인 열거",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "증거 보존이 핵심 + 지금 즉시 캡처·기록 촉구",
+          "must_contain_marker": "요미 판단:",
+          "must_end_with_action_prompt": true,
+          "tone": "단호하고 명쾌",
+          "forbidden_phrases": [
+            "~것 같습니다",
+            "도움이 되셨으면"
+          ]
+        },
+        "misconceptions": {
+          "description": "기다리면 해결, 고객센터만으로 충분 등 흔한 착각",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "기다리면 자동 해결된다는 착각"
+        },
+        "real_criterion": {
+          "description": "피해 발생 즉시 해야 할 증거 보존 3단계",
+          "format": "단계별 구조 (1단계 / 2단계 / 3단계)",
+          "min_steps": 3
+        },
+        "quick_decision_table": {
+          "description": "피해 유형별 즉시 해야 할 행동",
+          "format": "2열 표",
+          "column_labels": [
+            "내 상황",
+            "즉시 할 일"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "피해 대응을 위한 구체 행동 3개 (캡처, 기록, 신고)",
+          "count_exact": 3,
+          "format": "번호 리스트, 볼드 행동명 + 이유 또는 방법",
+          "must_be_actionable": true
+        },
+        "faq": {
+          "description": "환불 거부 대응 / 소비자원 신고 방법 / 증거 종류",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "환불 거부 시 대응",
+            "소비자원 신고 방법",
+            "필요한 증거 종류"
+          ]
+        },
+        "hashtags": {
+          "description": "소비자피해/환불대응 계열 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#소비자피해",
+            "#환불대응",
+            "#결제오류"
+          ],
+          "banned_tags": [
+            "#강추",
+            "#꿀팁만",
+            "#최고"
+          ]
+        }
+      },
+      "publish_policy": {
+        "human_review_required": true,
+        "sge_optimized": true
+      },
+      "quality_checks": {
+        "min_word_count": 800,
+        "faq_required": true,
+        "table_required": true
+      },
+      "banned_default_phrases": [
+        "~것 같습니다",
+        "도움이 되셨으면",
+        "오늘은",
+        "이번 포스팅에서는"
+      ]
+    },
+    {
+      "pattern_id": "policy_deadline_support",
+      "title": "정책 지원금 신청 마감 체크리스트",
+      "content_type": "policy_deadline",
+      "topic_group": "policy_benefit",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+        "지원금 신청",
+        "신청 마감",
+        "지원 마감",
+        "대상 조건",
+        "신청 기간",
+        "지급 방식",
+        "지원금 대상",
+        "지원 종료",
+        "소득 기준",
+        "청년 지원",
+        "소상공인 지원",
+        "자영업자 지원",
+        "교통비 지원",
+        "생활지원금",
+        "정부 지원",
+        "복지 지원",
+        "지원금 확인",
+        "지원금 신청 방법",
+        "지원 대상",
+        "지원금 마감"
+      ],
+      "match_negative": [
+        "환급금",
+        "홈택스",
+        "손택스",
+        "세금환급",
+        "ChatGPT",
+        "AI활용",
+        "드라마",
+        "OTT",
+        "배달앱"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "지원금 신청 조건을 늦게 확인하면 놓칠 수 있는 상황 제시",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "지원금",
+            "신청",
+            "마감"
+          ],
+          "tone": "긴박형 — 마감 전 확인이 필요한 이유 제시",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "신청 전 대상 조건 확인이 핵심 + 지금 바로 확인 촉구",
+          "must_contain_marker": "요미 판단:",
+          "must_end_with_action_prompt": true,
+          "tone": "단호하고 명쾌",
+          "forbidden_phrases": [
+            "~것 같습니다",
+            "도움이 되셨으면"
+          ]
+        },
+        "misconceptions": {
+          "description": "자동 지급, 누구나 받을 수 있다, 나중에 신청해도 된다는 착각",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "나중에 신청해도 된다는 착각"
+        },
+        "real_criterion": {
+          "description": "지원금 신청 전 확인할 대상 조건·서류·기간 3단계",
+          "format": "단계별 구조 (1단계 / 2단계 / 3단계)",
+          "min_steps": 3
+        },
+        "quick_decision_table": {
+          "description": "내 상황별 즉시 확인할 신청 조건",
+          "format": "2열 표",
+          "column_labels": [
+            "내 상황",
+            "확인할 조건"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "지원금 놓치지 않기 위한 구체 행동 3개",
+          "count_exact": 3,
+          "format": "번호 리스트, 볼드 행동명 + 이유 또는 방법",
+          "must_be_actionable": true
+        },
+        "faq": {
+          "description": "신청 대상 / 소득 기준 / 지급 방식 커버",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "신청 대상 확인 방법",
+            "소득 기준",
+            "지급 방식과 사용처"
+          ]
+        },
+        "hashtags": {
+          "description": "지원금신청/정책혜택 계열 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#지원금신청",
+            "#정책혜택",
+            "#지원금마감"
+          ],
+          "banned_tags": [
+            "#강추",
+            "#꿀팁만",
+            "#최고"
+          ]
+        }
+      },
+      "publish_policy": {
+        "human_review_required": true,
+        "sge_optimized": true
+      },
+      "quality_checks": {
+        "min_word_count": 800,
+        "faq_required": true,
+        "table_required": true
+      },
+      "banned_default_phrases": [
+        "~것 같습니다",
+        "도움이 되셨으면",
+        "오늘은",
+        "이번 포스팅에서는"
+      ]
+    },
+    {
+      "pattern_id": "corporate_issue_decode",
+      "title": "기업 이슈 해석 — 소비자·투자자가 궁금해할 포인트",
+      "content_type": "viral_issue_decode",
+      "topic_group": "platform_issue",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+        "기업",
+        "노조",
+        "노동조합",
+        "대화",
+        "교섭",
+        "임직원",
+        "직원",
+        "사측",
+        "노사",
+        "파업",
+        "총파업",
+        "쟁의",
+        "긴급조정권",
+        "성과급",
+        "임금협상",
+        "협상결렬",
+        "협상",
+        "사업 구조",
+        "조직 개편",
+        "구조조정",
+        "인사",
+        "대표이사",
+        "이사회",
+        "주주",
+        "투자자",
+        "공식 입장",
+        "공식 안내",
+        "공시",
+        "발표",
+        "삼성",
+        "현대",
+        "LG",
+        "SK",
+        "포스코",
+        "카카오",
+        "네이버",
+        "쿠팡",
+        "넷마블",
+        "엔씨소프트",
+        "기업 입장",
+        "사업 부진",
+        "실적",
+        "주주총회",
+        "M&A",
+        "인수",
+        "합병",
+        "분사"
+      ],
+      "match_negative": [
+        "ChatGPT",
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "드라마",
+        "OTT",
+        "넷플릭스 신작"
+      ],
+      "required_slots": {
+        "hook_opening": {
+          "description": "기업 이슈가 소비자·투자자·직원에게 어떤 영향이 있는지 상황 제시",
+          "min_sentences": 4,
+          "max_sentences": 6,
+          "must_include_one_of": [
+            "기업",
+            "기업명",
+            "발표",
+            "공시"
+          ],
+          "tone": "분석형 — 사실 기반, 단정 금지",
+          "forbidden_opening": [
+            "오늘은",
+            "이번 포스팅에서는",
+            "안녕하세요"
+          ]
+        },
+        "yomi_judgment": {
+          "description": "공식 입장과 추측의 구분, 무엇이 확인되었고 무엇이 추측인지 명확화",
+          "must_contain_marker": "요미 판단:",
+          "tone": "분석적, 단정 회피, 공식 채널 확인 강조",
+          "forbidden_phrases": [
+            "~것 같습니다",
+            "도움이 되셨으면"
+          ]
+        },
+        "misconceptions": {
+          "description": "기업 발표/공시/SNS 소문의 차이, 흔한 오해 정리",
+          "format": "2열 표 (착각 | 실제)",
+          "min_rows": 3,
+          "must_cover_topic": "공식 발표 vs 외부 추측의 구분"
+        },
+        "real_criterion": {
+          "description": "이슈의 실제 영향 범위와 확인 방법 단계",
+          "format": "단계별 구조 (1단계 / 2단계 / 3단계)",
+          "min_steps": 3
+        },
+        "quick_decision_table": {
+          "description": "이해관계자별(소비자/직원/투자자) 영향과 확인 포인트",
+          "format": "2열 표",
+          "column_labels": [
+            "이해관계자",
+            "확인 포인트"
+          ],
+          "min_rows": 4
+        },
+        "actions": {
+          "description": "사람들이 지금 직접 확인할 수 있는 행동 3개",
+          "count_exact": 3,
+          "format": "번호 리스트",
+          "must_be_actionable": true
+        },
+        "faq": {
+          "description": "공식 발표 위치, 영향 범위, 후속 확인 시점",
+          "count_exact": 3,
+          "must_cover_topics": [
+            "공식 발표 위치",
+            "영향 범위",
+            "후속 확인 시점"
+          ]
+        },
+        "hashtags": {
+          "description": "기업이슈/공시/투자자 계열 해시태그",
+          "min_count": 5,
+          "max_count": 10,
+          "must_include_one_of": [
+            "#기업이슈",
+            "#공식입장",
+            "#투자자"
+          ],
+          "banned_tags": [
+            "#강추",
+            "#꿀팁만"
+          ]
+        }
+      },
+      "publish_policy": {
+        "human_review_required": true,
+        "sge_optimized": true
+      },
+      "quality_checks": {
+        "min_word_count": 800,
+        "faq_required": true,
+        "table_required": true
+      },
+      "banned_default_phrases": [
+        "~것 같습니다",
+        "도움이 되셨으면",
+        "오늘은",
+        "이번 포스팅에서는"
+      ]
+    }
+  ]
+}

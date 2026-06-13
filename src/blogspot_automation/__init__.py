@@ -1,0 +1,1 @@
+"""Blogspot automation package."""

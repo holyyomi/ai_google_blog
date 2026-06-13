@@ -1,0 +1,40 @@
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+venv/
+.streamlit/
+
+# Run artifacts
+runs/
+logs/
+
+images/
+contents/
+
+# Runtime state (should not be tracked)
+data/*.db
+data/publish_history.json
+data/published_history.json
+data/naver_processed.json
+state/news_published_history.json
+state/
+
+# Secrets — NEVER commit
+GITHUB_SECRETS.txt
+*.pem
+*.key
+secrets.json
+credentials.json
+token.json
+client_secret*.json
+
+# 로컬 임시 아티팩트 다운로드(gh run download)
+_run_artifact/
+_pub_artifact/
+
+# Local data repair backups
+data/backups/

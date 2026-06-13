@@ -1,0 +1,423 @@
+/* ============================================================
+   Blogger 테마용 시각 강화 스타일시트
+   ------------------------------------------------------------
+   이 파일은 Blogger 발행글 페이지에서만 적용됩니다.
+   자동화 코드가 만든 HTML 클래스(.preview-hook, .yomi-judgment-box 등)에
+   화려한 색상/박스/카드 스타일을 입혀 가독성과 가시성을 강화합니다.
+
+   ▶ 적용 방법
+   1. Blogger 관리자 패널 > 테마 > "맞춤설정 ▼" > "HTML 편집"
+   2. 코드 안에서 </b:skin> 또는 </head> 직전 위치를 찾음
+   3. 아래 한 줄을 그 직전에 붙여넣음
+      <link rel="stylesheet" href="https://raw.githubusercontent.com/holyyomi/anti_google_blog/main/docs/blogger_theme_styles.css">
+   4. 또는 이 파일 전체 내용을
+      </b:skin> 직전에 <style></style> 블록으로 감싸 직접 박아넣어도 됨
+
+   ▶ 코드 측 클래스명과 1:1 대응되어 있어, 코드 변경 없이 디자인만 갱신 가능
+   ============================================================ */
+
+/* ─── 1. 기본 article 컨테이너 ─── */
+.post-body article,
+.post-body .yomi-article {
+  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
+  line-height: 1.75;
+  color: #1f2937;
+  max-width: 760px;
+  margin: 0 auto;
+  font-size: 17px;
+}
+
+.post-body article h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.35;
+  border-bottom: 4px solid #2563eb;
+  padding-bottom: 12px;
+  margin: 0 0 28px;
+  color: #0f172a;
+}
+
+.post-body article h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 32px 0 14px;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, #eff6ff 0%, transparent 100%);
+  border-left: 5px solid #2563eb;
+  border-radius: 0 6px 6px 0;
+  color: #0f172a;
+}
+
+.post-body article h3 {
+  font-size: 1.02rem;
+  font-weight: 600;
+  margin: 18px 0 10px;
+  color: #1e3a5f;
+}
+
+/* ─── 2. 본문 lede / hook (페이지 첫 인상) ─── */
+.post-body .preview-hook,
+.post-body .yomi-lede,
+.post-body .ai-overview-box {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-left: 5px solid #1d4ed8;
+  padding: 20px 24px;
+  margin: 24px 0;
+  border-radius: 0 12px 12px 0;
+  font-size: 1.02rem;
+  line-height: 1.7;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.08);
+}
+
+.post-body .ai-overview-box h2 {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 8px;
+  color: #1e3a5f;
+}
+
+/* ─── 3. yomi 판단 / 핵심 관점 박스 ─── */
+.post-body .yomi-judgment-box {
+  background: #fef9c3;
+  border-left: 5px solid #f59e0b;
+  padding: 18px 22px;
+  margin: 22px 0;
+  border-radius: 0 10px 10px 0;
+  font-weight: 500;
+}
+
+/* ─── 4. 흔한 착각 vs 실제 기준 비교표 ─── */
+.post-body .misconception-box {
+  margin: 26px 0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.post-body .misconception-box table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.post-body .misconception-box th {
+  background: linear-gradient(180deg, #1e3a5f 0%, #2563eb 100%);
+  color: #fff;
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.post-body .misconception-box td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.95rem;
+  vertical-align: top;
+}
+
+.post-body .misconception-box tr:nth-child(odd) td {
+  background: #f9fafb;
+}
+
+.post-body .misconception-box tr:hover td {
+  background: #eff6ff;
+}
+
+/* ─── 5. real-criterion (실제 기준 박스) ─── */
+.post-body .real-criterion {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #86efac;
+  border-left: 5px solid #16a34a;
+  padding: 18px 22px;
+  margin: 22px 0;
+  border-radius: 10px;
+  white-space: pre-line;
+  font-size: 0.98rem;
+}
+
+/* ─── 6. 30초 판단표 (의사결정 테이블) ─── */
+.post-body .quick-decision-table {
+  margin: 26px 0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(30, 58, 95, 0.1);
+}
+
+.post-body .quick-decision-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.post-body .quick-decision-table th {
+  background: linear-gradient(180deg, #1e3a5f 0%, #1d4ed8 100%);
+  color: #fff;
+  padding: 13px 15px;
+  text-align: left;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.post-body .quick-decision-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.95rem;
+}
+
+.post-body .quick-decision-table tr:nth-child(odd) td {
+  background: #f9fafb;
+}
+
+/* ─── 7. actions-box (바로 할 행동) — stepper 느낌 ─── */
+.post-body .actions-box {
+  background: #fff;
+  border: 2px solid #dbeafe;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin: 22px 0;
+}
+
+.post-body .actions-box ol {
+  counter-reset: action;
+  padding-left: 0;
+  list-style: none;
+}
+
+.post-body .actions-box li {
+  counter-increment: action;
+  position: relative;
+  padding: 10px 0 10px 44px;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed #dbeafe;
+  font-size: 0.98rem;
+}
+
+.post-body .actions-box li:last-child {
+  border-bottom: 0;
+}
+
+.post-body .actions-box li::before {
+  content: counter(action);
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 30px;
+  height: 30px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 30px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.post-body .actions-box strong {
+  color: #1d4ed8;
+}
+
+/* ─── 8. FAQ 카드 (intent-answer-box) ─── */
+.post-body .intent-answer-box {
+  background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
+  padding: 22px 24px;
+  margin: 24px 0;
+  border-radius: 14px;
+  border: 1px solid #fde68a;
+}
+
+.post-body .intent-answer-box h2 {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 14px;
+  color: #92400e;
+}
+
+.post-body .intent-qa-item {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.post-body .intent-qa-item h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  color: #111827;
+  font-weight: 600;
+}
+
+.post-body .intent-qa-item p {
+  margin: 0;
+  font-size: 0.94rem;
+  color: #374151;
+  line-height: 1.7;
+}
+
+/* ─── 9. PAA (People Also Ask) — 함께 확인할 질문 ─── */
+.post-body .paa-block {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  padding: 18px 22px;
+  margin: 22px 0;
+  border-radius: 10px;
+}
+
+.post-body .paa-block h2 {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 12px;
+  color: #374151;
+}
+
+.post-body .paa-block ul {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.post-body .paa-block li {
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+.post-body .paa-block li::marker {
+  color: #6b7280;
+}
+
+/* ─── 10. confirmed vs check-needed (Before/After 느낌) ─── */
+.post-body .confirmed-needed-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 24px 0;
+}
+
+@media (max-width: 600px) {
+  .post-body .confirmed-needed-box {
+    grid-template-columns: 1fr;
+  }
+}
+
+.post-body .confirmed-needed-box h2 {
+  grid-column: 1 / -1;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 4px;
+  color: #374151;
+}
+
+.post-body .confirmed-section {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #86efac;
+  border-left: 5px solid #16a34a;
+  padding: 16px 18px;
+  border-radius: 0 10px 10px 0;
+}
+
+.post-body .confirmed-section h3 {
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+  color: #166534;
+  font-weight: 700;
+}
+
+.post-body .check-needed-section {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1px solid #fde68a;
+  border-left: 5px solid #f59e0b;
+  padding: 16px 18px;
+  border-radius: 0 10px 10px 0;
+}
+
+.post-body .check-needed-section h3 {
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+  color: #92400e;
+  font-weight: 700;
+}
+
+.post-body .confirmed-section ul,
+.post-body .check-needed-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.post-body .confirmed-section li,
+.post-body .check-needed-section li {
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+/* ─── 11. issue-context (왜 지금 봐야 하나) ─── */
+.post-body .issue-context-box {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border-left: 5px solid #16a34a;
+  padding: 16px 20px;
+  margin: 22px 0;
+  border-radius: 0 10px 10px 0;
+}
+
+.post-body .issue-context-box h2 {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 8px;
+  color: #166534;
+}
+
+/* ─── 12. source-trust-box (공식 공고와 문의처) ─── */
+.post-body .source-trust-box {
+  background: #f3f4f6;
+  padding: 14px 18px;
+  margin: 26px 0 10px;
+  border-radius: 10px;
+  font-style: italic;
+  font-size: 0.9rem;
+  color: #6b7280;
+  border: 1px dashed #d1d5db;
+}
+
+/* ─── 13. 본문 강조 인라인 ─── */
+.post-body article strong {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.post-body article em {
+  color: #9333ea;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.post-body article mark,
+.post-body .yomi-highlight {
+  background: linear-gradient(180deg, transparent 60%, #fde047 60%);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* ─── 14. 모바일 반응형 보정 ─── */
+@media (max-width: 600px) {
+  .post-body article {
+    font-size: 16px;
+  }
+  .post-body article h1 {
+    font-size: 1.45rem;
+  }
+  .post-body article h2 {
+    font-size: 1.08rem;
+    padding: 8px 12px;
+  }
+  .post-body .preview-hook,
+  .post-body .ai-overview-box,
+  .post-body .yomi-judgment-box {
+    padding: 14px 16px;
+  }
+}

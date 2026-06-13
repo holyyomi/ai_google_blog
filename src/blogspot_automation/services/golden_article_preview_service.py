@@ -1,0 +1,1441 @@
+from __future__ import annotations
+
+import logging
+from html import escape
+import os
+import re
+from typing import Any
+
+from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+from blogspot_automation.services.official_sources import (
+    get_official_sources_for_pattern,
+    render_official_sources_html,
+)
+from blogspot_automation.services.seo_policy import BLOGSPOT_HOME_URL, prepare_blogspot_html
+from blogspot_automation.services.slot_filler_service import SlotFillerService
+
+logger = logging.getLogger(__name__)
+
+_MIN_CONFIDENCE = 80
+_MIN_FILL_RATE = 0.8
+
+_HOWTO_ELIGIBLE_PATTERNS: frozenset[str] = frozenset(
+    {
+        "tax_refund_hometax_check",
+        "policy_deadline_support",
+        "ai_work_time_savings",
+        "ai_tool_comparison",
+        "ai_automation_workflow",
+        "delivery_money_checklist",
+    }
+)
+
+_BANNED_DEFAULT_PHRASES: tuple[str, ...] = (
+    "이 이슈는 나와 직접 관련이 없다",
+    "정보가 너무 많음",
+    "오늘 내 선택 기준이 됩니다",
+    "나와 관련 있는지",
+    "공식 안내를 확인한다",
+    "공식 확인처를 확인한다",
+    "행동 필요한지 모름",
+    "내 생활과 관련있는지 모름",
+    "지금 행동이 필요한지 모름",
+    "비용·시간·선택 조건 중 직접 바뀌는 항목을 먼저 봐야 합니다",
+)
+
+_PREVIEW_CSS = """
+  body { font-family: 'Noto Sans KR', sans-serif; background: #f8f9fa; margin: 0; padding: 16px; }
+  .golden-preview { max-width: 780px; margin: 0 auto; background: #fff; border-radius: 10px; padding: 32px; }
+  h1 { font-size: 1.5rem; border-bottom: 3px solid #2563eb; padding-bottom: 8px; margin-bottom: 24px; }
+  .section-label { font-size: 0.78rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .preview-hook { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 14px 18px; margin-bottom: 20px; border-radius: 0 6px 6px 0; }
+  .yomi-judgment-box { background: #fef9c3; border-left: 4px solid #f59e0b; padding: 14px 18px; margin-bottom: 20px; border-radius: 0 6px 6px 0; }
+  .misconception-box { margin-bottom: 20px; }
+  .misconception-box table { width: 100%; border-collapse: collapse; }
+  .misconception-box th { background: #e5e7eb; padding: 8px 12px; text-align: left; font-size: 0.85rem; }
+  .misconception-box td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; vertical-align: top; }
+  .misconception-box tr:nth-child(odd) td { background: #f9fafb; }
+  .real-criterion { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 14px 18px; margin-bottom: 20px; border-radius: 6px; white-space: pre-line; }
+  .quick-decision-table { margin-bottom: 20px; }
+  .quick-decision-table table { width: 100%; border-collapse: collapse; }
+  .quick-decision-table th { background: #1e3a5f; color: #fff; padding: 8px 12px; text-align: left; font-size: 0.85rem; }
+  .quick-decision-table td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; vertical-align: top; }
+  .quick-decision-table tr:nth-child(odd) td { background: #f9fafb; }
+  .actions-box { margin-bottom: 20px; }
+  .actions-box ol { padding-left: 20px; }
+  .actions-box li { margin-bottom: 10px; font-size: 0.9rem; }
+  .actions-box strong { color: #1d4ed8; }
+  .faq-block { margin-bottom: 20px; }
+  .faq-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 16px; margin-bottom: 10px; }
+  .faq-card h3 { margin: 0 0 6px; font-size: 0.95rem; color: #111827; }
+  .faq-card p { margin: 0; font-size: 0.88rem; color: #374151; }
+  .hashtag-box { background: #f0f4ff; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; }
+  .hashtag-box p { margin: 0; color: #2563eb; font-size: 0.88rem; }
+  .internal-links { margin-bottom: 20px; }
+  .internal-links ul { padding-left: 18px; }
+  .internal-links li { margin-bottom: 6px; font-size: 0.88rem; color: #374151; }
+  .preview-meta { font-size: 0.78rem; color: #9ca3af; margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; }
+  .issue-context-box { background: #f0fdf4; border-left: 4px solid #2563eb; padding: 14px 18px; margin-bottom: 20px; border-radius: 0 6px 6px 0; }
+  .issue-context-box h2 { font-size: 1rem; margin: 0 0 8px; color: #1e3a5f; }
+  .intent-answer-box { background: #fefce8; padding: 14px 18px; margin-bottom: 20px; border-radius: 6px; }
+  .intent-answer-box h2 { font-size: 1rem; margin: 0 0 12px; color: #92400e; }
+  .intent-qa-item { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 16px; margin-bottom: 10px; }
+  .intent-qa-item h3 { margin: 0 0 6px; font-size: 0.95rem; color: #111827; }
+  .intent-qa-item p { margin: 0; font-size: 0.88rem; color: #374151; }
+  .source-trust-box { background: #f3f4f6; padding: 12px 16px; margin-top: 24px; border-radius: 6px; font-style: italic; font-size: 0.85rem; color: #6b7280; }
+  .ai-overview-box { background: #eff6ff; border-left: 4px solid #1d4ed8; padding: 16px 20px; margin-bottom: 20px; border-radius: 0 8px 8px 0; }
+  .ai-overview-box h2 { font-size: 1rem; margin: 0 0 8px; color: #1e3a5f; }
+  .ai-overview-box p { margin: 0; font-size: 0.9rem; color: #1e3a5f; line-height: 1.6; }
+  .paa-block { background: #f9fafb; border: 1px solid #e5e7eb; padding: 14px 18px; margin-bottom: 20px; border-radius: 6px; }
+  .paa-block h2 { font-size: 1rem; margin: 0 0 10px; color: #374151; }
+  .paa-block ul { margin: 0; padding-left: 18px; }
+  .paa-block li { margin-bottom: 6px; font-size: 0.88rem; color: #374151; }
+  .confirmed-needed-box { margin-bottom: 20px; }
+  .confirmed-needed-box h2 { font-size: 1rem; margin: 0 0 10px; color: #374151; }
+  .confirmed-section { background: #f0fdf4; border-left: 4px solid #22c55e; padding: 12px 16px; margin-bottom: 10px; border-radius: 0 6px 6px 0; }
+  .confirmed-section h3 { font-size: 0.9rem; margin: 0 0 6px; color: #166534; }
+  .check-needed-section { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 0 6px 6px 0; }
+  .check-needed-section h3 { font-size: 0.9rem; margin: 0 0 6px; color: #92400e; }
+  .confirmed-section ul, .check-needed-section ul { margin: 0; padding-left: 16px; }
+  .confirmed-section li, .check-needed-section li { margin-bottom: 4px; font-size: 0.87rem; }
+"""
+
+
+class GoldenArticlePreviewService:
+    """골든 패턴 + 슬롯 결과를 이용해 사람이 검토 가능한 preview HTML을 생성한다.
+
+    기존 article.html 생성 파이프라인과 독립적으로 동작하며,
+    패턴 매칭·슬롯 채움·HTML 렌더링·검증을 한 번에 수행한다.
+    """
+
+    def __init__(
+        self,
+        pattern_service: GoldenPatternService | None = None,
+        slot_filler: SlotFillerService | None = None,
+    ) -> None:
+        self._ps = pattern_service or GoldenPatternService()
+        self._sf = slot_filler or SlotFillerService(pattern_service=self._ps)
+
+    # ------------------------------------------------------------------ #
+    # Public API                                                           #
+    # ------------------------------------------------------------------ #
+
+    def build_preview(
+        self,
+        topic: str,
+        summary: str = "",
+        content_type: str = "",
+        topic_group: str = "",
+        candidate_raw: dict | None = None,
+    ) -> dict[str, Any]:
+        """topic으로 패턴 매칭 → 슬롯 채우기 → HTML 렌더링 → 검증까지 한 번에 수행.
+
+        Returns:
+            matched, pattern_match, slot_result, preview_html,
+            slot_fill_rate, missing_required_slots,
+            ready_for_review, blocking_issues, warnings
+        """
+        blocking_issues: list[str] = []
+        warnings: list[str] = []
+
+        pattern_match = self._ps.match_pattern(
+            topic=topic,
+            summary=summary,
+            content_type=content_type,
+            topic_group=topic_group,
+        )
+
+        if not pattern_match["matched"]:
+            if pattern_match.get("near_match"):
+                # near_match: confidence 75~79 + ct_match + tg_match + no neg_hits
+                # → 슬롯 채움까지 진행하되 human_review_required=True로 처리
+                logger.info(
+                    "%s | near_match confidence=%d for topic: %s",
+                    __name__,
+                    pattern_match["confidence"],
+                    topic,
+                )
+                warnings.append(f"near_match_confidence:{pattern_match['confidence']}")
+                # Fall through — don't return early
+            else:
+                logger.info("%s | pattern not matched for topic: %s", __name__, topic)
+                blocking_issues.append("pattern_not_matched")
+                blocking_issues.append(
+                    f"low_pattern_confidence:{pattern_match['confidence']}"
+                )
+                return {
+                    "matched": False,
+                    "near_match": False,
+                    "pattern_match": pattern_match,
+                    "slot_result": {},
+                    "preview_html": _unmatched_html(topic),
+                    "slot_fill_rate": 0.0,
+                    "missing_required_slots": [],
+                    "ready_for_review": False,
+                    "blocking_issues": blocking_issues,
+                    "warnings": warnings,
+                }
+
+        pattern_id: str = pattern_match.get("pattern_id") or ""
+        if not pattern_id:
+            blocking_issues.append("pattern_not_matched")
+            return {
+                "matched": False,
+                "near_match": False,
+                "pattern_match": pattern_match,
+                "slot_result": {},
+                "preview_html": _unmatched_html(topic),
+                "slot_fill_rate": 0.0,
+                "missing_required_slots": [],
+                "ready_for_review": False,
+                "blocking_issues": blocking_issues,
+                "warnings": warnings,
+            }
+        slot_result = self._sf.fill_slots(
+            pattern_id=pattern_id,
+            topic=topic,
+            candidate_raw=candidate_raw,
+        )
+
+        fill_rate: float = slot_result.get("slot_fill_rate", 0.0)
+        missing: list[str] = slot_result.get("missing_required_slots", [])
+
+        if fill_rate < _MIN_FILL_RATE:
+            blocking_issues.append(
+                f"slot_fill_rate_below_{int(_MIN_FILL_RATE * 100)}:{fill_rate:.2f}"
+            )
+        if missing:
+            warnings.append(f"missing_slots:{','.join(missing)}")
+
+        preview_html = self.render_html(pattern_match, slot_result)
+        validation = self.validate_preview_html(preview_html)
+
+        for issue in validation.get("issues", []):
+            blocking_issues.append(issue)
+        for warn in validation.get("warnings", []):
+            warnings.append(warn)
+
+        _is_near_match = bool(pattern_match.get("near_match"))
+        ready = (
+            pattern_match["confidence"] >= _MIN_CONFIDENCE
+            and fill_rate >= _MIN_FILL_RATE
+            and not blocking_issues
+            and not _is_near_match  # near_match는 항상 human_review 필요
+        )
+
+        logger.info(
+            "%s | pattern=%s fill=%.2f ready=%s near_match=%s issues=%s",
+            __name__, pattern_id, fill_rate, ready, _is_near_match, blocking_issues,
+        )
+
+        # reader_intent_questions 생성 (lazy import)
+        _reader_intent_questions: list[str] = []
+        try:
+            from blogspot_automation.services.geo_intent_service import GeoIntentService as _GIS_bp
+            _gis_bp = _GIS_bp()
+            _p_data_bp = self._ps.get_pattern(pattern_id) if pattern_id else {}
+            _ct_bp = str((_p_data_bp or {}).get("content_type") or "")
+            _tg_bp = str((_p_data_bp or {}).get("topic_group") or "")
+            _reader_intent_questions = _gis_bp.generate_reader_intent_questions(
+                topic=topic,
+                content_type=_ct_bp,
+                topic_group=_tg_bp,
+                slots=slot_result.get("slots") or {},
+            )
+        except Exception as _riq_exc:
+            logger.warning("reader_intent_questions generation failed: %s", _riq_exc)
+
+        return {
+            "matched": True,
+            "near_match": _is_near_match,
+            "pattern_match": pattern_match,
+            "slot_result": slot_result,
+            "preview_html": preview_html,
+            "slot_fill_rate": fill_rate,
+            "missing_required_slots": missing,
+            "ready_for_review": ready,
+            "blocking_issues": blocking_issues,
+            "warnings": warnings,
+            "reader_intent_questions": _reader_intent_questions,
+        }
+
+    def render_html(
+        self, pattern_match: dict, slot_result: dict
+    ) -> str:
+        """슬롯 결과를 사람이 검토 가능한 HTML fragment로 변환한다.
+
+        - 슬롯이 비어 있으면 해당 섹션을 출력하지 않는다.
+        - banned default phrase는 절대 출력하지 않는다.
+        """
+        topic = escape(str(slot_result.get("topic", "")))
+        pattern_title = escape(str(pattern_match.get("pattern_title", "")))
+        pattern_id = escape(str(pattern_match.get("pattern_id", "")))
+        confidence = int(pattern_match.get("confidence", 0))
+        fill_rate = float(slot_result.get("slot_fill_rate", 0.0))
+        slots: dict[str, Any] = slot_result.get("slots", {})
+
+        sections: list[str] = []
+
+        # hook_opening
+        hook = _str_slot(slots.get("hook_opening"))
+        if hook:
+            sections.append(
+                f'    <section class="preview-hook">\n'
+                f'      <p>{escape(hook)}</p>\n'
+                f'    </section>'
+            )
+
+        # yomi_judgment
+        yomi = _str_slot(slots.get("yomi_judgment"))
+        if yomi:
+            sections.append(
+                f'    <section class="yomi-judgment-box">\n'
+                f'      <p class="section-label">핵심 관점</p>\n'
+                f'      <p>{escape(yomi)}</p>\n'
+                f'    </section>'
+            )
+
+        # misconceptions
+        misconceptions = _list_slot(slots.get("misconceptions"))
+        if misconceptions:
+            rows = "\n".join(
+                f'          <tr><td>{escape(str(item.get("착각", "")))}</td>'
+                f'<td>{escape(str(item.get("실제", "")))}</td></tr>'
+                for item in misconceptions
+                if isinstance(item, dict)
+            )
+            if rows:
+                sections.append(
+                    f'    <section class="misconception-box">\n'
+                    f'      <p class="section-label">🔁 흔한 착각 vs 실제 기준</p>\n'
+                    f'      <table>\n'
+                    f'        <thead><tr><th>흔한 착각</th><th>실제 기준</th></tr></thead>\n'
+                    f'        <tbody>\n{rows}\n        </tbody>\n'
+                    f'      </table>\n'
+                    f'    </section>'
+                )
+
+        # real_criterion
+        real = _str_slot(slots.get("real_criterion"))
+        if real:
+            sections.append(
+                f'    <section class="real-criterion">\n'
+                f'      <p class="section-label">공식 기준 / 단계별 확인</p>\n'
+                f'      <p>{escape(real)}</p>\n'
+                f'    </section>'
+            )
+
+        # quick_decision_table
+        qdt = _list_slot(slots.get("quick_decision_table"))
+        if qdt:
+            rows = "\n".join(
+                f'          <tr>'
+                f'<td>{escape(str(item.get("내 상황", item.get("내 반응", ""))))}</td>'
+                f'<td>{escape(str(item.get("할 일") or item.get("즉시 할 일") or item.get("확인할 조건") or item.get("확인할 것") or item.get("먼저 할 것") or item.get("의미", "")))}</td>'
+                f'</tr>'
+                for item in qdt
+                if isinstance(item, dict)
+            )
+            if rows:
+                sections.append(
+                    f'    <section class="quick-decision-table">\n'
+                    f'      <p class="section-label">⚡ 30초 판단표</p>\n'
+                    f'      <table>\n'
+                    f'        <thead><tr><th>내 상황</th><th>먼저 할 것</th></tr></thead>\n'
+                    f'        <tbody>\n{rows}\n        </tbody>\n'
+                    f'      </table>\n'
+                    f'    </section>'
+                )
+
+        # actions
+        actions = _list_slot(slots.get("actions"))
+        if actions:
+            items_html = "\n".join(
+                f'        <li><strong>{escape(str(item.get("행동", "")))}</strong> — '
+                f'{escape(str(item.get("설명", "")))}</li>'
+                for item in actions
+                if isinstance(item, dict) and item.get("행동")
+            )
+            if items_html:
+                sections.append(
+                    f'    <section class="actions-box">\n'
+                    f'      <p class="section-label">바로 할 행동</p>\n'
+                    f'      <ol>\n{items_html}\n      </ol>\n'
+                    f'    </section>'
+                )
+
+        # faq
+        faq = _list_slot(slots.get("faq"))
+        if faq:
+            cards = "\n".join(
+                f'      <div class="faq-card">\n'
+                f'        <h3>{escape(str(item.get("Q", "")))}</h3>\n'
+                f'        <p>{escape(str(item.get("A", "")))}</p>\n'
+                    f'      </div>'
+                    for item in faq
+                    if isinstance(item, dict) and item.get("Q")
+            )
+            if cards:
+                faq_heading = _faq_heading_for_pattern(pattern_id=str(pattern_id), content_type="")
+                sections.append(
+                    f'    <section class="faq faq-block">\n'
+                    f'      <p class="section-label">{escape(faq_heading)}</p>\n'
+                    f'{cards}\n'
+                    f'    </section>'
+                )
+
+        body = "\n".join(sections) if sections else "    <p>슬롯이 채워지지 않았습니다.</p>"
+
+        return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>[PREVIEW] {topic}</title>
+  <style>
+{_PREVIEW_CSS}
+  </style>
+</head>
+<body>
+  <article class="golden-preview">
+    <h1>{topic}</h1>
+{body}
+    <div class="preview-meta">
+      pattern: {pattern_id} · confidence: {confidence} · fill_rate: {fill_rate:.2f}
+    </div>
+  </article>
+</body>
+</html>"""
+
+    def render_article_candidate_html(
+        self,
+        pattern_match: dict,
+        slot_result: dict,
+        selected_title: str = "",
+    ) -> str:
+        """발행 후보용 클린 HTML을 반환한다.
+
+        render_html() 기반으로 debug meta와 [PREVIEW] 접두어를 제거하고,
+        selected_title이 있으면 h1·title·meta description·JSON-LD에 반영한다.
+        GEO 블록(AI_CITATION_SUMMARY, UPDATED_DATE_BLOCK)을 추가한다.
+        """
+        import json as _json
+        import re as _re
+        from datetime import datetime as _dt
+
+        raw = self.render_html(pattern_match, slot_result)
+        clean = raw.replace("[PREVIEW] ", "", 1)
+        clean = _re.sub(r'\n?\s*\.preview-meta\s*\{[^}]*\}', "", clean)
+        clean = _re.sub(
+            r'\s*<div class="preview-meta">.*?</div>',
+            "",
+            clean,
+            flags=_re.DOTALL,
+        )
+
+        # --- 슬롯 추출 ---
+        slots: dict = slot_result.get("slots") or {}
+        topic_str = str(slot_result.get("topic") or selected_title or "")
+        hook = _str_slot(slots.get("hook_opening")) or topic_str
+        yomi = _str_slot(slots.get("yomi_judgment")) or ""
+        real = _str_slot(slots.get("real_criterion")) or ""
+        faq_list = _list_slot(slots.get("faq"))
+        actions_list = _list_slot(slots.get("actions"))
+        # slot_result의 pattern_id를 우선 사용 (패턴별 citation/meta 템플릿 선택)
+        _slot_pattern_id = str(slot_result.get("pattern_id") or "")
+        _pattern_id = _slot_pattern_id or str(pattern_match.get("pattern_id") or "")
+        # pattern 실제 content_type 조회 (bonus 전달용 인자와 구분)
+        _p_data = self._ps.get_pattern(_pattern_id) if _pattern_id else {}
+        _content_type = str((_p_data or {}).get("content_type") or "")
+
+        # --- meta description 생성 (80~160자, 구조적) ---
+        candidate_meta_description = _build_meta_description(
+            hook=hook, real=real, actions_list=actions_list,
+            topic_str=topic_str, selected_title=selected_title,
+            content_type=_content_type, pattern_id=_pattern_id,
+        )
+
+        # --- GEO: AI_CITATION_SUMMARY (완전한 문장, 내부 라벨 없음) ---
+        today_str = _dt.now().strftime("%Y-%m-%d")
+        _ai_summary_text = _build_ai_citation_summary(
+            hook=hook, yomi=yomi, real=real,
+            faq_list=faq_list, content_type=_content_type,
+            pattern_id=_pattern_id,
+        )
+
+        ai_citation_block = (
+            '\n  <section id="AI_CITATION_SUMMARY">\n'
+            '    <p>' + escape(_ai_summary_text) + '</p>\n'
+            '  </section>'
+        )
+        _disclaimer = _PATTERN_DATE_DISCLAIMERS.get(
+            _pattern_id,
+            "이 글의 내용은 공식 안내에 따라 달라질 수 있으므로 최신 정보를 직접 확인하세요."
+        )
+        updated_date_block = (
+            f'\n  <section id="UPDATED_DATE_BLOCK">\n'
+            f'    <p>이 글은 {today_str} 기준으로 작성된 정보입니다. '
+            f'{_disclaimer}</p>\n'
+            f'  </section>'
+        )
+
+        # --- GEO Intent + SGE blocks ---
+        _sge_paa: list[str] = []
+        _sge_overview_text = ""
+        _sge_confirmed: list[str] = []
+        _sge_check_needed: list[str] = []
+        try:
+            from blogspot_automation.services.geo_intent_service import GeoIntentService as _GIS
+            _geo_intent = _GIS()
+            _p_data_ct = self._ps.get_pattern(_pattern_id) if _pattern_id else {}
+            _ct = str((_p_data_ct or {}).get("content_type") or _content_type)
+            _tg = str((_p_data_ct or {}).get("topic_group") or "")
+            _iq = _geo_intent.generate_reader_intent_questions(
+                topic=topic_str, content_type=_ct, topic_group=_tg, slots=slots,
+            )
+            _ic = _geo_intent.generate_issue_context(
+                topic=topic_str, content_type=_ct, hook=hook,
+            )
+            _ia = _geo_intent.generate_intent_answers(
+                questions=_iq, topic=topic_str, content_type=_ct, slots=slots,
+            )
+            # SGE 전용 생성
+            _sge_overview_text = _geo_intent.generate_ai_overview_target_answer(
+                topic=topic_str, content_type=_ct, slots=slots,
+            )
+            _sge_paa = _geo_intent.generate_people_also_ask(
+                questions=_iq, topic=topic_str, content_type=_ct,
+            )
+            _cvck = _geo_intent.generate_confirmed_vs_check_needed(
+                content_type=_ct, topic_group=_tg, slots=slots, topic=topic_str,
+            )
+            _sge_confirmed = _cvck.get("confirmed", [])
+            _sge_check_needed = _cvck.get("check_needed", [])
+            _trust_text = _geo_intent.generate_enhanced_source_trust_block(
+                content_type=_ct, topic_group=_tg, pattern_id=_pattern_id,
+                today_str=today_str,
+            )
+        except Exception as _ge_exc:
+            logger.warning("geo_intent_service error (fallback): %s", _ge_exc)
+            _ic = topic_str
+            _ia = []
+            _trust_text = "이 글은 공개 정보를 바탕으로 정리했습니다. 최신 정보를 직접 확인하세요."
+
+        ai_overview_block = (
+            '\n  <section id="AI_OVERVIEW_TARGET_ANSWER" class="ai-overview-box">\n'
+            '    <h2>먼저 볼 핵심</h2>\n'
+            f'    <p>{_emphasize_first_sentence(escape(_sge_overview_text))}</p>\n'
+            '  </section>'
+        ) if _sge_overview_text else ""
+
+        if topic_str and topic_str not in str(_ic or ""):
+            _ic = f"{topic_str} 관련 이슈입니다. {_ic}"
+
+        issue_context_block = (
+            '\n  <section id="ISSUE_CONTEXT_BLOCK" class="issue-context-box">\n'
+            '    <h2>왜 지금 봐야 하나</h2>\n'
+            f'    <p>{escape(_ic)}</p>\n'
+            '  </section>'
+        )
+
+        _qa_items_html = ""
+        _intent_question_keys: set[str] = set()
+        for _qa in _ia[:3]:
+            _intent_question_keys.add(_normalize_question_key(str(_qa.get("Q", ""))))
+            _q_esc = escape(str(_qa.get("Q", "")))
+            _a_esc = escape(str(_qa.get("A", "")))
+            _qa_items_html += (
+                f'    <div class="intent-qa-item"><h3>Q. {_q_esc}</h3>'
+                f'<p>A. {_a_esc}</p></div>\n'
+            )
+        intent_answer_block = (
+            '\n  <section id="INTENT_ANSWER_BLOCK" class="intent-answer-box">\n'
+            f'    <h2>{escape(_faq_heading_for_pattern(pattern_id=_pattern_id, content_type=_content_type))}</h2>\n'
+            + _qa_items_html +
+            '  </section>'
+        )
+
+        # PEOPLE_ALSO_ASK_BLOCK
+        _paa_html = ""
+        _paa_candidates: list[str] = []
+        _paa_seen: set[str] = set()
+        for _question in list(_sge_paa) + _paa_fallback_questions(topic_str, _content_type):
+            _question_text = str(_question or "").strip()
+            _question_key = _normalize_question_key(_question_text)
+            if not _question_text or not _question_key:
+                continue
+            if (
+                _is_near_duplicate_question_key(_question_key, _intent_question_keys)
+                or _is_near_duplicate_question_key(_question_key, _paa_seen)
+            ):
+                continue
+            _paa_seen.add(_question_key)
+            _paa_candidates.append(_question_text)
+            if len(_paa_candidates) >= 5:
+                break
+        if _paa_candidates:
+            _paa_items = "\n".join(
+                f'      <li class="paa-item">{escape(_search_phrase_from_question(str(q)))}</li>'
+                for q in _paa_candidates[:5]
+            )
+            _paa_html = (
+                '\n  <section id="PEOPLE_ALSO_ASK_BLOCK" class="paa-block">\n'
+                '    <h2>관련 검색어</h2>\n'
+                f'    <ul>\n{_paa_items}\n    </ul>\n'
+                '  </section>'
+            )
+
+        # CONFIRMED_VS_CHECK_NEEDED_BLOCK
+        _cvck_html = ""
+        if _sge_confirmed or _sge_check_needed:
+            _conf_items = "\n".join(
+                f'        <li>{escape(str(c))}</li>' for c in _sge_confirmed
+            )
+            _chk_items = "\n".join(
+                f'        <li>{escape(str(c))}</li>' for c in _sge_check_needed
+            )
+            _cvck_html = (
+                '\n  <section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">\n'
+                '    <h2>확인된 내용과 직접 확인할 내용</h2>\n'
+                '    <div class="confirmed-section">\n'
+                '      <h3>✓ 확인된 내용</h3>\n'
+                f'      <ul>\n{_conf_items}\n      </ul>\n'
+                '    </div>\n'
+                '    <div class="check-needed-section">\n'
+                '      <h3>⚠️ 직접 확인 필요</h3>\n'
+                f'      <ul>\n{_chk_items}\n      </ul>\n'
+                '    </div>\n'
+                '  </section>'
+            )
+
+        _official_sources_html = render_official_sources_html(
+            get_official_sources_for_pattern(_pattern_id)
+        )
+        source_trust_block = (
+            '\n  <section id="SOURCE_TRUST_BLOCK" class="source-trust-box">\n'
+            f'    <h2>{escape(_source_trust_heading_for_pattern(pattern_id=_pattern_id, content_type=_content_type))}</h2>\n'
+            f'    <p>{escape(_trust_text)}</p>'
+            f'{_official_sources_html}\n'
+            '  </section>'
+        )
+
+        # </h1> 직후에 삽입 순서:
+        # AI_OVERVIEW → AI_CITATION → UPDATED_DATE → ISSUE_CONTEXT → INTENT_ANSWER → PAA
+        _after_h1 = (
+            ai_overview_block
+            + ai_citation_block
+            + updated_date_block
+            + issue_context_block
+            + intent_answer_block
+            + _paa_html
+        )
+        import re as _re2
+        clean = _re2.sub(r'</h1>', '</h1>' + _after_h1, clean, count=1)
+
+        # </body> 직전에 CONFIRMED_VS_CHECK_NEEDED + SOURCE_TRUST + NAVER_CTA 삽입
+        clean = clean.replace(
+            '</body>',
+            _cvck_html + source_trust_block + '\n</body>',
+            1,
+        )
+
+        # FAQPage JSON-LD용 FAQ 목록 미리 추출
+        valid_faqs = [
+            item for item in faq_list
+            if isinstance(item, dict)
+            and str(item.get("Q", "")).strip()
+            and str(item.get("A", "")).strip()
+        ]
+
+        # --- selected_title 반영 ---
+        st = (selected_title or "").strip()
+        meta_desc_esc = escape(candidate_meta_description)
+        title_for_og = escape(st) if st else escape(topic_str)
+        og_meta_tags = (
+            f'  <meta name="description" content="{meta_desc_esc}">\n'
+            f'  <meta property="og:type" content="article">\n'
+            f'  <meta property="og:title" content="{title_for_og}">\n'
+            f'  <meta property="og:description" content="{meta_desc_esc}">\n'
+            f'  <meta name="twitter:card" content="summary_large_image">\n'
+            f'  <meta name="twitter:title" content="{title_for_og}">\n'
+            f'  <meta name="twitter:description" content="{meta_desc_esc}">\n'
+        )
+        if st:
+            st_esc = escape(st)
+            clean = _re.sub(r'<title>[^<]*</title>', f'<title>{st_esc}</title>', clean)
+            clean = _re.sub(r'<h1>([^<]*)</h1>', f'<h1>{st_esc}</h1>', clean, count=1)
+            clean = _re.sub(
+                r'<meta\s+name=["\']description["\'][^>]*>\s*',
+                '',
+                clean,
+                flags=_re.IGNORECASE,
+            )
+            clean = _re.sub(
+                r'<meta\s+(?:name|property)=["\'](?:og:[^"\']+|twitter:[^"\']+)["\'][^>]*>\s*',
+                '',
+                clean,
+                flags=_re.IGNORECASE,
+            )
+            clean = clean.replace('</head>', og_meta_tags + '</head>', 1)
+            if '"headline"' in clean:
+                clean = _re.sub(
+                    r'"headline"\s*:\s*"[^"]*"',
+                    f'"headline": "{st}"',
+                    clean,
+                    count=1,
+                )
+                clean = clean.replace('"@type": "Article"', '"@type": "BlogPosting"', 1)
+            else:
+                ld = {
+                    "@context": "https://schema.org",
+                    "@type": "BlogPosting",
+                    "headline": st,
+                    "description": candidate_meta_description,
+                    "datePublished": today_str,
+                    "dateModified": today_str,
+                    "author": {"@type": "Person", "name": os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI")},
+                    "publisher": {
+                        "@type": "Organization",
+                        "name": os.getenv("BLOG_BRAND_NAME", "holyyomi AI"),
+                        "url": BLOGSPOT_HOME_URL.rstrip("/"),
+                    },
+                    "mainEntityOfPage": {
+                        "@type": "WebPage",
+                        "@id": BLOGSPOT_HOME_URL.rstrip("/"),
+                    },
+                    "speakable": {
+                        "@type": "SpeakableSpecification",
+                        "cssSelector": [
+                            "#AI_OVERVIEW_TARGET_ANSWER p",
+                            ".real-criterion p",
+                        ],
+                    },
+                    "inLanguage": "ko-KR",
+                }
+                ld_script = (
+                    f'  <script type="application/ld+json">'
+                    f'{_json.dumps(ld, ensure_ascii=False)}'
+                    f'</script>\n'
+                )
+                clean = clean.replace('</head>', ld_script + '</head>', 1)
+        else:
+            clean = _re.sub(
+                r'<meta\s+name=["\']description["\'][^>]*>\s*',
+                '',
+                clean,
+                flags=_re.IGNORECASE,
+            )
+            clean = _re.sub(
+                r'<meta\s+(?:name|property)=["\'](?:og:[^"\']+|twitter:[^"\']+)["\'][^>]*>\s*',
+                '',
+                clean,
+                flags=_re.IGNORECASE,
+            )
+            clean = clean.replace('</head>', og_meta_tags + '</head>', 1)
+
+        # --- FAQPage JSON-LD ---
+        if valid_faqs:
+            faq_ld = {
+                "@context": "https://schema.org",
+                "@type": "FAQPage",
+                "mainEntity": [
+                    {
+                        "@type": "Question",
+                        "name": str(item["Q"]).strip(),
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": str(item["A"]).strip(),
+                        },
+                    }
+                    for item in valid_faqs[:5]
+                ],
+            }
+            faq_script = (
+                f'  <script type="application/ld+json">'
+                f'{_json.dumps(faq_ld, ensure_ascii=False)}'
+                f'</script>\n'
+            )
+            clean = clean.replace('</head>', faq_script + '</head>', 1)
+
+        if _pattern_id in _HOWTO_ELIGIBLE_PATTERNS:
+            howto_steps: list[dict[str, Any]] = []
+            for idx, action in enumerate((actions_list or [])[:5]):
+                if isinstance(action, dict):
+                    name = str(action.get("title") or action.get("step") or "").strip()
+                    text = str(
+                        action.get("description")
+                        or action.get("desc")
+                        or action.get("title")
+                        or ""
+                    ).strip()
+                else:
+                    raw = str(action).strip()
+                    name = raw[:60]
+                    text = raw
+                if not text:
+                    continue
+                howto_steps.append(
+                    {
+                        "@type": "HowToStep",
+                        "position": idx + 1,
+                        "name": name or f"단계 {idx + 1}",
+                        "text": text,
+                    }
+                )
+            if len(howto_steps) >= 2:
+                howto_ld = {
+                    "@context": "https://schema.org",
+                    "@type": "HowTo",
+                    "name": st or topic_str,
+                    "description": candidate_meta_description,
+                    "totalTime": "PT5M",
+                    "step": howto_steps,
+                }
+                howto_script = (
+                    f'  <script type="application/ld+json">'
+                    f'{_json.dumps(howto_ld, ensure_ascii=False)}'
+                    f'</script>\n'
+                )
+                clean = clean.replace('</head>', howto_script + '</head>', 1)
+
+        if _ia:
+            clean = _re.sub(
+                r'\n?\s*<section[^>]*class="faq[^"]*"[^>]*>.*?</section>',
+                '',
+                clean,
+                count=1,
+                flags=_re.DOTALL,
+            )
+
+        clean = _decorate_section_headings(clean)
+
+        return prepare_blogspot_html(clean)
+
+    @staticmethod
+    def validate_preview_html(html: str) -> dict[str, Any]:
+        """preview HTML의 품질 기준을 검사한다.
+
+        Returns:
+            {"valid": bool, "issues": list[str], "warnings": list[str]}
+        """
+        return _validate_preview_html_impl(html)
+
+
+_HEADING_EMOJI_MAP: dict[str, str] = {
+    "먼저 볼 핵심": "🔥",
+    "왜 지금 봐야 하나": "⚡",
+    "빠른 확인 답변": "❓",
+    "피해 대응 전 많이 묻는 질문": "❓",
+    "신청 전 확인 질문": "❓",
+    "많이 묻는 질문": "❓",
+    "함께 확인할 질문": "💬",
+    "관련 검색어": "🔎",
+    "핵심 관점": "💡",
+    "흔한 착각 vs 실제 기준": "⚖️",
+    "공식 기준 / 단계별 확인": "📋",
+    "30초 판단표": "⏱️",
+    "바로 할 행동": "✅",
+    "확인된 내용과 직접 확인할 내용": "🔍",
+    "공식 공고와 문의처": "📞",
+    "출처와 확인 기준": "📞",
+    "오늘의 핵심": "🔥",
+    "AI 인용 요약": "🤖",
+    "오늘 업데이트": "📅",
+}
+
+
+def _faq_heading_for_pattern(*, pattern_id: str = "", content_type: str = "") -> str:
+    if pattern_id == "consumer_warning_refund" or content_type == "consumer_warning":
+        return "피해 대응 전 많이 묻는 질문"
+    if pattern_id in {"policy_deadline_support", "tax_refund_hometax_check"} or content_type in {
+        "policy_deadline",
+        "policy_benefit",
+        "tax_refund",
+    }:
+        return "신청 전 확인 질문"
+    return "빠른 확인 답변"
+
+
+def _source_trust_heading_for_pattern(*, pattern_id: str = "", content_type: str = "") -> str:
+    if pattern_id in {"policy_deadline_support", "tax_refund_hometax_check"} or content_type in {
+        "policy_deadline",
+        "policy_benefit",
+        "tax_refund",
+    }:
+        return "공식 공고와 문의처"
+    return "출처와 확인 기준"
+
+
+def _normalize_question_key(text: str) -> str:
+    key = re.sub(r"[^0-9A-Za-z가-힣]+", "", (text or "").lower())
+    replacements = {
+        "어떻게확인하나요": "확인",
+        "어떻게확인하나": "확인",
+        "어디에서확인하나요": "확인",
+        "어디서확인하나요": "확인",
+        "무엇을기준으로비교해야하나요": "비교기준",
+        "무엇을기준으로비교하나요": "비교기준",
+        "무엇인가요": "",
+        "무엇인가": "",
+    }
+    for source, target in replacements.items():
+        key = key.replace(source, target)
+    key = re.sub(r"(인가요|인가|하나요|하나|나요|습니까|까요|까|요)$", "", key)
+    return key
+
+
+def _search_phrase_from_question(question: str) -> str:
+    text = " ".join((question or "").split()).strip()
+    text = re.sub(r"[?？]+$", "", text)
+    if "무료배송" in text and "결제금액" in text and ("비교" in text or "기준" in text):
+        return "무료배송 결제금액 비교 기준"
+    if "쿠폰" in text and ("저렴" in text or "최종" in text):
+        return "쿠폰 적용 후 최종금액 비교"
+    if "최소주문금액" in text and "미달" in text:
+        return "최소주문금액 미달 조건"
+    if "앱별" in text and "결제금액" in text:
+        return "앱별 결제금액 차이"
+    text = text.replace("무엇을 기준으로 비교해야", "비교 기준")
+    text = text.replace("무엇을 기준으로 비교", "비교 기준")
+    replacements = (
+        ("무엇인가요", ""),
+        ("무엇인가", ""),
+        ("한가요", "한지"),
+        ("되나요", "되는지"),
+        ("있나요", "있는지"),
+        ("없나요", "없는지"),
+        ("하나요", "하는지"),
+        ("인가요", "인지"),
+        ("일까요", "일지"),
+        ("왜", ""),
+        ("어떻게", ""),
+        ("나요", ""),
+    )
+    for source, target in replacements:
+        text = text.replace(source, target)
+    text = re.sub(r"(은|는)\s+비교 기준\s+하는지$", r" 비교 기준", text)
+    text = re.sub(r"(하는지|되는지|인지|한지)$", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip(" ,·-")
+    return text or "관련 확인 포인트"
+
+
+def _is_near_duplicate_question_key(key: str, seen_keys: set[str]) -> bool:
+    if key in seen_keys:
+        return True
+    for seen in seen_keys:
+        if min(len(key), len(seen)) >= 10 and (key in seen or seen in key):
+            return True
+    return False
+
+
+def _paa_fallback_questions(topic: str, content_type: str) -> list[str]:
+    core = " ".join((topic or "이 이슈").split()).strip()
+    if content_type in {"policy_deadline", "policy_benefit", "tax_refund"}:
+        return [
+            f"{core} 대상 조건은 어디에서 확인하나요?",
+            f"{core} 신청 전에 준비할 정보는 무엇인가요?",
+            f"{core} 공식 안내에서 바뀐 내용은 무엇인가요?",
+            f"{core} 마감일이나 처리 일정은 어떻게 확인하나요?",
+            f"{core} 관련 문의처는 어디인가요?",
+        ]
+    if content_type == "consumer_warning":
+        return [
+            f"{core} 피해 여부는 어떻게 확인하나요?",
+            f"{core} 관련 증거는 무엇을 남겨야 하나요?",
+            f"{core} 고객센터 답변은 어떻게 기록하나요?",
+            f"{core} 추가 피해를 막으려면 무엇을 확인하나요?",
+            f"{core} 신고나 문의는 어디에서 하나요?",
+        ]
+    if content_type in {"money_checklist", "delivery_money"}:
+        return [
+            f"{core} 최종 결제금액은 어떻게 비교하나요?",
+            f"{core} 쿠폰 적용 조건은 어디에서 확인하나요?",
+            f"{core} 최소주문금액 미달 때 비용은 어떻게 달라지나요?",
+            f"{core} 앱별 가격 차이는 어떻게 확인하나요?",
+            f"{core} 주문 전 체크리스트는 무엇인가요?",
+        ]
+    return [
+        f"{core} 반응이 갈린 이유는 무엇인가요?",
+        f"{core} 보기 전에 확인할 핵심 포인트는 무엇인가요?",
+        f"{core} 관련해서 공식 확인이 필요한 내용은 무엇인가요?",
+        f"{core} 이후 이어질 변수는 무엇인가요?",
+        f"{core} 비슷한 사례와 다른 점은 무엇인가요?",
+    ]
+
+
+_SENTENCE_END_CHARS = ".!?。"
+
+
+def _emphasize_first_sentence(escaped_text: str) -> str:
+    text = (escaped_text or "").strip()
+    if not text:
+        return ""
+    cut = -1
+    for i, ch in enumerate(text):
+        if ch in _SENTENCE_END_CHARS:
+            cut = i + 1
+            break
+    if cut <= 0 or cut > 240:
+        return escaped_text
+    first = text[:cut]
+    rest = text[cut:].lstrip()
+    if not first or len(first) < 10:
+        return escaped_text
+    if rest:
+        return f"<strong>{first}</strong> {rest}"
+    return f"<strong>{first}</strong>"
+
+
+def _decorate_section_headings(html: str) -> str:
+    if not html:
+        return html
+    decorated = html
+    for heading, emoji in _HEADING_EMOJI_MAP.items():
+        pattern = re.compile(
+            rf'(<h2\b[^>]*>)\s*(?!{re.escape(emoji)})(?!\S+\s+{re.escape(heading)})({re.escape(heading)})\s*(</h2>)',
+            flags=re.IGNORECASE,
+        )
+        decorated = pattern.sub(rf'\1{emoji} \2\3', decorated)
+    return decorated
+
+
+def _validate_preview_html_impl(html: str) -> dict[str, Any]:
+    """preview HTML의 품질 기준을 검사한다."""
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    for phrase in _BANNED_DEFAULT_PHRASES:
+        if phrase in html:
+            issues.append(f"banned_default_phrase:{phrase[:40]}")
+
+    if "<h1" not in html.lower():
+        issues.append("missing_h1")
+
+    required_markers = {
+        "핵심 관점": "missing_yomi_judgment",
+        "흔한 착각": "missing_misconception",
+        "30초 판단표": "missing_quick_decision_table",
+        "빠른 확인 답변": "missing_faq",
+        "피해 대응 전 많이 묻는 질문": "missing_faq",
+        "신청 전 확인 질문": "missing_faq",
+        "많이 묻는 질문": "missing_faq",
+    }
+    for marker, issue_key in required_markers.items():
+        if marker not in html:
+            warnings.append(issue_key)
+
+    return {
+        "valid": not issues,
+        "issues": issues,
+        "warnings": warnings,
+    }
+
+
+# ------------------------------------------------------------------ #
+# Module-level helpers                                                #
+# ------------------------------------------------------------------ #
+
+def _str_slot(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _list_slot(value: Any) -> list:
+    if isinstance(value, list) and value:
+        return value
+    return []
+
+
+def _content_type_badge(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    ct = str(item.get("content_type", "")).strip()
+    if not ct:
+        return ""
+    return f' <span style="font-size:0.75rem;color:#6b7280;">({escape(ct)})</span>'
+
+
+def _extract_clean_sentence(text: str, max_len: int = 130) -> str:
+    """텍스트에서 내부 라벨을 제거한 후 첫 완전한 문장을 추출한다."""
+    import re as _re_s
+    if not text:
+        return ""
+    text = " ".join(text.split())  # 공백 정규화
+    # 내부 라벨 제거: "요미 판단:", "요미의 판단:", "단계:", 번호, 불릿
+    text = _re_s.sub(r'^[가-힣A-Za-z]{2,8}\s*(의\s*)?판단\s*:\s*', '', text)
+    text = _re_s.sub(r'^\d+\s*단계\s*[:\-]\s*', '', text)
+    text = _re_s.sub(r'^\d+\.\s+', '', text)
+    text = _re_s.sub(r'^[-·•]\s+', '', text)
+    text = text.strip()
+    if not text:
+        return ""
+    # 완전한 문장 종결 찾기 — "다. ", "요. ", "니다. " 패턴
+    for sep in ("다. ", "요. ", "니다. ", "습니다. "):
+        pos = text.find(sep)
+        if 8 < pos <= max_len - 1:
+            return text[:pos + 1].strip()  # "다" or "요" 포함 (sep[0])
+    # 문장 끝에 마침표 (공백 없이)
+    for sep in ("습니다.", "니다.", "다.", "요."):
+        pos = text.find(sep)
+        if 8 < pos + len(sep) <= max_len + 5:
+            return text[:pos + len(sep)].strip()
+    # 구분자 없으면 첫 줄 or 최대 길이
+    first_line = text.split("\n")[0].strip()
+    candidate = first_line if first_line else text
+    return candidate[:max_len]
+
+
+_PATTERN_CITATION_SUMMARIES: dict[str, str] = {
+    "tax_refund_hometax_check": (
+        "종합소득세·세금 환급금 조회 전에는 환급 유형과 조회 경로를 먼저 구분해야 한다. "
+        "국세환급금, 종합소득세 환급, 연말정산 환급, 지방세 환급은 확인 메뉴가 다를 수 있다. "
+        "홈택스·손택스에서는 환급 대상 여부, 신고 내역, 환급 계좌, 보완 요청 여부를 함께 확인해야 한다. "
+        "세금 환급 정보는 개인 신고 상태에 따라 달라질 수 있으므로 최종 기준은 국세청·홈택스 공식 화면이다."
+    ),
+    "ai_work_time_savings": (
+        "ChatGPT나 AI 도구로 업무 시간을 줄이려면 작업 전체가 아니라 반복되는 단계를 먼저 분리해야 한다. "
+        "초안 작성, 요약, 분류, 체크리스트화, 보고서 정리처럼 반복 규칙이 있는 업무가 자동화에 적합하다. "
+        "검수 기준 없이 AI를 쓰면 오히려 수정 시간이 늘어날 수 있다. "
+        "따라서 프롬프트보다 먼저 입력 자료, 결과물 기준, 검수 루프를 정해야 한다."
+    ),
+    "ai_tool_comparison": (
+        "AI 도구를 비교할 때는 가격보다 반복 업무에서의 실제 응답 정확도를 먼저 확인해야 한다. "
+        "같은 프롬프트에도 도구마다 출력 형식과 길이가 달라 검수 시간이 달라질 수 있다. "
+        "무료 플랜의 제한 항목과 유료 전환 기준을 먼저 파악해야 불필요한 비용을 줄일 수 있다. "
+        "도구 선택 기준은 기능 목록이 아니라 실제 사용 워크플로우와의 적합성이다."
+    ),
+    "ai_automation_workflow": (
+        "AI 자동화 워크플로우를 구성하기 전에 반복되는 입력 자료와 출력 기준을 먼저 정의해야 한다. "
+        "자동화에 적합한 업무는 규칙이 명확하고 검수 기준이 정해진 반복 작업이다. "
+        "검수 루프 없이 자동화하면 오류 누적으로 수정 비용이 증가할 수 있다. "
+        "자동화 도구 도입 전 파일럿 테스트로 실제 시간 절감 효과를 확인하는 것이 권장된다."
+    ),
+    "viral_ott_reaction_decode": (
+        "반응이 갈리는 이슈는 확인된 사실, 이용자 기대, 커뮤니티 해석을 분리해서 봐야 한다. "
+        "화제성이 높아도 공식 확인 범위와 추측성 반응은 같은 무게로 볼 수 없다. "
+        "구독, 결제, 일정, 소비 결정처럼 독자 행동에 직접 연결되는 변화가 있는지 따로 확인해야 한다. "
+        "루머나 사생활성 주장보다 원문 안내와 신뢰할 수 있는 보도 기준으로 맥락을 정리하는 것이 안전하다."
+    ),
+    "delivery_money_checklist": (
+        "배달앱 주문 전 배달비 조건, 쿠폰 적용 기준, 최소주문금액을 순서대로 확인하면 결제 후 예상 초과를 줄일 수 있다. "
+        "배달비 무료는 최소주문금액 충족 시 적용되며, 쿠폰마다 적용 가능 조건이 다르다. "
+        "앱별로 동일 가게의 최종 결제금액이 다를 수 있으므로 2개 이상 앱 비교가 도움이 된다. "
+        "배달앱 정책은 수시로 바뀔 수 있으므로 주문 시점의 앱 화면에서 조건을 직접 확인해야 한다."
+    ),
+    "platform_change_service_update": (
+        "플랫폼 서비스 변경 공지가 떴다면 적용 일자 전에 내 계정·결제·기기 상태를 순서대로 점검해야 한다. "
+        "변경 대상 여부, 자동결제 처리, 기존 사용자 예외 조건은 운영사 공식 안내에서 직접 확인해야 한다. "
+        "약관 변경에 따라 취소·환불 기준이 함께 바뀔 수 있으므로 변경 일자 전 확인이 필요하다. "
+        "공식 공지 외 출처는 사실 확인이 필요하며, 변경 일자 전 필요한 조치를 미리 마치는 것이 안전하다."
+    ),
+    "consumer_warning_refund": (
+        "소비자 피해 상황에서는 고객센터 전화보다 결제 화면, 주문번호, 상담 기록 캡처를 먼저 남겨야 한다. "
+        "환불·보상은 신청과 증빙이 필요한 경우가 많아 증거 확보가 늦으면 처리 결과가 달라질 수 있다. "
+        "운영사 채널은 텍스트 기록이 남는 채팅·이메일을 우선 사용하고, 통화는 메모로 보완하는 것이 안전하다. "
+        "운영사 1차 대응이 부족하면 한국소비자원 1372, 개인정보침해 신고센터 118 등 공식 기관 단계로 진행할 수 있다."
+    ),
+    "policy_deadline_support": (
+        "정부·지자체 지원금은 신청 대상과 소득 기준, 신청 기간을 직접 확인하지 않으면 받을 수 있는 지원을 놓치기 쉽다. "
+        "지원금마다 대상 조건과 필요 서류가 다르므로 공식 공지의 자격 요건을 먼저 확인해야 한다. "
+        "신청 경로는 정부24·복지로·지자체 누리집·주민센터 등으로 안내된 공식 채널을 사용해야 한다. "
+        "지급 방식과 사용처는 사업별로 다르므로 신청 전 안내 페이지에서 함께 확인하는 것이 안전하다."
+    ),
+    "corporate_issue_decode": (
+        "기업 이슈는 공식 발표·공시와 외부 추측을 구분해서 보는 것이 안전하다. "
+        "오늘 발표된 내용은 공식 채널과 복수 매체 교차 확인이 가능한 사실 위주로 정리할 수 있다. "
+        "소비자·이용자에게 즉시 미치는 영향은 서비스·결제·계정 관련 안내가 따로 나올 때 확정된다. "
+        "투자 관련 판단은 공시 시스템과 후속 IR 발표를 기준으로 별도 확인하는 것이 권장된다."
+    ),
+}
+
+_BROKEN_CITATION_PATTERNS: tuple[str, ...] = (
+    "시작했기 확인할 항목",
+    "높다 환급금",
+    "복잡하지 않다 환급",
+    "요미 판단:",
+    "1단계:",
+    "2단계:",
+    "3단계:",
+    "section-label",
+)
+
+_SENTENCE_ENDERS: tuple[str, ...] = ("다.", "요.", "습니다.", "입니다.")
+
+
+def validate_ai_citation_summary(text: str) -> dict:
+    """AI_CITATION_SUMMARY 유효성 검사.
+
+    Returns: {"valid": bool, "issues": list[str]}
+    """
+    import re as _re
+    issues: list[str] = []
+
+    for pattern in _BROKEN_CITATION_PATTERNS:
+        if pattern in text:
+            issues.append(f"broken_pattern:{pattern[:30]}")
+
+    if _re.search(r'요미\s*(의\s*)?판단\s*:', text):
+        issues.append("internal_label:yomi_judgment")
+    if _re.search(r'\d+단계\s*:', text):
+        issues.append("internal_label:step_label")
+
+    # 문장 수: 마침표+공백 또는 마침표 끝으로 분리
+    raw_sentences = [s.strip() for s in _re.split(r'(?<=[다요]\.)\s+', text) if s.strip()]
+    if len(raw_sentences) < 3:
+        issues.append(f"sentence_count_below_3:{len(raw_sentences)}")
+    elif len(raw_sentences) > 5:
+        issues.append(f"sentence_count_above_5:{len(raw_sentences)}")
+
+    if len(text) > 500:
+        issues.append(f"over_500_chars:{len(text)}")
+
+    for sent in raw_sentences[:5]:
+        if not any(sent.endswith(e) for e in _SENTENCE_ENDERS):
+            issues.append(f"sentence_no_proper_ender:{sent[-15:]!r}")
+            break
+
+    return {"valid": not issues, "issues": issues}
+
+
+def _build_ai_citation_summary(
+    *,
+    hook: str,
+    yomi: str,
+    real: str,
+    faq_list: list,
+    content_type: str = "",
+    pattern_id: str = "",
+) -> str:
+    """AI 인용 요약 3~5문장을 완결된 자연문으로 생성한다.
+
+    pattern_id별 고정 요약을 우선 사용하고, 없으면 슬롯 추출로 생성한다.
+    """
+    if pattern_id and pattern_id in _PATTERN_CITATION_SUMMARIES:
+        return _PATTERN_CITATION_SUMMARIES[pattern_id]
+
+    sentences: list[str] = []
+
+    if hook:
+        s = _extract_clean_sentence(hook)
+        if s and s not in sentences:
+            sentences.append(s)
+
+    if yomi and len(sentences) < 3:
+        s = _extract_clean_sentence(yomi)
+        if s and s not in sentences:
+            sentences.append(s)
+
+    if real and len(sentences) < 4:
+        first_line = real.split("\n")[0].strip()
+        s = _extract_clean_sentence(first_line) if first_line else _extract_clean_sentence(real)
+        if s and s not in sentences:
+            sentences.append(s)
+
+    if len(sentences) < 5 and content_type in ("tax_refund", "policy_deadline"):
+        official = "세금·지원금·환급 정보는 관련 기관의 공식 안내 기준을 직접 확인하시기 바랍니다."
+        if official not in sentences:
+            sentences.append(official)
+
+    if faq_list and len(sentences) < 5:
+        for item in faq_list[:2]:
+            if not isinstance(item, dict):
+                continue
+            a_text = str(item.get("A", "")).strip()
+            if len(a_text) > 15:
+                s = _extract_clean_sentence(a_text)
+                if s and s not in sentences:
+                    sentences.append(s)
+                    break
+
+    result = " ".join(sentences[:5])
+    return result[:500] if len(result) > 500 else result
+
+
+_PATTERN_DATE_DISCLAIMERS: dict[str, str] = {
+    "tax_refund_hometax_check": "세금·정책 정보는 공식 안내에 따라 달라질 수 있습니다.",
+    "viral_ott_reaction_decode": "이슈 관련 정보는 공식 안내와 후속 보도에 따라 달라질 수 있습니다.",
+    "ai_work_time_savings": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
+    "ai_tool_comparison": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
+    "ai_automation_workflow": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
+    "delivery_money_checklist": "배달앱 배달비·쿠폰·최소주문금액 조건은 앱 정책에 따라 달라질 수 있습니다.",
+    "platform_change_service_update": "플랫폼 서비스·약관·요금제는 운영사 정책에 따라 변경될 수 있습니다.",
+    "consumer_warning_refund": "환불·소비자 보호 절차는 운영사 약관과 관련 법령에 따라 달라질 수 있습니다.",
+    "policy_deadline_support": "정부·지자체 지원금은 사업 공고와 예산에 따라 변경될 수 있습니다.",
+    "corporate_issue_decode": "기업 발표·공시 내용은 공식 채널과 후속 IR 발표에 따라 갱신될 수 있습니다.",
+}
+
+_PATTERN_META_TEMPLATES: dict[str, str] = {
+    "tax_refund_hometax_check": (
+        "홈택스·손택스에서 세금 환급금 조회 전 먼저 확인할 환급 유형, 계좌 등록, 신고 내역, "
+        "보완 요청 체크리스트를 정리했습니다. 세금·환급 정보는 공식 안내에 따라 달라질 수 있습니다."
+    ),
+    "ai_work_time_savings": (
+        "ChatGPT·AI 도구를 써도 업무 시간이 줄지 않는 이유와, 반복 단계 분리·검수 기준 설정으로 "
+        "실제 시간을 줄이는 방법을 직장인 기준으로 정리했습니다."
+    ),
+    "ai_tool_comparison": (
+        "ChatGPT·Claude 등 AI 도구 비교 전 확인할 응답 정확도, 무료 플랜 제한, "
+        "유료 전환 기준, 실제 워크플로우 적합성 체크리스트를 정리했습니다."
+    ),
+    "ai_automation_workflow": (
+        "AI 자동화 워크플로우 구성 전 반복 업무 분류, 검수 루프 설계, 파일럿 테스트 방법을 "
+        "단계별로 정리했습니다. 도구 선택보다 자동화 프로세스 정의가 먼저입니다."
+    ),
+    "viral_ott_reaction_decode": (
+        "반응이 갈리는 이슈에서 확인된 사실, 이용자 영향, 커뮤니티 해석, 루머 구분 기준을 "
+        "공식 안내와 신뢰 가능한 보도 중심으로 정리했습니다."
+    ),
+    "delivery_money_checklist": (
+        "배달의민족·쿠팡이츠 등 배달앱 주문 전 배달비 조건, 쿠폰 적용 기준, "
+        "최소주문금액을 확인해 최종 결제금액을 미리 파악하는 체크리스트를 정리했습니다."
+    ),
+    "platform_change_service_update": (
+        "플랫폼 서비스 변경 공지가 떴을 때 내 계정·결제·기기 상태에서 변경 일자 전 점검할 "
+        "체크리스트를 정리했습니다. 약관과 취소·환불 기준 변경도 함께 확인이 필요합니다."
+    ),
+    "consumer_warning_refund": (
+        "환불·결제 오류·개인정보 유출 같은 소비자 피해 상황에서 증거 보존 순서와 운영사·소비자원 "
+        "단계별 대응 방법, 필요한 기록 항목을 체크리스트로 정리했습니다."
+    ),
+    "policy_deadline_support": (
+        "정부·지자체 지원금 신청 전 대상 조건, 소득 기준, 필요 서류, 신청 경로를 "
+        "단계별로 확인할 수 있는 체크리스트를 정리했습니다. 마감 전 신청이 필요합니다."
+    ),
+    "corporate_issue_decode": (
+        "기업 발표·공시 이슈에서 공식 입장과 외부 추측을 구분하고 소비자·투자자·"
+        "이용자가 직접 확인할 채널과 후속 발표 추적 기준을 정리했습니다."
+    ),
+}
+
+_BROKEN_META_PATTERNS: tuple[str, ...] = (
+    "시작했기 확인할 항목",
+    "높다 환급금",
+    "복잡하지 않다 환급",
+    "요미 판단:",
+    "요미의 판단:",
+    "1단계:",
+    "2단계:",
+)
+
+
+def validate_meta_description(text: str) -> dict:
+    """meta description 유효성 검사.
+
+    Returns: {"valid": bool, "issues": list[str]}
+    """
+    import re as _re
+    issues: list[str] = []
+    if len(text) < 80:
+        issues.append(f"too_short:{len(text)}")
+    if len(text) > 160:
+        issues.append(f"too_long:{len(text)}")
+    for pattern in _BROKEN_META_PATTERNS:
+        if pattern in text:
+            issues.append(f"broken_pattern:{pattern[:30]}")
+    # 연속 동일 단어만 금지 (예: "환급 환급", "조회 조회")
+    words = _re.split(r'\s+', text)
+    for i in range(len(words) - 1):
+        if len(words[i]) >= 3 and words[i] == words[i + 1]:
+            issues.append(f"consecutive_duplicate_word:{words[i]}")
+            break
+    return {"valid": not issues, "issues": issues}
+
+
+def _build_meta_description(
+    *,
+    hook: str,
+    real: str,
+    actions_list: list,
+    topic_str: str,
+    selected_title: str = "",
+    content_type: str = "",
+    pattern_id: str = "",
+) -> str:
+    """80~160자 meta description을 생성한다.
+
+    pattern_id별 고정 템플릿을 우선 사용하고, 없으면 슬롯 조합으로 생성한다.
+    """
+    keyword = (selected_title or topic_str)[:50]
+
+    if pattern_id == "policy_deadline_support":
+        subject = re.sub(
+            r"(신청방법과 대상 조건|신청방법|대상 조건|신청 전 먼저 볼 \d+가지|먼저 볼 \d+가지|정리)",
+            "",
+            (selected_title or topic_str or "").strip(),
+        )
+        subject = re.sub(r"\s+", " ", subject).strip(" ,")
+        if subject and subject not in {"지원금", "정부 지원금", "지자체 지원금"}:
+            desc = (
+                f"{subject} 신청 전 대상 조건, 지원 금액, 신청 기간, 필요 서류, 공식 확인처를 "
+                "한 번에 점검하는 체크리스트입니다."
+            )
+            if 80 <= len(desc) <= 160:
+                return desc.strip()
+
+    if pattern_id and pattern_id in _PATTERN_META_TEMPLATES:
+        desc = _PATTERN_META_TEMPLATES[pattern_id]
+        if 80 <= len(desc) <= 160:
+            return desc.strip()
+
+    check_items: list[str] = []
+    for item in (actions_list or [])[:4]:
+        if isinstance(item, dict):
+            action = str(item.get("행동", "")).strip()
+            if action and len(action) <= 16:
+                check_items.append(action)
+
+    hook_sent = _extract_clean_sentence(hook, max_len=80) if hook else ""
+    real_line = ""
+    if real:
+        rl = real.split("\n")[0].strip()
+        real_line = _extract_clean_sentence(rl, max_len=60) if rl else ""
+    items_str = "·".join(check_items[:3]) if check_items else ""
+
+    if hook_sent and items_str:
+        desc = f"{hook_sent} 확인할 항목: {items_str} 등 핵심 체크리스트를 정리했습니다."
+    elif hook_sent:
+        desc = hook_sent
+        if len(desc) < 80 and real_line:
+            desc = (desc + " " + real_line).strip()
+        if len(desc) < 80 and items_str:
+            desc = (desc + " 확인 항목: " + items_str + "을 순서대로 정리했습니다.").strip()
+    elif items_str:
+        desc = f"{keyword}를 확인하기 위해 {items_str} 등 핵심 항목을 정리했습니다."
+    elif real_line:
+        desc = real_line
+    else:
+        tail = "의 핵심 확인 항목과 순서, 독자가 놓치기 쉬운 주의점을 단계별로 정리했습니다."
+        desc = keyword + tail
+
+    if content_type in ("tax_refund", "policy_deadline") and len(desc) < 120:
+        note = " 세금·환급 정보는 공식 안내에 따라 달라질 수 있습니다."
+        if note not in desc:
+            desc = desc + note
+
+    if len(desc) > 160:
+        cut = desc[:157]
+        for sep in ("다. ", "요. ", ". "):
+            pos = cut.rfind(sep)
+            if pos > 80:
+                desc = cut[:pos + 1].strip()
+                break
+        else:
+            desc = cut + "..."
+
+    if len(desc) < 80:
+        tail = "의 핵심 확인 항목과 순서, 독자가 놓치기 쉬운 주의점을 단계별로 정리했습니다."
+        desc = keyword + tail
+
+    return desc.strip()
+
+
+def _unmatched_html(topic: str) -> str:
+    return (
+        f'<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">'
+        f'<title>[PREVIEW — NO MATCH] {escape(topic)}</title></head>'
+        f'<body><p>패턴 매칭 실패: <strong>{escape(topic)}</strong> — '
+        f'등록된 패턴과 일치하지 않아 preview를 생성할 수 없습니다.</p></body></html>'
+    )

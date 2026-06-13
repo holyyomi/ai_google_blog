@@ -1,0 +1,44 @@
+[
+  {
+    "name": "TLDR AI",
+    "source_type": "rss",
+    "url": "https://tldr.tech/ai/rss",
+    "ai_name": "TLDR",
+    "tags": ["newsletter", "ai-news", "daily"]
+  },
+  {
+    "name": "The Rundown AI",
+    "source_type": "rss",
+    "url": "https://www.therundown.ai/feed",
+    "ai_name": "The Rundown AI",
+    "tags": ["newsletter", "ai-news", "daily"]
+  },
+  {
+    "name": "OpenAI Blog",
+    "source_type": "rss",
+    "url": "https://openai.com/news/rss.xml",
+    "ai_name": "OpenAI",
+    "tags": ["llm", "product-update"]
+  },
+  {
+    "name": "Google AI Blog",
+    "source_type": "rss",
+    "url": "https://blog.google/technology/ai/rss/",
+    "ai_name": "Google",
+    "tags": ["gemini", "research", "product-update"]
+  },
+  {
+    "name": "Hugging Face Blog",
+    "source_type": "rss",
+    "url": "https://huggingface.co/blog/feed.xml",
+    "ai_name": "Hugging Face",
+    "tags": ["open-source", "tools", "models"]
+  },
+  {
+    "name": "Hacker News AI",
+    "source_type": "rss",
+    "url": "https://hnrss.org/show?q=AI",
+    "ai_name": "Hacker News",
+    "tags": ["community", "ai-news", "developer"]
+  }
+]

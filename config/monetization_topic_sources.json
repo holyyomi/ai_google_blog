@@ -1,0 +1,128 @@
+{
+  "discovery_settings": {
+    "min_source_articles": 3,
+    "min_unique_domains": 1,
+    "enable_test_mode": false,
+    "enable_test_mode_env": "BLOG_DISCOVERY_TEST_MODE",
+    "test_mode_thresholds": {
+      "min_source_articles": 2,
+      "min_unique_domains": 1
+    }
+  },
+  "pillar_sources": {
+    "ai_tools_news": {
+      "strategy_types": ["news_driven", "hybrid_news_search"],
+      "provider_priority": ["rss_feed", "google_news_search_rss"],
+      "fallback_pillars": ["ai_side_hustle", "daily_side_hustle"],
+      "query_expansion_en": ["new AI tool launched", "AI startup announced", "AI product update 2026"],
+      "search_queries_en": [
+        "new AI tool launched 2026",
+        "AI startup released announced 2026",
+        "AI app update feature 2026"
+      ],
+      "rss_sources": [
+        {
+          "provider_name": "hnrss-ai-launches",
+          "url": "https://hnrss.org/newest?q=AI+launched+OR+released+OR+announced",
+          "provider_type": "rss_feed"
+        },
+        {
+          "provider_name": "techcrunch-ai-rss",
+          "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+          "provider_type": "rss_feed"
+        },
+        {
+          "provider_name": "venturebeat-ai-rss",
+          "url": "https://venturebeat.com/category/ai/feed/",
+          "provider_type": "rss_feed"
+        },
+        {
+          "provider_name": "the-decoder-rss",
+          "url": "https://the-decoder.com/feed/",
+          "provider_type": "rss_feed"
+        },
+        {
+          "provider_name": "google-news-ai-tools-en",
+          "url": "https://news.google.com/rss/search?q=AI+tool+launch+product+2026&hl=en&gl=US&ceid=US:en",
+          "provider_type": "rss_feed"
+        }
+      ],
+      "official_sources": [],
+      "evergreen_sources": []
+    },
+    "ai_side_hustle": {
+      "strategy_types": ["hybrid_news_search", "official_source_driven"],
+      "provider_priority": ["google_news_search_rss", "rss_feed"],
+      "fallback_pillars": ["ai_tools_news", "daily_side_hustle"],
+      "query_expansion_en": ["AI automation workflow", "ChatGPT side income", "solopreneur AI"],
+      "search_queries_en": [
+        "AI side hustle workflow automation",
+        "ChatGPT monetization tool 2026"
+      ],
+      "rss_sources": [],
+      "official_sources": [],
+      "evergreen_sources": [
+        {
+          "provider_name": "huggingface-blog-rss",
+          "url": "https://huggingface.co/blog/feed.xml",
+          "provider_type": "evergreen_source"
+        }
+      ]
+    },
+    "daily_side_hustle": {
+      "strategy_types": ["hybrid_news_search"],
+      "provider_priority": ["google_news_search_rss"],
+      "fallback_pillars": ["ai_tools_news", "ai_side_hustle"],
+      "query_expansion_en": ["online income automation", "solo business AI workflow"],
+      "search_queries_en": [
+        "side hustle online income automation",
+        "creator monetization workflow AI"
+      ],
+      "rss_sources": [],
+      "official_sources": [],
+      "evergreen_sources": []
+    },
+    "korean_stock_news": {
+      "strategy_types": ["news_driven"],
+      "provider_priority": ["rss_feed", "google_news_search_rss"],
+      "fallback_pillars": ["korean_stock_beginner"],
+      "search_queries_ko": [
+        "국내 증시 특징주 시황",
+        "코스피 코스닥 실적 공시 이슈"
+      ],
+      "rss_sources": [
+        {
+          "provider_name": "mk-stock-rss",
+          "url": "https://rss.mk.co.kr/rss/30000001/",
+          "provider_type": "rss_feed"
+        }
+      ],
+      "official_sources": [],
+      "evergreen_sources": []
+    },
+    "side_hustle_tax": {
+      "strategy_types": ["evergreen_search", "official_source_driven"],
+      "provider_priority": ["google_news_search_rss", "official_newsroom"],
+      "fallback_pillars": ["daily_side_hustle"],
+      "search_queries_ko": [
+        "부업 종합소득세 신고 기준",
+        "프리랜서 원천징수 세금 신고"
+      ],
+      "rss_sources": [],
+      "official_sources": [],
+      "evergreen_sources": []
+    },
+    "korean_stock_beginner": {
+      "strategy_types": ["evergreen_search"],
+      "provider_priority": ["google_news_search_rss"],
+      "fallback_pillars": ["korean_stock_news"],
+      "search_queries_ko": [
+        "주식 초보 ETF 계좌 기초",
+        "국내주식 입문 가이드"
+      ],
+      "rss_sources": [],
+      "official_sources": [],
+      "evergreen_sources": []
+    }
+  }
+}
