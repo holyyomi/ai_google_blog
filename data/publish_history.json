@@ -782,5 +782,78 @@
     ],
     "permalink_slug": "ai-work-automation-productivity-update-f4c77e",
     "search_description": "AI 업무 자동화 처음 버릴 반복 작업 5가지 AI 업무 자동화 처음 버릴, 먼저 확인할 3가지 .yomi-clean-post{max-width:744px;margin:0 auto;padding:10px 0 42px;font-family:'Pretendard"
+  },
+  {
+    "run_at": "2026-06-13T16:21:10+00:00",
+    "date": "2026-06-13",
+    "title": "무료 AI 도구 업무 활용 전 확인할 한계, 시간 줄이려면 먼저 볼 3가지",
+    "selected_topic": "무료 AI 도구 업무 활용 전 확인할 한계",
+    "search_demand_topic": "무료 AI 도구 업무 활용 전 확인할 한계",
+    "topic_group": "ai_work",
+    "content_type": "ai_work_tip",
+    "url": "https://holyyomiai.blogspot.com/2026/06/ai-work-automation-productivity-b7bcbc.html",
+    "post_id": "7815158034389876877",
+    "internal_link_targets": [
+      {
+        "anchor_text": "AI 업무 자동화 처음 버릴 반복 작업, 시간 줄이려면 먼저 볼 3가지",
+        "url": "https://holyyomiai.blogspot.com/2026/06/ai-work-automation-productivity-f4c77e_0444089885.html"
+      },
+      {
+        "anchor_text": "직장인 ChatGPT, 시간 줄이려면 먼저 볼 3가지",
+        "url": "https://holyyomiai.blogspot.com/2026/06/chatgpt-ai-work-automation-productivity_0535613546.html"
+      }
+    ],
+    "source_type": "evergreen_fallback",
+    "evergreen_axis": "ai_automation",
+    "fallback_reason": "no_publishable_news_candidate_used_evergreen",
+    "published": true,
+    "dry_run": false,
+    "quality_passed": true,
+    "reader_value_score": 84,
+    "article_focus_score": 100,
+    "ai_recommender_score": 100,
+    "shareability_score": 98,
+    "policy_specificity_score": 0,
+    "recommendation_policy_passed": true,
+    "recommendation_policy_signals": [
+      "table",
+      "faq",
+      "checklist",
+      "example",
+      "official_check",
+      "risk_or_mistake",
+      "updated_date"
+    ],
+    "publish_preview_score": 100,
+    "publish_preview_status": "pass",
+    "quality_blocking_issues": [],
+    "quality_warnings": [
+      "evergreen_today_relevance_below_7:5",
+      "ai_evergreen_issue_specificity_below_6:2"
+    ],
+    "auto_publish_allowed": true,
+    "auto_publish_blocking_reasons": [],
+    "post_publish_audit_passed": true,
+    "post_publish_audit_issues": [],
+    "topic_engine_score": 84,
+    "topic_candidate_grade": "A",
+    "content_candidate_grade": "A",
+    "final_editorial_score": 89,
+    "golden_pattern_id": "ai_work_time_savings",
+    "golden_pattern_confidence": 100,
+    "golden_slot_fill_rate": 1.0,
+    "why_topic_selected": "topic_engine_score=84 + golden_matched=True + grade=A",
+    "why_topic_held": "",
+    "learning_signals": [],
+    "hashtags": [
+      "#AI활용",
+      "#업무자동화",
+      "#생산성",
+      "#AI도구"
+    ],
+    "artifact_dir": "runs/news_20260613_162107",
+    "status": "published",
+    "retry_attempt": 1,
+    "max_publish_attempts": ""
   }
 ]
