@@ -418,63 +418,67 @@ class NewsPipeline:
                 return _clean
 
             candidates = self.topic_service.collect_candidates()
+            ai_blog_mode = str(os.getenv("AI_BLOG_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}
 
             # Trending News — 네이버 인기 기사 페이지에서 실제 클릭 데이터 수집.
             # IssueDiscoveryService(Google News broad scan + 추정 buzz)와 보완.
             # 사용자 선호 반영: 대기업 corporate(노조/공시/총수) 후순위.
-            try:
-                from blogspot_automation.services.trending_news_service import TrendingNewsService
-                _trend = TrendingNewsService()
-                _trending_candidates = _trend.collect_trending_candidates(
-                    max_candidates=10, min_cluster_size=2,
-                )
-                if _trending_candidates:
-                    logger.info(
-                        "trending_news: %d개 실제 클릭 트렌딩 후보 추가 (corporate 후순위)",
-                        len(_trending_candidates),
+            if ai_blog_mode:
+                logger.info("AI_BLOG_MODE: broad trending/discovery 후보 주입 건너뜀")
+            else:
+                try:
+                    from blogspot_automation.services.trending_news_service import TrendingNewsService
+                    _trend = TrendingNewsService()
+                    _trending_candidates = _trend.collect_trending_candidates(
+                        max_candidates=10, min_cluster_size=2,
                     )
-                    # 가장 우선 — issue_discovery보다도 앞에 prepend
-                    candidates = _trending_candidates + candidates
-            except Exception as _tn_exc:  # noqa: BLE001
-                logger.warning("trending_news_service failed: %s", _tn_exc)
+                    if _trending_candidates:
+                        logger.info(
+                            "trending_news: %d개 실제 클릭 트렌딩 후보 추가 (corporate 후순위)",
+                            len(_trending_candidates),
+                        )
+                        # 가장 우선 — issue_discovery보다도 앞에 prepend
+                        candidates = _trending_candidates + candidates
+                except Exception as _tn_exc:  # noqa: BLE001
+                    logger.warning("trending_news_service failed: %s", _tn_exc)
 
-            # Google Trends(KR) 트렌딩 키워드 → 토픽 시드. 매일 반복되는 좁은
-            # 에버그린 풀을 신선한 트렌딩 토픽으로 보완 (소싱 폭 확대).
-            # 정치/대기업/사건사고는 GoogleTrendsTopicService가 focus 필터로 사전 제외.
-            try:
-                from blogspot_automation.services.google_trends_topic_service import GoogleTrendsTopicService
-                _gt_candidates = GoogleTrendsTopicService().collect_trending_candidates(max_candidates=12)
-                if _gt_candidates:
-                    logger.info(
-                        "google_trends_topic: %d개 트렌딩 토픽 시드 추가 (focus 통과)",
-                        len(_gt_candidates),
-                    )
-                    candidates = _gt_candidates + candidates
-            except Exception as _gt_exc:  # noqa: BLE001
-                logger.warning("google_trends_topic_service failed: %s", _gt_exc)
+                # Google Trends(KR) 트렌딩 키워드 → 토픽 시드. 매일 반복되는 좁은
+                # 에버그린 풀을 신선한 트렌딩 토픽으로 보완 (소싱 폭 확대).
+                # 정치/대기업/사건사고는 GoogleTrendsTopicService가 focus 필터로 사전 제외.
+                try:
+                    from blogspot_automation.services.google_trends_topic_service import GoogleTrendsTopicService
+                    _gt_candidates = GoogleTrendsTopicService().collect_trending_candidates(max_candidates=12)
+                    if _gt_candidates:
+                        logger.info(
+                            "google_trends_topic: %d개 트렌딩 토픽 시드 추가 (focus 통과)",
+                            len(_gt_candidates),
+                        )
+                        candidates = _gt_candidates + candidates
+                except Exception as _gt_exc:  # noqa: BLE001
+                    logger.warning("google_trends_topic_service failed: %s", _gt_exc)
 
-            # Real Issue Discovery Engine — broad scan + entity + cluster
-            # 고정 query group이 아니라 실제 오늘 여러 매체에서 반복 등장하는 이슈 발견
-            discovered_count = 0
-            try:
-                from blogspot_automation.services.issue_discovery_service import IssueDiscoveryService
-                _disc = IssueDiscoveryService()
-                _discovered_issues = _disc.discover_today_issues()
-                discovered_count = len(_discovered_issues)
-                _discovered_candidates = _disc.to_news_candidates(_discovered_issues)
-                if _discovered_candidates:
-                    logger.info(
-                        "issue_discovery: %d issues found, %d converted to candidates (buzz/specificity/safe gate)",
-                        discovered_count, len(_discovered_candidates),
-                    )
-                    # 발견된 후보를 기존 후보 앞에 prepend (높은 우선순위)
-                    candidates = _discovered_candidates + candidates
-                else:
-                    logger.info(
-                        "issue_discovery: %d issues found, 0 passed strict gate", discovered_count,
-                    )
-            except Exception as _disc_exc:  # noqa: BLE001
-                logger.warning("issue_discovery_service failed: %s", _disc_exc)
+                # Real Issue Discovery Engine — broad scan + entity + cluster
+                # 고정 query group이 아니라 실제 오늘 여러 매체에서 반복 등장하는 이슈 발견
+                discovered_count = 0
+                try:
+                    from blogspot_automation.services.issue_discovery_service import IssueDiscoveryService
+                    _disc = IssueDiscoveryService()
+                    _discovered_issues = _disc.discover_today_issues()
+                    discovered_count = len(_discovered_issues)
+                    _discovered_candidates = _disc.to_news_candidates(_discovered_issues)
+                    if _discovered_candidates:
+                        logger.info(
+                            "issue_discovery: %d issues found, %d converted to candidates (buzz/specificity/safe gate)",
+                            discovered_count, len(_discovered_candidates),
+                        )
+                        # 발견된 후보를 기존 후보 앞에 prepend (높은 우선순위)
+                        candidates = _discovered_candidates + candidates
+                    else:
+                        logger.info(
+                            "issue_discovery: %d issues found, 0 passed strict gate", discovered_count,
+                        )
+                except Exception as _disc_exc:  # noqa: BLE001
+                    logger.warning("issue_discovery_service failed: %s", _disc_exc)
             scored = self.scoring_service.score_candidates(candidates)
             topic_group_history = self._load_topic_group_history()
             recent_context = self._load_recent_context()
@@ -489,7 +493,8 @@ class NewsPipeline:
             # NewsScoringService는 trending raw 메타데이터(today_buzz, click_potential)를
             # 모르므로 publishable 임계값 통과를 위해 명시 boost. corporate는 이미
             # TrendingNewsService에서 후순위라 일반 trending만 boost된다.
-            scored = self._apply_trending_score_boost(scored)
+            if not ai_blog_mode:
+                scored = self._apply_trending_score_boost(scored)
             # boost 적용된 후 다시 정렬 (scored는 _apply_topic_group_cooldowns가 정렬 반환)
             scored = sorted(scored, key=lambda c: c.total_score, reverse=True)
 
@@ -779,7 +784,7 @@ class NewsPipeline:
                 (c.total_score for c in deduped if not self._is_trending_candidate(c)),
                 default=0,
             )
-            _trending_anywhere = [
+            _trending_anywhere = [] if ai_blog_mode else [
                 c for c in scored
                 if self._is_trending_candidate(c)
                 and not self._is_retry_excluded_candidate(c)
