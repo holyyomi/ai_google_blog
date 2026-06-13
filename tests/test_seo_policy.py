@@ -116,7 +116,7 @@ def test_strip_inline_style_attributes_removes_generated_body_styles() -> None:
 def test_prepare_blogspot_html_styles_clean_cover_and_strips_hashtag_blocks() -> None:
     html = (
         '<article class="yomi-clean-post">'
-        '<figure class="news-cover-image" data-yomi-block="cover-image">'
+        '<figure class="ai-cover-image" data-yomi-block="cover-image">'
         '<img src="https://cdn.example.com/a.jpg" alt="뉴스 이미지" width="1200" height="675" />'
         "</figure>"
         '<section class="yomi-hashtags" data-yomi-block="hashtags"><p>#AI활용</p></section>'
@@ -125,7 +125,7 @@ def test_prepare_blogspot_html_styles_clean_cover_and_strips_hashtag_blocks() ->
 
     cleaned = prepare_blogspot_html(html)
 
-    assert ".news-cover-image img" in cleaned
+    assert ".ai-cover-image img" in cleaned
     assert 'data-yomi-block="hashtags"' not in cleaned
     assert '<section class="yomi-hashtags"' not in cleaned
     assert "#AI활용" not in cleaned

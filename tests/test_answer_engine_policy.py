@@ -41,6 +41,7 @@ def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
     assert coverage["people_also_ask_count"] >= 5
     assert coverage["confirmed_vs_check_needed_present"]
     assert coverage["source_trust_block_present"]
+    assert coverage["ai_citation_summary_present"]
     assert coverage["faq_section_present"]
     assert coverage["faqpage_json_ld_present"]
     assert coverage["blogposting_json_ld_present"]
@@ -81,6 +82,7 @@ def test_ensure_answer_engine_optimized_html_is_idempotent_for_blocks() -> None:
         'id="PEOPLE_ALSO_ASK_BLOCK"',
         'id="CONFIRMED_VS_CHECK_NEEDED_BLOCK"',
         'id="SOURCE_TRUST_BLOCK"',
+        'id="AI_CITATION_SUMMARY"',
     ):
         assert twice.count(marker) == 1
     assert twice.count('"@type": "FAQPage"') == 1

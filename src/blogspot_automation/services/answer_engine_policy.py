@@ -166,6 +166,8 @@ def ensure_answer_engine_optimized_html(
             content = _insert_after_h1_or_prepend(content, head_bundle)
 
     tail_blocks: list[str] = []
+    if 'id="AI_CITATION_SUMMARY"' not in content:
+        tail_blocks.append(_citation_summary_block(title=title, topic=topic_text, slots=slots))
     if 'id="CONFIRMED_VS_CHECK_NEEDED_BLOCK"' not in content:
         tail_blocks.append(_confirmed_vs_check_needed_block(confirmed_map, label=_varied_label("confirmed", _seed)))
     if 'id="SOURCE_TRUST_BLOCK"' not in content:
@@ -220,6 +222,7 @@ def answer_engine_coverage(html: str) -> dict[str, object]:
         "people_also_ask_count": len(re.findall(r'class=["\'][^"\']*paa-item', content)),
         "confirmed_vs_check_needed_present": 'id="CONFIRMED_VS_CHECK_NEEDED_BLOCK"' in content,
         "source_trust_block_present": 'id="SOURCE_TRUST_BLOCK"' in content,
+        "ai_citation_summary_present": 'id="AI_CITATION_SUMMARY"' in content,
         "faq_section_present": _has_faq_section(content),
         "faqpage_json_ld_present": '"@type": "FAQPage"' in content or '"@type":"FAQPage"' in content,
         "blogposting_json_ld_present": '"@type": "BlogPosting"' in content or '"@type":"BlogPosting"' in content,
@@ -297,6 +300,26 @@ def _section(section_id: str, css_class: str, heading: str, text: str) -> str:
         f'<section id="{section_id}" class="{css_class}">'
         f'<h2>{escape(heading)}</h2>'
         f'<p>{escape(" ".join((text or "").split()))}</p>'
+        "</section>"
+    )
+
+
+def _citation_summary_block(*, title: str, topic: str, slots: dict[str, Any]) -> str:
+    hook = _first_sentence(str(slots.get("hook_opening") or ""), max_len=140)
+    criterion = _first_sentence(str(slots.get("real_criterion") or ""), max_len=140)
+    basis = _first_sentence(str(slots.get("yomi_judgment") or ""), max_len=140)
+    sentences = [item for item in (hook, criterion, basis) if item]
+    if len(sentences) < 3:
+        fallback_topic = topic or title or "이 주제"
+        sentences.extend([
+            f"{fallback_topic}은 적용 대상과 실제 영향 범위를 나누어 확인해야 합니다.",
+            "공식 안내, 서비스 화면, 최신 변경 여부를 함께 보는 것이 안전합니다.",
+            "본문은 독자가 바로 비교할 수 있도록 핵심 조건과 주의점을 먼저 정리합니다.",
+        ])
+    text = " ".join(dict.fromkeys(sentences[:4]))
+    return (
+        '<section id="AI_CITATION_SUMMARY" class="yomi-citation-summary">'
+        f"<p>{escape(text)}</p>"
         "</section>"
     )
 

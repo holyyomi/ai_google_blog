@@ -63,7 +63,7 @@ def ensure_cover_image_html(
 
     safe_alt = escape(" ".join((alt_text or title or "AI cover image").split()), quote=True)
     block = (
-        '<figure class="news-cover-image" data-yomi-block="cover-image" data-yomi-cover-kind="ai">'
+        '<figure class="ai-cover-image" data-yomi-block="cover-image" data-yomi-cover-kind="ai">'
         f'<img src="{escape(clean_url, quote=True)}" alt="{safe_alt}" '
         'loading="eager" decoding="async" width="1200" height="675" '
         "/>"

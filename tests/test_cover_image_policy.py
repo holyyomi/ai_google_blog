@@ -17,9 +17,9 @@ def test_ensure_cover_image_html_inserts_public_image_after_h1() -> None:
         title="Today issue checklist",
     )
 
-    assert '<figure class="news-cover-image"' in result
+    assert '<figure class="ai-cover-image"' in result
     assert '<img src="https://cdn.example.com/news-cover.jpg"' in result
-    assert result.index("</h1>") < result.index("news-cover-image")
+    assert result.index("</h1>") < result.index("ai-cover-image")
     coverage = cover_image_coverage(result)
     assert coverage["cover_image_present"]
     assert coverage["cover_image_public_url"]

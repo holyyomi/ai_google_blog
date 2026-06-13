@@ -38,7 +38,7 @@ def main() -> int:
             re.search(r'<meta\b(?=[^>]*name=["\']description["\'])', html, flags=re.IGNORECASE | re.DOTALL)
         ),
         "canonical_self": args.url in html,
-        "cover_image_present": "news-cover-image" in html and re.search(r"<img\b", html, re.IGNORECASE) is not None,
+        "cover_image_present": "ai-cover-image" in html and re.search(r"<img\b", html, re.IGNORECASE) is not None,
         "ai_citation_present": "AI_CITATION_SUMMARY" in html,
         "ai_overview_present": "AI_OVERVIEW_TARGET_ANSWER" in html,
         "faq_jsonld_present": "FAQPage" in html,
