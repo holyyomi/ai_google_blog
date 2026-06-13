@@ -17,7 +17,6 @@ contents/
 
 # Runtime state (should not be tracked)
 data/*.db
-data/publish_history.json
 data/published_history.json
 data/naver_processed.json
 state/news_published_history.json

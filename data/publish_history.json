@@ -1,0 +1,22 @@
+[
+  {
+    "run_at": "2026-06-13T12:50:14+00:00",
+    "date": "2026-06-13",
+    "title": "직장인 ChatGPT, 시간 줄이려면 먼저 볼 3가지",
+    "selected_topic": "직장인이 ChatGPT로 업무 시간을 줄이는 방법",
+    "search_demand_topic": "직장인이 ChatGPT로 업무 시간을 줄이는 방법",
+    "topic_group": "ai_work",
+    "content_type": "ai_work_tip",
+    "url": "https://holyyomiai.blogspot.com/2026/06/chatgpt-ai-work-automation-productivity_0535613546.html",
+    "status": "published",
+    "published": true,
+    "dry_run": false,
+    "publish_succeeded": true,
+    "post_publish_audit_passed": true,
+    "url_verified_status_code": 200,
+    "live_url_verified": true,
+    "source_type": "news_publish_service",
+    "run_id": "27467219865",
+    "workflow_url": "https://github.com/holyyomi/ai_google_blog/actions/runs/27467219865"
+  }
+]
