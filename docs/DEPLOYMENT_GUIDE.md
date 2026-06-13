@@ -25,8 +25,8 @@ Do not set `OPENROUTER_API_KEY`. OpenRouter is no longer used.
 The GitHub Actions workflow sets:
 
 ```yaml
-schedule: 17,47 * * * *
-schedule_kst: 08:13
+schedule: 28,58 * * * *
+schedule_kst: 08:58
 NEWS_PUBLISH_MODE: publish
 AUTO_PUBLISH: true
 GEMINI_MODEL: gemini-2.5-flash

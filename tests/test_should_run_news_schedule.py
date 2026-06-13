@@ -77,6 +77,20 @@ def test_fixed_slot_runs_even_if_previous_slot_was_published(monkeypatch, tmp_pa
     assert outputs["slot_end_at"] == "2026-06-02T15:13:00+00:00"
 
 
+def test_fixed_slot_skips_before_first_due_slot(monkeypatch, tmp_path, capsys) -> None:
+    outputs = _run_slot_gate(
+        monkeypatch,
+        tmp_path,
+        capsys,
+        records=[],
+        now=datetime(2026, 6, 1, 15, 5, tzinfo=timezone.utc),
+    )
+
+    assert outputs["should_run"] == "false"
+    assert outputs["reason"] == "before_first_slot"
+    assert outputs["next_run_at"] == "2026-06-01T15:13:00+00:00"
+
+
 def test_fixed_slot_skips_when_current_slot_was_published(monkeypatch, tmp_path, capsys) -> None:
     outputs = _run_slot_gate(
         monkeypatch,

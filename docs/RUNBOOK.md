@@ -32,9 +32,9 @@ Keep `ENABLE_GOOGLE_CUSTOM_SEARCH=false` when Programmable Search cannot enable 
 
 Production news publishing is configured in `.github/workflows/news_blog.yml`.
 
-- GitHub Actions wakes twice per hour: `17,47 * * * *`.
+- GitHub Actions wakes twice per hour: `28,58 * * * *`.
 - `tools/should_run_news_schedule.py` is the fixed-slot gate.
-- Publish slot is `08:13` KST for one AI post per day.
+- Publish slot is `08:58` KST for one AI post per day.
 - The gate ignores dry-run, deleted, 404, and unverified failed post-audit records when deciding whether a slot already succeeded.
 - Live-verified records (`url_verified_status_code=200` or `live_url_verified=true`) count as real publishes even when older posts fail the newer audit checklist.
 - `data/publish_history.json` is committed after each publish-mode run and acts as the editorial feedback log.
@@ -42,8 +42,8 @@ Production news publishing is configured in `.github/workflows/news_blog.yml`.
 Keep these workflow values for automatic upload:
 
 ```yaml
-cron: "17,47 * * * *"
-NEWS_SCHEDULE_SLOTS: "08:13"
+cron: "28,58 * * * *"
+NEWS_SCHEDULE_SLOTS: "08:58"
 NEWS_PUBLISH_MODE: publish
 AUTO_PUBLISH: true
 PUBLISH_HOLD_PHASE2: "false"

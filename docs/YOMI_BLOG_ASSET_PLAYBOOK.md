@@ -199,8 +199,8 @@ python tools/sync_publish_history.py --verify-live-urls
 
 스케줄 운영 기준:
 
-- GitHub Actions는 `17,47 * * * *`에 깨운다.
-- 실제 발행 슬롯은 KST `00:13`, `08:13`, `16:13`으로 제한한다.
+- GitHub Actions는 `28,58 * * * *`에 깨운다.
+- 실제 발행 슬롯은 KST `08:58`로 제한한다.
 - `tools/should_run_news_schedule.py`가 고정 슬롯 게이트 역할을 한다.
 - 발행 모드는 `NEWS_PUBLISH_MODE=publish`, `AUTO_PUBLISH=true`일 때만 실제 발행한다.
 - 로컬 테스트는 기본적으로 `DRY_RUN=true`, `NEWS_PUBLISH_MODE=dry_run`을 쓴다.

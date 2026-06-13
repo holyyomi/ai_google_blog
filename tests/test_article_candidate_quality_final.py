@@ -267,9 +267,9 @@ class TestWorkflowSchedules(unittest.TestCase):
         if not path.exists():
             self.skipTest("news_blog.yml not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("17,47 * * * *", content, "news_blog.yml should wake every 30 minutes for catch-up")
+        self.assertIn("28,58 * * * *", content, "news_blog.yml should wake every 30 minutes for catch-up")
         self.assertIn('NEWS_SCHEDULE_TIMEZONE: "Asia/Seoul"', content)
-        self.assertIn('NEWS_SCHEDULE_SLOTS: "08:13"', content)
+        self.assertIn('NEWS_SCHEDULE_SLOTS: "08:58"', content)
         self.assertIn('NEWS_DAILY_PUBLISH_TARGET: "1"', content)
         self.assertIn('NEWS_FAILED_SCHEDULE_INTERVAL_MINUTES: "20"', content)
         self.assertIn("tools/should_run_news_schedule.py", content)

@@ -140,6 +140,20 @@ def _run_fixed_slot_gate(slots: list[time]) -> int:
     )
     daily_success_count = len(daily_success_records)
 
+    if due_publish_count == 0:
+        _set_outputs(
+            should_run=False,
+            reason="before_first_slot",
+            interval_minutes=failure_retry_minutes,
+            last_run_at=_format_latest_run_at(slot_records),
+            next_run_at=next_slot_start.isoformat(timespec="seconds"),
+            elapsed_minutes=_elapsed_minutes(now, slot_records),
+            slot_start_at=current_slot_start.isoformat(timespec="seconds"),
+            slot_end_at=next_slot_start.isoformat(timespec="seconds"),
+            schedule_timezone=timezone_name,
+        )
+        return 0
+
     if current_slot_has_success and daily_success_count < due_publish_count:
         _set_outputs(
             should_run=True,

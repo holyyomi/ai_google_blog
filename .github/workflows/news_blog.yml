@@ -4,7 +4,7 @@ on:
   schedule:
     # Wake every 30 minutes; the fixed-slot gate below publishes at most once per KST slot.
     # This gives catch-up chances when GitHub schedule events are delayed or dropped.
-    - cron: '17,47 * * * *'
+    - cron: '28,58 * * * *'
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -42,7 +42,7 @@ jobs:
         if: ${{ github.event_name == 'schedule' }}
         env:
           NEWS_SCHEDULE_TIMEZONE: "Asia/Seoul"
-          NEWS_SCHEDULE_SLOTS: "08:13"
+          NEWS_SCHEDULE_SLOTS: "08:58"
           NEWS_DAILY_PUBLISH_TARGET: "1"
           NEWS_FAILED_SCHEDULE_INTERVAL_MINUTES: "20"
         run: |
