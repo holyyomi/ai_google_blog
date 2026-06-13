@@ -326,6 +326,39 @@ def test_ai_blog_mode_allows_ai_topic_without_explicit_override(monkeypatch) -> 
     assert decision.allowed
 
 
+def test_ai_blog_mode_blocks_non_ai_topic(monkeypatch) -> None:
+    monkeypatch.setenv("AI_BLOG_MODE", "true")
+    monkeypatch.delenv("ALLOW_AI_NEWS_TOPICS", raising=False)
+
+    decision = evaluate_news_focus(
+        topic="스페이스X와 반도체 투자 이슈",
+        raw={"topic_group": "today_issue", "content_angle": {"content_type": "today_issue_explainer"}},
+    )
+
+    assert not decision.allowed
+    assert decision.reason == "non_ai_topic_blocked_for_ai_blog_mode"
+
+
+def test_ai_blog_mode_blocks_non_ai_trending_candidate(monkeypatch) -> None:
+    monkeypatch.setenv("AI_BLOG_MODE", "true")
+    monkeypatch.delenv("ALLOW_AI_NEWS_TOPICS", raising=False)
+
+    candidate = MagicMock()
+    candidate.topic = "스페이스X와 반도체 투자 이슈"
+    candidate.summary = "기업 투자 관련 오늘 이슈"
+    candidate.raw = {
+        "trending_engine": True,
+        "source_type": "naver_trending",
+        "topic_group": "today_issue",
+        "content_angle": {"content_type": "today_issue_explainer"},
+    }
+    scored = MagicMock()
+    scored.candidate = candidate
+
+    assert not NewsPipeline._is_news_focus_candidate(scored)
+    assert NewsPipeline(dry_run=True)._handle_trending_candidate(scored) is None
+
+
 def test_ai_blog_mode_still_blocks_political_headline(monkeypatch) -> None:
     monkeypatch.setenv("AI_BLOG_MODE", "true")
     monkeypatch.delenv("ALLOW_AI_NEWS_TOPICS", raising=False)

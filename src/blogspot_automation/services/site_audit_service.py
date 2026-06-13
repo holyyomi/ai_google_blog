@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -14,6 +15,7 @@ from blogspot_automation.services.news_focus_policy import evaluate_news_focus
 
 
 DEFAULT_SITEMAP_URL = "https://holyyomiai.blogspot.com/sitemap.xml"
+AI_BLOG_HOST = "holyyomiai.blogspot.com"
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +103,7 @@ def classify_sitemap_url(url: str) -> SitemapUrlAudit:
         priority_score = max(priority_score, 50)
 
     focus = evaluate_news_focus(topic=slug.replace("-", " "), raw={})
-    if not focus.allowed:
+    if not _is_ai_blog_url(url) and not focus.allowed:
         reasons.append("ai_topic_url")
         action = "unpublish_or_move_out_of_news_blog"
         risk_level = "high"
@@ -198,6 +200,10 @@ def _slug_from_url(url: str) -> str:
     path = url.split("?", 1)[0].rstrip("/")
     last = path.rsplit("/", 1)[-1]
     return re.sub(r"\.html$", "", last, flags=re.IGNORECASE)
+
+
+def _is_ai_blog_url(url: str) -> bool:
+    return urlsplit(url).netloc.lower() == AI_BLOG_HOST
 
 
 def _year_month_from_url(url: str) -> str:

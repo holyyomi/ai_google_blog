@@ -208,8 +208,12 @@ class NewsFocusDecision:
 
 
 def allow_ai_news_topics_from_env() -> bool:
-    default = "true" if os.getenv("AI_BLOG_MODE", "true").strip().lower() in {"1", "true", "yes", "on"} else "false"
+    default = "true" if ai_blog_mode_from_env() else "false"
     return os.getenv("ALLOW_AI_NEWS_TOPICS", default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def ai_blog_mode_from_env() -> bool:
+    return os.getenv("AI_BLOG_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def allow_political_today_issues_from_env() -> bool:
@@ -249,6 +253,14 @@ def evaluate_news_focus(
         )
     )
     broad_today_issue = _is_broad_today_issue_candidate(payload)
+    matched = _matched_ai_terms(text)
+    is_ai_topic = (
+        topic_group == "ai_work"
+        or content_type == "ai_work_tip"
+        or evergreen_axis == "ai_automation"
+        or query_group == "ai_work"
+        or bool(matched)
+    )
     harm_crime_matches = _matched_terms(text, _HARM_CRIME_TERMS)
     if harm_crime_matches:
         return NewsFocusDecision(
@@ -269,24 +281,6 @@ def evaluate_news_focus(
                 reason="corporate_governance_topic_blocked_for_news_focus",
                 matched_terms=corporate_matches,
             )
-    matched = _matched_ai_terms(text)
-    if (
-        not allow_ai_news_topics_from_env()
-        and
-        not broad_today_issue
-        and (
-            topic_group == "ai_work"
-            or content_type == "ai_work_tip"
-            or evergreen_axis == "ai_automation"
-            or query_group == "ai_work"
-            or matched
-        )
-    ):
-        return NewsFocusDecision(
-            allowed=False,
-            reason="ai_topic_blocked_for_news_only_operation",
-            matched_terms=matched,
-        )
     political_matches = _matched_terms(text, _POLITICAL_GEOPOLITICAL_TERMS)
     if (
         political_matches
@@ -304,6 +298,18 @@ def evaluate_news_focus(
             allowed=False,
             reason="foreign_admin_topic_blocked_for_news_focus",
             matched_terms=foreign_admin_matches,
+        )
+    if ai_blog_mode_from_env() and not is_ai_topic:
+        return NewsFocusDecision(
+            allowed=False,
+            reason="non_ai_topic_blocked_for_ai_blog_mode",
+            matched_terms=(),
+        )
+    if not allow_ai_news_topics_from_env() and not broad_today_issue and is_ai_topic:
+        return NewsFocusDecision(
+            allowed=False,
+            reason="ai_topic_blocked_for_news_only_operation",
+            matched_terms=matched,
         )
     return NewsFocusDecision(allowed=True)
 
