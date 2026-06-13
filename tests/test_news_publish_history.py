@@ -323,6 +323,44 @@ def test_recent_duplicate_issue_ignores_unpublished_history(tmp_path) -> None:
     )
 
 
+def test_manual_dedup_bypass_requires_workflow_dispatch_publish(tmp_path, monkeypatch) -> None:
+    pipeline = _pipeline(tmp_path, dry_run=False, news_publish_mode="publish")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("NEWS_MANUAL_DEDUP_BYPASS", "true")
+
+    assert pipeline._manual_dedup_bypass_enabled() is True
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
+    assert pipeline._manual_dedup_bypass_enabled() is False
+
+    dry_run_pipeline = _pipeline(tmp_path, dry_run=True, news_publish_mode="publish")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    assert dry_run_pipeline._manual_dedup_bypass_enabled() is False
+
+
+def test_manual_dedup_bypass_skips_recent_duplicate_issue(tmp_path, monkeypatch) -> None:
+    pipeline = _pipeline(tmp_path, dry_run=False, news_publish_mode="publish")
+    pipeline.publish_history_service.append_record(
+        {
+            "date": date.today().isoformat(),
+            "status": "published",
+            "published": True,
+            "selected_topic": "same ai automation topic",
+            "title": "Same AI Automation Title",
+        }
+    )
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("NEWS_MANUAL_DEDUP_BYPASS", "true")
+
+    assert (
+        pipeline._recent_duplicate_issue(
+            selected_topic="same ai automation topic",
+            selected_title="Same AI Automation Title",
+        )
+        == ""
+    )
+
+
 def test_recent_records_published_only_filters_failed_attempts(tmp_path) -> None:
     service = PublishHistoryService(history_path=tmp_path / "publish_history.json")
     service.append_record(

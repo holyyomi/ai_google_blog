@@ -663,10 +663,18 @@ class NewsPipeline:
                 else:
                     publishable = real_news_publishable
             dedup_history_records = self._dedup_history_records()
-            after_dedup = self.dedup_service.exclude_recent_duplicates(
-                publishable,
-                history_records=dedup_history_records,
-            )
+            manual_dedup_bypass = self._manual_dedup_bypass_enabled()
+            if manual_dedup_bypass:
+                after_dedup = list(publishable)
+                logger.warning(
+                    "NewsPipeline: manual dedup bypass enabled for workflow_dispatch publish run; "
+                    "recent-topic dedup skipped for this run only"
+                )
+            else:
+                after_dedup = self.dedup_service.exclude_recent_duplicates(
+                    publishable,
+                    history_records=dedup_history_records,
+                )
             dedup_removed_count = len(publishable) - len(after_dedup)
             deduped = self._exclude_retry_candidates(after_dedup)
             retry_excluded_count = len(after_dedup) - len(deduped)
@@ -701,10 +709,13 @@ class NewsPipeline:
                     topic_group_history=topic_group_history,
                     recent_evergreen_axes=recent_evergreen_axes,
                 )
-                evergreen_after_dedup = self.dedup_service.exclude_recent_duplicates(
-                    evergreen_publishable,
-                    history_records=dedup_history_records,
-                )
+                if manual_dedup_bypass:
+                    evergreen_after_dedup = list(evergreen_publishable)
+                else:
+                    evergreen_after_dedup = self.dedup_service.exclude_recent_duplicates(
+                        evergreen_publishable,
+                        history_records=dedup_history_records,
+                    )
                 evergreen_deduped = self._exclude_retry_candidates(evergreen_after_dedup)
                 if evergreen_deduped:
                     logger.info(
@@ -1104,6 +1115,7 @@ class NewsPipeline:
                     "news_publishable_real_count": news_publishable_real_count,
                     "fallback_reason": fallback_reason,
                     "duplicate_issue": duplicate_issue,
+                    "manual_dedup_bypass": manual_dedup_bypass,
                     "selected_topic_group": selected.candidate.raw.get("topic_group"),
                     "selected_content_angle": self._content_angle_summary(selected),
                     "selected_issue_content_profile": selected.candidate.raw.get("issue_content_profile"),
@@ -1425,6 +1437,7 @@ class NewsPipeline:
                 "history_recent_topic_groups": recent_topic_groups_hist[:7],
                 "history_recent_content_types": recent_content_types_hist[:7],
                 "fallback_reason": fallback_reason,
+                "manual_dedup_bypass": manual_dedup_bypass,
                 "target_reader": selected.candidate.raw.get("target_reader", ""),
                 "click_potential_score": click_potential_score,
                 **source_flags,
@@ -2795,6 +2808,8 @@ class NewsPipeline:
         return unique_records
 
     def _recent_duplicate_issue(self, *, selected_topic: str, selected_title: str) -> str:
+        if self._manual_dedup_bypass_enabled():
+            return ""
         history_records = self._dedup_history_records()
         topic_norm = self.dedup_service.normalize_text(selected_topic)
         title_norm = self.dedup_service.normalize_text(selected_title)
@@ -2817,6 +2832,14 @@ class NewsPipeline:
             if title_norm and title_norm in record_title_norms:
                 return "selected_title_recently_published"
         return ""
+
+    def _manual_dedup_bypass_enabled(self) -> bool:
+        return (
+            not self.dry_run
+            and self.news_publish_mode == "publish"
+            and os.getenv("GITHUB_EVENT_NAME", "").strip().lower() == "workflow_dispatch"
+            and os.getenv("NEWS_MANUAL_DEDUP_BYPASS", "").strip().lower() in {"1", "true", "yes", "on"}
+        )
 
     def _apply_topic_group_cooldowns(
         self,

@@ -15,6 +15,14 @@ on:
         options:
           - publish
           - dry_run
+      manual_dedup_bypass:
+        description: 'Manual publish only: bypass recent topic dedup'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 concurrency:
   group: news-blog-publish
@@ -105,6 +113,7 @@ jobs:
           NEWS_PUBLISH_MODE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode || 'publish' }}
           PUBLISH_HOLD_PHASE2: "false"
           AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'false' || 'true' }}
+          NEWS_MANUAL_DEDUP_BYPASS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.manual_dedup_bypass == 'true' && github.event.inputs.publish_mode == 'publish' && 'true' || 'false' }}
           NEWS_MAX_PUBLISH_ATTEMPTS: "12"
           DISABLE_IMAGE_GENERATION: "false"
           DISABLE_IMAGE_UPLOAD: "false"
