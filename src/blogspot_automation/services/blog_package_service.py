@@ -201,10 +201,10 @@ class BloggerPackageService:
             _sources_section(updated_at, source_articles),
         ]
         return (
-            "<article style=\"max-width:820px;margin:0 auto;padding:20px 14px;background:#f5f7fb;"
-            "color:#1f2937;font-family:'Segoe UI',Apple SD Gothic Neo,sans-serif;line-height:1.72;\">"
-            "<section style=\"border:1px solid #dbe4f0;border-radius:22px;padding:18px 20px;background:#ffffff;margin-bottom:18px;\">"
-            "<h2 style=\"font-size:20px;margin:0 0 12px 0;color:#0f172a;\">목차</h2>"
+            "<article style=\"max-width:744px;margin:0 auto;padding:18px 14px;background:#fbfdff;"
+            "color:#172026;font-family:'Pretendard','Noto Sans KR','Segoe UI',Apple SD Gothic Neo,sans-serif;line-height:1.82;letter-spacing:0;\">"
+            "<section style=\"border:1px solid #dbe3ee;border-radius:8px;padding:18px 20px;background:#ffffff;margin-bottom:18px;box-shadow:0 8px 20px rgba(15,23,42,.05);\">"
+            "<h2 style=\"font-size:20px;margin:0 0 12px 0;color:#111827;\">AI 실행 지도</h2>"
             f"<ol style=\"margin:0;padding-left:20px;color:#334155;columns:1;\">{toc_items}</ol>"
             "</section>"
             + "".join(sections)
@@ -365,15 +365,15 @@ def _hero_section(pillar_label: str, final_title: str, meta_description: str, up
         ("난이도", brief.difficulty_level),
     ]
     badge_html = "".join(
-        f"<span style=\"display:inline-block;margin:0 8px 8px 0;padding:8px 12px;border-radius:999px;background:#ecfeff;"
-        f"border:1px solid #a5f3fc;color:#155e75;font-size:13px;font-weight:600;\">{html.escape(label)}: {html.escape(value)}</span>"
+        f"<span style=\"display:inline-block;margin:0 8px 8px 0;padding:8px 12px;border-radius:8px;background:#f4fffc;"
+        f"border:1px solid #bcebe1;color:#0f766e;font-size:13px;font-weight:700;\">{html.escape(label)}: {html.escape(value)}</span>"
         for label, value in badges
     )
     return (
-        "<section id=\"hero\" style=\"padding:26px 22px;border:1px solid #cbd5e1;border-radius:24px;"
-        "background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);margin-bottom:18px;\">"
-        f"<div style=\"font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#0f766e;margin-bottom:10px;\">{html.escape(pillar_label)}</div>"
-        f"<h1 style=\"font-size:31px;line-height:1.3;margin:0 0 12px 0;color:#0f172a;\">{html.escape(final_title)}</h1>"
+        "<section id=\"hero\" style=\"padding:26px 22px;border:1px solid #dbe3ee;border-left:6px solid #00a3a3;border-radius:8px;"
+        "background:#ffffff;margin-bottom:18px;box-shadow:0 10px 24px rgba(15,23,42,.06);\">"
+        f"<div style=\"font-size:12px;font-weight:800;letter-spacing:0;text-transform:uppercase;color:#0f766e;margin-bottom:10px;\">AI WORKFLOW / {html.escape(pillar_label)}</div>"
+        f"<h1 style=\"font-size:31px;line-height:1.3;margin:0 0 12px 0;color:#111827;\">{html.escape(final_title)}</h1>"
         f"<p style=\"font-size:16px;margin:0 0 14px 0;color:#334155;\">{html.escape(meta_description)}</p>"
         f"<div style=\"margin-bottom:10px;\">{badge_html}</div>"
         f"<div style=\"font-size:13px;color:#64748b;\">업데이트: {html.escape(updated_at)}</div>"
@@ -427,8 +427,8 @@ def _metrics_section(brief) -> str:
         ("난이도", brief.difficulty_level),
     ]
     grid = "".join(
-        "<div style=\"flex:1 1 180px;border:1px solid #bfdbfe;background:#ffffff;border-radius:16px;padding:14px;\">"
-        f"<div style=\"font-size:13px;color:#1d4ed8;font-weight:700;margin-bottom:6px;\">{html.escape(label)}</div>"
+        "<div style=\"flex:1 1 180px;border:1px solid #dbe3ee;background:#ffffff;border-radius:8px;padding:14px;box-shadow:0 8px 20px rgba(15,23,42,.05);\">"
+        f"<div style=\"font-size:13px;color:#0f766e;font-weight:800;margin-bottom:6px;\">{html.escape(label)}</div>"
         f"<div style=\"font-size:18px;color:#0f172a;font-weight:700;\">{html.escape(value)}</div>"
         "</div>"
         for label, value in cards
@@ -448,11 +448,11 @@ def _metrics_section(brief) -> str:
 def _fit_section(brief) -> str:
     content = (
         "<div style=\"display:flex;flex-wrap:wrap;gap:14px;\">"
-        "<div style=\"flex:1 1 240px;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:16px;padding:16px;\">"
+        "<div style=\"flex:1 1 240px;border:1px solid #bcebe1;background:#f4fffc;border-radius:8px;padding:16px;\">"
         "<h3 style=\"margin:0 0 10px 0;font-size:18px;color:#166534;\">추천 대상</h3>"
         + "".join(f"<p style=\"margin:0 0 8px 0;color:#166534;\">- {html.escape(item)}</p>" for item in brief.recommended_for)
         + "</div>"
-        "<div style=\"flex:1 1 240px;border:1px solid #fecaca;background:#fff1f2;border-radius:16px;padding:16px;\">"
+        "<div style=\"flex:1 1 240px;border:1px solid #fecdd3;background:#fff7f8;border-radius:8px;padding:16px;\">"
         "<h3 style=\"margin:0 0 10px 0;font-size:18px;color:#9f1239;\">비추천 대상</h3>"
         + "".join(f"<p style=\"margin:0 0 8px 0;color:#9f1239;\">- {html.escape(item)}</p>" for item in brief.not_recommended_for)
         + "</div>"
@@ -479,8 +479,8 @@ def _cta_section(brief) -> str:
         ("다음 읽을 방향", brief.cta_direction),
     ]
     card_html = "".join(
-        "<div style=\"flex:1 1 210px;border:1px solid #93c5fd;background:#ffffff;border-radius:18px;padding:14px;\">"
-        f"<div style=\"font-size:13px;color:#1d4ed8;font-weight:700;margin-bottom:8px;\">{html.escape(title)}</div>"
+        "<div style=\"flex:1 1 210px;border:1px solid #dbe3ee;background:#ffffff;border-radius:8px;padding:14px;box-shadow:0 8px 20px rgba(15,23,42,.05);\">"
+        f"<div style=\"font-size:13px;color:#0f766e;font-weight:800;margin-bottom:8px;\">{html.escape(title)}</div>"
         f"<div style=\"font-size:16px;color:#1e293b;line-height:1.6;\">{html.escape(body)}</div>"
         "</div>"
         for title, body in cards
@@ -597,7 +597,7 @@ def _build_json_ld(
 def _wrap_section(section_id: str, title: str, content: str, palette: dict[str, str]) -> str:
     return (
         f"<section id=\"{section_id}\" style=\"margin-bottom:18px;padding:20px 18px;border:1px solid {palette['border']};"
-        f"border-radius:20px;background:{palette['background']};\">"
+        f"border-left:6px solid {palette['accent']};border-radius:8px;background:{palette['background']};box-shadow:0 8px 20px rgba(15,23,42,.05);\">"
         f"<h2 style=\"font-size:24px;line-height:1.35;margin:0 0 12px 0;color:{palette['heading']};\">{html.escape(title)}</h2>"
         f"{content}</section>"
     )
@@ -605,15 +605,15 @@ def _wrap_section(section_id: str, title: str, content: str, palette: dict[str, 
 
 def _palette(tone: str) -> dict[str, str]:
     palettes = {
-        "summary": {"background": "#ffffff", "border": "#dbe4f0", "heading": "#0f172a", "text": "#334155"},
-        "facts": {"background": "#f8fbff", "border": "#bfdbfe", "heading": "#1d4ed8", "text": "#1e3a8a"},
-        "highlight": {"background": "#f0fdfa", "border": "#99f6e4", "heading": "#115e59", "text": "#134e4a"},
-        "execution": {"background": "#f0fdf4", "border": "#bbf7d0", "heading": "#166534", "text": "#166534"},
-        "warning": {"background": "#fff7ed", "border": "#fdba74", "heading": "#9a3412", "text": "#9a3412"},
-        "checklist": {"background": "#f7fee7", "border": "#bef264", "heading": "#3f6212", "text": "#3f6212"},
-        "plan": {"background": "#eef2ff", "border": "#c7d2fe", "heading": "#4338ca", "text": "#3730a3"},
-        "cta": {"background": "#eff6ff", "border": "#93c5fd", "heading": "#1d4ed8", "text": "#1e3a8a"},
-        "sources": {"background": "#fafafa", "border": "#e2e8f0", "heading": "#0f172a", "text": "#475569"},
+        "summary": {"background": "#ffffff", "border": "#dbe3ee", "accent": "#00a3a3", "heading": "#111827", "text": "#334155"},
+        "facts": {"background": "#f8fafc", "border": "#dbe3ee", "accent": "#111827", "heading": "#111827", "text": "#334155"},
+        "highlight": {"background": "#f4fffc", "border": "#bcebe1", "accent": "#00a3a3", "heading": "#0f766e", "text": "#134e4a"},
+        "execution": {"background": "#f7fee7", "border": "#d9f99d", "accent": "#84cc16", "heading": "#3f6212", "text": "#3f6212"},
+        "warning": {"background": "#fffaf2", "border": "#fed7aa", "accent": "#f59e0b", "heading": "#9a3412", "text": "#9a3412"},
+        "checklist": {"background": "#f7fee7", "border": "#d9f99d", "accent": "#84cc16", "heading": "#3f6212", "text": "#3f6212"},
+        "plan": {"background": "#fbfdff", "border": "#dbe3ee", "accent": "#64748b", "heading": "#1f2937", "text": "#334155"},
+        "cta": {"background": "#f4fffc", "border": "#bcebe1", "accent": "#00a3a3", "heading": "#0f766e", "text": "#134e4a"},
+        "sources": {"background": "#fafafa", "border": "#e2e8f0", "accent": "#64748b", "heading": "#111827", "text": "#475569"},
     }
     return palettes[tone]
 

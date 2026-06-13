@@ -11,24 +11,24 @@ from blogspot_automation.services.seo_policy import normalize_hashtags, normaliz
 _CSS = """
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-.yomi-post{font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,sans-serif;max-width:820px;margin:0 auto;padding:20px 16px;color:#1a1a1a;line-height:1.75;font-size:16px}
-.yomi-post h1{font-size:1.6rem;font-weight:800;color:#1e3a5f;margin:12px 0 20px;line-height:1.35}
-.yomi-post h2{font-size:1.15rem;font-weight:700;color:#1e3a5f;margin:28px 0 12px;padding-bottom:8px;border-bottom:2px solid #e5e7eb}
+.yomi-post{font-family:'Pretendard','Noto Sans KR',-apple-system,BlinkMacSystemFont,sans-serif;max-width:744px;margin:0 auto;padding:20px 16px;color:#172026;line-height:1.8;font-size:16px;letter-spacing:0}
+.yomi-post h1{font-size:1.6rem;font-weight:850;color:#111827;margin:12px 0 20px;line-height:1.35;padding-bottom:14px;border-bottom:1px solid #dbe3ee;background:linear-gradient(90deg,#111827 0 34px,#00a3a3 34px 72px,#f59e0b 72px 108px) bottom left/108px 4px no-repeat}
+.yomi-post h2{font-size:1.15rem;font-weight:800;color:#111827;margin:28px 0 12px;padding-bottom:8px;border-bottom:1px solid #dbe3ee;background:linear-gradient(90deg,#00a3a3,#84cc16) bottom left/48px 3px no-repeat}
 .yomi-post h3{font-size:1.0rem;font-weight:700;color:#374151;margin:18px 0 8px}
 .yomi-post p{margin-bottom:14px;color:#374151}
-.yomi-post strong{color:#1e3a5f}
-.yomi-post a{color:#2563eb;text-decoration:none}
+.yomi-post strong{color:#111827}
+.yomi-post a{color:#0f766e;text-decoration:none}
 .yomi-post a:hover{text-decoration:underline}
 
 /* 포스트 헤더 메타 */
 .post-meta{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .meta-tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.78rem;font-weight:600}
-.meta-category{background:#dbeafe;color:#1d4ed8}
-.meta-type{background:#dcfce7;color:#166534}
+.meta-category{background:#f4fffc;color:#0f766e;border:1px solid #bcebe1}
+.meta-type{background:#f7fee7;color:#3f6212;border:1px solid #d9f99d}
 .meta-date{font-size:0.8rem;color:#9ca3af;margin-left:auto}
 
 /* 핵심 요약 카드 (블루 그라디언트) */
-.summary-card{background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);color:#fff;border-radius:14px;padding:22px 20px;margin:20px 0;box-shadow:0 4px 20px rgba(37,99,235,.2)}
+.summary-card{background:#111827;color:#fff;border-radius:8px;padding:22px 20px;margin:20px 0;box-shadow:0 10px 24px rgba(15,23,42,.16)}
 .summary-card table{width:100%;border-collapse:collapse}
 .summary-card td{padding:9px 6px;border-bottom:1px solid rgba(255,255,255,.18);vertical-align:top}
 .summary-card td:first-child{font-size:.82rem;opacity:.8;white-space:nowrap;width:38%;padding-right:14px}
@@ -36,18 +36,18 @@ _CSS = """
 .summary-card tr:last-child td{border-bottom:none}
 
 /* 정보 박스 */
-.info-box{border-left:4px solid #2563eb;background:#eff6ff;padding:16px 18px;margin:18px 0;border-radius:0 10px 10px 0}
+.info-box{border:1px solid #bcebe1;border-left:6px solid #00a3a3;background:#f4fffc;padding:16px 18px;margin:18px 0;border-radius:8px}
 .info-box.warning{border-color:#f59e0b;background:#fffbeb}
 .info-box.success{border-color:#22c55e;background:#f0fdf4}
 .info-box.danger{border-color:#ef4444;background:#fef2f2}
 .info-box-title{font-weight:700;font-size:.9rem;margin-bottom:7px;display:flex;align-items:center;gap:6px}
 
 /* 비교 표 */
-.compare-table{overflow-x:auto;margin:18px 0;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.compare-table{overflow-x:auto;margin:18px 0;border-radius:8px;box-shadow:0 8px 20px rgba(15,23,42,.06)}
 .compare-table table{width:100%;border-collapse:collapse;min-width:320px}
-.compare-table th{background:#1e3a5f;color:#fff;padding:12px 14px;text-align:left;font-size:.88rem;font-weight:700}
-.compare-table th:first-child{border-radius:10px 0 0 0}
-.compare-table th:last-child{border-radius:0 10px 0 0}
+.compare-table th{background:#111827;color:#fff;padding:12px 14px;text-align:left;font-size:.88rem;font-weight:800}
+.compare-table th:first-child{border-radius:8px 0 0 0}
+.compare-table th:last-child{border-radius:0 8px 0 0}
 .compare-table td{padding:11px 14px;border-bottom:1px solid #f0f0f0;font-size:.9rem;vertical-align:top}
 .compare-table tr:nth-child(even) td{background:#f9fafb}
 .compare-table .badge-yes{color:#166534;font-weight:700}
@@ -55,21 +55,21 @@ _CSS = """
 
 /* 단계별 (Steps) */
 .steps{list-style:none;padding:0;margin:18px 0;counter-reset:step}
-.steps li{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px;padding:16px;background:#f9fafb;border-radius:10px;border-left:3px solid #2563eb;counter-increment:step}
-.steps li::before{content:counter(step);background:#2563eb;color:#fff;min-width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.85rem;flex-shrink:0;margin-top:1px}
-.steps li .step-title{font-weight:700;color:#1e3a5f;display:block;margin-bottom:5px;font-size:.95rem}
+.steps li{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px;padding:16px;background:#fff;border-radius:8px;border:1px solid #dbe3ee;border-left:6px solid #00a3a3;counter-increment:step}
+.steps li::before{content:counter(step);background:#111827;color:#fff;min-width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.85rem;flex-shrink:0;margin-top:1px}
+.steps li .step-title{font-weight:800;color:#111827;display:block;margin-bottom:5px;font-size:.95rem}
 .steps li .step-desc{font-size:.88rem;color:#6b7280;line-height:1.6}
 
 /* FAQ */
 .faq-section{margin:24px 0}
-.faq-item{border:1px solid #e5e7eb;border-radius:10px;margin-bottom:12px;overflow:hidden}
-.faq-q{background:#f9fafb;padding:14px 16px;font-weight:700;color:#1e3a5f;font-size:.93rem;display:flex;align-items:flex-start;gap:8px}
-.faq-q::before{content:"Q";background:#2563eb;color:#fff;min-width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:800;flex-shrink:0;margin-top:1px}
+.faq-item{border:1px solid #dbe3ee;border-radius:8px;margin-bottom:12px;overflow:hidden}
+.faq-q{background:#f8fafc;padding:14px 16px;font-weight:800;color:#111827;font-size:.93rem;display:flex;align-items:flex-start;gap:8px}
+.faq-q::before{content:"Q";background:#00a3a3;color:#fff;min-width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:800;flex-shrink:0;margin-top:1px}
 .faq-a{padding:14px 16px;font-size:.9rem;color:#374151;border-top:1px solid #f0f0f0;display:flex;align-items:flex-start;gap:8px}
-.faq-a::before{content:"A";background:#22c55e;color:#fff;min-width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:800;flex-shrink:0;margin-top:1px}
+.faq-a::before{content:"A";background:#84cc16;color:#111827;min-width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:900;flex-shrink:0;margin-top:1px}
 
 /* 마감/행동 촉구 박스 — 배경색 없음, 테두리+아이콘으로 강조 */
-.deadline-box{background:#fffbeb;border:2px solid #d97706;border-radius:14px;padding:22px 24px;margin:24px 0;text-align:center}
+.deadline-box{background:#fffaf2;border:2px solid #f59e0b;border-radius:8px;padding:22px 24px;margin:24px 0;text-align:center}
 .deadline-box .dl-icon{font-size:2rem;display:block;margin-bottom:8px}
 .deadline-box .dl-title{font-size:1.2rem;font-weight:800;display:block;margin-bottom:6px;color:#92400e}
 .deadline-box .dl-desc{font-size:.9rem;color:#374151;line-height:1.7}
@@ -81,41 +81,41 @@ _CSS = """
 .checklist li:last-child{border-bottom:none}
 
 /* 목차 */
-.toc{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;margin:20px 0}
+.toc{background:#fbfdff;border:1px solid #dbe3ee;border-radius:8px;padding:16px 20px;margin:20px 0}
 .toc-title{font-weight:700;font-size:.88rem;color:#6b7280;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
 .toc ol{padding-left:20px;margin:0}
 .toc li{margin-bottom:6px;font-size:.9rem}
-.toc a{color:#2563eb}
+.toc a{color:#0f766e}
 
 /* 숫자 강조 */
-.big-number{font-size:2.2rem;font-weight:800;color:#2563eb;line-height:1.1}
+.big-number{font-size:2.2rem;font-weight:900;color:#0f766e;line-height:1.1}
 .big-number-unit{font-size:1rem;color:#6b7280;font-weight:400;margin-left:4px}
 
 /* 카드 그리드 */
 .card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:18px 0}
-.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,.05)}
+.card{background:#fff;border:1px solid #dbe3ee;border-radius:8px;padding:16px;box-shadow:0 8px 20px rgba(15,23,42,.05)}
 .card-icon{font-size:1.8rem;margin-bottom:8px;display:block}
-.card-title{font-weight:700;color:#1e3a5f;font-size:.92rem;margin-bottom:5px}
+.card-title{font-weight:800;color:#111827;font-size:.92rem;margin-bottom:5px}
 .card-desc{font-size:.85rem;color:#6b7280}
 
 /* CTA 버튼 */
-.cta-button{display:block;background:#2563eb;color:#fff !important;text-align:center;padding:16px;border-radius:12px;font-weight:800;font-size:1.05rem;margin:14px 0;text-decoration:none !important;border:none;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,.3)}
-.cta-button:hover{background:#1d4ed8;text-decoration:none}
+.cta-button{display:block;background:#111827;color:#fff !important;text-align:center;padding:16px;border-radius:8px;font-weight:850;font-size:1.05rem;margin:14px 0;text-decoration:none !important;border:none;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.16)}
+.cta-button:hover{background:#0f766e;text-decoration:none}
 
 /* 관련 글 */
-.related-posts{margin:32px 0 16px;padding:20px;background:#f9fafb;border-radius:12px;border:1px solid #e5e7eb}
+.related-posts{margin:32px 0 16px;padding:20px;background:#fbfdff;border-radius:8px;border:1px solid #dbe3ee}
 .related-posts h3{font-size:.95rem;color:#374151;margin-bottom:12px;font-weight:700}
 .related-item{display:flex;align-items:center;padding:9px 0;border-bottom:1px solid #e5e7eb;gap:10px;font-size:.9rem;color:#374151;text-decoration:none}
 .related-item:last-child{border-bottom:none}
-.related-item::before{content:"→";color:#2563eb;font-weight:700;flex-shrink:0}
-.related-item:hover{color:#2563eb}
+.related-item::before{content:"→";color:#00a3a3;font-weight:800;flex-shrink:0}
+.related-item:hover{color:#0f766e}
 
 /* 태그 */
 .tag-list{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0}
-.tag{display:inline-block;padding:4px 12px;background:#e0e7ff;color:#3730a3;border-radius:20px;font-size:.78rem;font-weight:600}
+.tag{display:inline-block;padding:4px 12px;background:#f4fffc;color:#0f766e;border:1px solid #bcebe1;border-radius:999px;font-size:.78rem;font-weight:800}
 
 /* 네이버 블로그 CTA */
-.naver-cta{display:flex;align-items:center;gap:16px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:14px;padding:18px 20px;margin:28px 0 8px;text-decoration:none;color:inherit}
+.naver-cta{display:flex;align-items:center;gap:16px;background:#f7fee7;border:1.5px solid #d9f99d;border-radius:8px;padding:18px 20px;margin:28px 0 8px;text-decoration:none;color:inherit}
 .naver-cta:hover{background:#dcfce7}
 .naver-cta-icon{font-size:2rem;flex-shrink:0;line-height:1}
 .naver-cta-body{flex:1;min-width:0}
@@ -129,7 +129,7 @@ _CSS = """
 .source-note{font-size:.78rem;color:#9ca3af;margin-top:28px;padding-top:14px;border-top:1px solid #e5e7eb;line-height:1.6}
 
 /* 하이라이트 텍스트 */
-.hl-blue{color:#2563eb;font-weight:700}
+.hl-blue{color:#0f766e;font-weight:800}
 .hl-red{color:#dc2626;font-weight:700}
 .hl-green{color:#16a34a;font-weight:700}
 

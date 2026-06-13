@@ -91,6 +91,10 @@ jobs:
           BLOGSPOT_HOME_URL: "https://holyyomiai.blogspot.com/"
           BLOG_BRAND_NAME: "holyyomi AI"
           BLOG_AUTHOR_NAME: "holyyomi AI"
+          AI_COVER_IMAGE_URL: ${{ secrets.AI_COVER_IMAGE_URL }}
+          AI_DEFAULT_COVER_IMAGE_URL: "https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png"
+          AI_IMAGE_UPLOAD_KEY: ${{ secrets.AI_IMAGE_UPLOAD_KEY }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
         run: |
           PYTHONPATH=src python scripts/validate_news_env.py --strict
 
@@ -102,8 +106,8 @@ jobs:
           PUBLISH_HOLD_PHASE2: "false"
           AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'false' || 'true' }}
           NEWS_MAX_PUBLISH_ATTEMPTS: "12"
-          DISABLE_IMAGE_GENERATION: "true"
-          DISABLE_IMAGE_UPLOAD: "true"
+          DISABLE_IMAGE_GENERATION: "false"
+          DISABLE_IMAGE_UPLOAD: "false"
           AI_COVER_IMAGE_URL: ${{ secrets.AI_COVER_IMAGE_URL }}
           AI_DEFAULT_COVER_IMAGE_URL: "https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png"
           REQUIRE_NEWS_COVER_IMAGE: "false"

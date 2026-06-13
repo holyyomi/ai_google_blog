@@ -298,7 +298,7 @@ def _inject_cover_image(
     image_block = (
         "<section style=\"margin:0 0 20px 0;\">"
         f"<img src=\"{src}\" alt=\"{safe_alt}\" "
-        "style=\"width:100%;height:auto;border-radius:18px;display:block;border:1px solid #e5e7eb;\" />"
+        "style=\"width:100%;height:auto;border-radius:8px;display:block;border:1px solid #dbe3ee;\" />"
         "</section>"
     )
     if "<article" in article_html:
