@@ -166,6 +166,11 @@ jobs:
         run: |
           PYTHONPATH=src python tools/sync_publish_history.py --verify-live-urls
 
+      - name: Audit Live AI Blog
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true') }}
+        run: |
+          PYTHONPATH=src python scripts/audit_ai_blog_live.py --strict --blog-url https://holyyomiai.blogspot.com/
+
       - name: List Runs Output
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.schedule_gate.outputs.should_run == 'true') }}
         run: |
