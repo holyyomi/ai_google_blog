@@ -339,6 +339,24 @@ def test_ai_blog_mode_blocks_non_ai_topic(monkeypatch) -> None:
     assert decision.reason == "non_ai_topic_blocked_for_ai_blog_mode"
 
 
+def test_ai_blog_mode_does_not_allow_only_ai_query_group(monkeypatch) -> None:
+    monkeypatch.setenv("AI_BLOG_MODE", "true")
+    monkeypatch.delenv("ALLOW_AI_NEWS_TOPICS", raising=False)
+
+    decision = evaluate_news_focus(
+        topic="퇴근길 7분 뉴스 확인 전에 볼 주의점",
+        summary="월드컵과 투자 이슈를 묶은 일반 뉴스 요약",
+        raw={
+            "query_group": "ai_work",
+            "topic_group": "refund_consumer",
+            "content_angle": {"content_type": "consumer_warning"},
+        },
+    )
+
+    assert not decision.allowed
+    assert decision.reason == "non_ai_topic_blocked_for_ai_blog_mode"
+
+
 def test_ai_blog_mode_blocks_non_ai_trending_candidate(monkeypatch) -> None:
     monkeypatch.setenv("AI_BLOG_MODE", "true")
     monkeypatch.delenv("ALLOW_AI_NEWS_TOPICS", raising=False)

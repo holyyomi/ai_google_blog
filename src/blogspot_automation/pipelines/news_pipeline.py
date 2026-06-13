@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import random
 import re
+import traceback
 from typing import Any, Protocol
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate, SelectedNewsPlan, TitleCandidate
@@ -1669,9 +1670,12 @@ class NewsPipeline:
                 "history_recorded": history_recorded,
             }
         except Exception as exc:  # noqa: BLE001
+            trace = traceback.format_exc()
+            logger.error("NewsPipeline failed: %s\n%s", exc, trace)
             result = {
                 "status": "failed",
                 "error": str(exc),
+                "traceback": trace,
             }
             try:
                 self._try_record_history(status="failed", result={"dry_run": self.dry_run, "status": "failed"})
@@ -1852,6 +1856,7 @@ class NewsPipeline:
         }
         content_type = self._news_publish_content_type(base_raw)
         evergreen_axis = str(base_result.get("evergreen_axis") or "").strip()
+        ai_blog_content_allowed = self._ai_blog_mode_enabled() and content_type == "ai_work_tip"
 
         if not self.auto_publish:
             blocking_reasons.append("auto_publish_false")
@@ -1862,9 +1867,9 @@ class NewsPipeline:
             source_type == "evergreen_fallback" and not evergreen_daily_fallback
         ):
             blocking_reasons.append(f"source_type_not_auto_publishable:{source_type}")
-        if content_type not in self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES:
+        if content_type not in self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES and not ai_blog_content_allowed:
             blocking_reasons.append(f"content_type_not_auto_publishable:{content_type or 'missing'}")
-        if content_type in self.NEWS_AUTO_PUBLISH_EXCLUDED_CONTENT_TYPES:
+        if content_type in self.NEWS_AUTO_PUBLISH_EXCLUDED_CONTENT_TYPES and not ai_blog_content_allowed:
             blocking_reasons.append(f"content_type_excluded_from_news:{content_type}")
         if evergreen_axis in self.NEWS_AUTO_PUBLISH_EXCLUDED_EVERGREEN_AXES:
             blocking_reasons.append(f"evergreen_axis_excluded_from_news:{evergreen_axis}")
@@ -1899,7 +1904,10 @@ class NewsPipeline:
             "evergreen_daily_fallback": evergreen_daily_fallback,
             "source_type": source_type,
             "content_type": content_type,
-            "allowed_content_types": sorted(self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES),
+            "allowed_content_types": sorted(
+                self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES
+                | (frozenset({"ai_work_tip"}) if ai_blog_content_allowed else frozenset())
+            ),
         }
 
     @staticmethod
@@ -1933,6 +1941,10 @@ class NewsPipeline:
     NEWS_AUTO_PUBLISH_EXCLUDED_EVERGREEN_AXES: frozenset[str] = frozenset({
         "blogspot_growth",
     })
+
+    @staticmethod
+    def _ai_blog_mode_enabled() -> bool:
+        return str(os.getenv("AI_BLOG_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}
 
     @classmethod
     def _is_top_issue_direct_publish_candidate(
@@ -2304,9 +2316,11 @@ class NewsPipeline:
         )
         if not focus.allowed:
             return False
-        if content_type in cls.NEWS_AUTO_PUBLISH_EXCLUDED_CONTENT_TYPES:
+        ai_blog_mode = cls._ai_blog_mode_enabled()
+        ai_blog_content_allowed = ai_blog_mode and content_type == "ai_work_tip"
+        if content_type in cls.NEWS_AUTO_PUBLISH_EXCLUDED_CONTENT_TYPES and not ai_blog_content_allowed:
             return False
-        if content_type not in cls.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES:
+        if content_type not in cls.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES and not ai_blog_content_allowed:
             return False
         if evergreen_axis in cls.NEWS_AUTO_PUBLISH_EXCLUDED_EVERGREEN_AXES:
             return False
@@ -2844,6 +2858,12 @@ class NewsPipeline:
         recent_evergreen_axes: list[str],
     ) -> tuple[list[Any], list[ScoredNewsCandidate], list[ScoredNewsCandidate]]:
         candidates = self.evergreen_topic_service.collect_candidates()
+        ai_blog_mode = self._ai_blog_mode_enabled()
+        if ai_blog_mode:
+            candidates = [
+                candidate for candidate in candidates
+                if (candidate.raw or {}).get("evergreen_axis") == "ai_automation"
+            ]
         scored = self.scoring_service.score_candidates(candidates)
         scored = self._apply_topic_group_cooldowns(
             scored,
@@ -2861,7 +2881,7 @@ class NewsPipeline:
                 if self._is_safe_evergreen_publish_fallback_candidate(item)
                 and item.total_score >= self.scoring_service.min_topic_score
             ])
-        preferred_axis = EvergreenTopicService.preferred_axis_by_weekday()
+        preferred_axis = "ai_automation" if ai_blog_mode else EvergreenTopicService.preferred_axis_by_weekday()
         selected_pool = sorted(
             golden_publishable,
             key=lambda item: self._evergreen_publish_fallback_sort_key(
@@ -2887,9 +2907,10 @@ class NewsPipeline:
         if bool(raw.get("is_stale")):
             return False
         content_type = self._news_publish_content_type(raw)
-        if content_type not in self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES:
+        ai_blog_content_allowed = self._ai_blog_mode_enabled() and content_type == "ai_work_tip"
+        if content_type not in self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES and not ai_blog_content_allowed:
             return False
-        if content_type in self.NEWS_AUTO_PUBLISH_EXCLUDED_CONTENT_TYPES:
+        if content_type in self.NEWS_AUTO_PUBLISH_EXCLUDED_CONTENT_TYPES and not ai_blog_content_allowed:
             return False
         evergreen_axis = str(raw.get("evergreen_axis") or "").strip()
         if evergreen_axis in self.NEWS_AUTO_PUBLISH_EXCLUDED_EVERGREEN_AXES:
@@ -3006,7 +3027,9 @@ class NewsPipeline:
             if not self._is_news_auto_publish_candidate(c):
                 continue
             ct = str((raw.get("content_angle") or {}).get("content_type") or "")
-            if ct in self._FALLBACK_EXCLUDED_CONTENT_TYPES:
+            if ct in self._FALLBACK_EXCLUDED_CONTENT_TYPES and not (
+                self._ai_blog_mode_enabled() and ct == "ai_work_tip"
+            ):
                 continue
             if raw.get("stale_penalty_applied") or raw.get("is_stale"):
                 continue

@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 
 # ------------------------------------------------------------------ #
@@ -104,9 +104,22 @@ class TestSearchFallbackInPool(unittest.TestCase):
         orig = self._orig()
         ai = _make_scored("ChatGPT 활용법", content_type="ai_work_tip",
                           topic_group="ai_work", total_score=75, golden_matched=True)
-        result, _, fb_type = _search_fallback([orig, ai], orig)
+        with patch.dict("os.environ", {"AI_BLOG_MODE": "false"}, clear=False):
+            result, _, fb_type = _search_fallback([orig, ai], orig)
         self.assertIsNone(result)
         self.assertEqual(fb_type, "hold")
+
+    def test_evergreen_ai_fallback_allowed_in_ai_blog_mode(self):
+        orig = self._orig()
+        ai = _make_scored("ChatGPT 활용법", content_type="ai_work_tip",
+                          topic_group="ai_work", total_score=85, golden_matched=True)
+        ai.candidate.raw["click_potential_score"] = 8
+
+        with patch.dict("os.environ", {"AI_BLOG_MODE": "true"}, clear=False):
+            result, _, fb_type = _search_fallback([orig, ai], orig)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(fb_type, "evergreen")
 
     # 4. tax_refund stale → fallback 자동 발행 후보로 사용 안 함
     def test_tax_refund_excluded_from_fallback(self):

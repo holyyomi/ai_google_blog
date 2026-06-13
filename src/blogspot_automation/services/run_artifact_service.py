@@ -20,6 +20,14 @@ def _env_int(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
+
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _ai_blog_auto_publish_enabled() -> bool:
+    return _env_flag("AI_BLOG_MODE") and _env_flag("AI_BLOG_AUTO_PUBLISH")
+
 _ALWAYS_REVIEW_PATTERN_IDS = frozenset(
     {
         "ai_work_time_savings",
@@ -149,12 +157,17 @@ class RunArtifactService:
             ready = preview_result.get("ready_for_review", False)
             blocking = preview_result.get("blocking_issues", [])
             _is_nm = bool(preview_result.get("near_match"))
+            _pattern_id = str(pm.get("pattern_id") or "")
+            _always_review_pattern = (
+                _pattern_id in _ALWAYS_REVIEW_PATTERN_IDS
+                and not _ai_blog_auto_publish_enabled()
+            )
             human_review_required = (
                 _is_nm
                 or bool(blocking)
                 or not bool(ready)
                 or grade not in ("A", "B")
-                or str(pm.get("pattern_id") or "") in _ALWAYS_REVIEW_PATTERN_IDS
+                or _always_review_pattern
             )
             meta: dict[str, Any] = {
                 "matched": preview_result.get("matched", False),
@@ -446,12 +459,17 @@ class RunArtifactService:
                     _fresh_source_ok = not _is_stale
                     _official_source_ok = not _is_stale
 
+                    _article_pattern_id = str(pm.get("pattern_id") or "")
+                    _article_always_review_pattern = (
+                        _article_pattern_id in _ALWAYS_REVIEW_PATTERN_IDS
+                        and not _ai_blog_auto_publish_enabled()
+                    )
                     article_human_review_required = (
                         bool(preview_result.get("near_match"))
                         or bool(preview_result.get("blocking_issues") or [])
                         or not bool(preview_result.get("ready_for_review"))
                         or grade not in ("A", "B")
-                        or str(pm.get("pattern_id") or "") in _ALWAYS_REVIEW_PATTERN_IDS
+                        or _article_always_review_pattern
                     )
 
                     # traffic/usefulness 하한선 — 저관심·저트래픽 주제 자동발행 차단

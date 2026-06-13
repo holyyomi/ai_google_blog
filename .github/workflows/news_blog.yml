@@ -113,6 +113,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           NEWS_MODE: "news"
           AI_BLOG_MODE: "true"
+          AI_BLOG_AUTO_PUBLISH: "true"
           NEWS_EXCLUDED_QUERY_GROUPS: ""
           ALLOW_AI_NEWS_TOPICS: "true"
           MIN_TOPIC_SCORE: "70"

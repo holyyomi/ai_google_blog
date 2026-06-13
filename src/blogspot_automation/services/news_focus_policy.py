@@ -252,12 +252,25 @@ def evaluate_news_focus(
             evergreen_axis,
         )
     )
+    ai_match_text = " ".join(
+        str(part or "")
+        for part in (
+            topic,
+            title,
+            summary,
+            payload.get("original_topic"),
+            payload.get("search_demand_topic"),
+        )
+    )
     broad_today_issue = _is_broad_today_issue_candidate(payload)
-    matched = _matched_ai_terms(text)
-    is_ai_topic = (
+    matched = _matched_ai_terms(ai_match_text)
+    is_ai_metadata_topic = (
         topic_group == "ai_work"
         or content_type == "ai_work_tip"
         or evergreen_axis == "ai_automation"
+    )
+    is_ai_topic = (
+        is_ai_metadata_topic
         or query_group == "ai_work"
         or bool(matched)
     )
@@ -299,7 +312,10 @@ def evaluate_news_focus(
             reason="foreign_admin_topic_blocked_for_news_focus",
             matched_terms=foreign_admin_matches,
         )
-    if ai_blog_mode_from_env() and not is_ai_topic:
+    # In AI blog mode, the source query group alone is not enough. Broad search
+    # APIs often return unrelated articles for an AI query, so require actual
+    # AI terms or downstream AI taxonomy metadata.
+    if ai_blog_mode_from_env() and not (is_ai_metadata_topic or bool(matched)):
         return NewsFocusDecision(
             allowed=False,
             reason="non_ai_topic_blocked_for_ai_blog_mode",

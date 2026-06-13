@@ -92,6 +92,19 @@ class TestNewsTitleGenerationService(unittest.TestCase):
         self.assertTrue(titles)
         self.assertFalse(any("티빙가" in title for title in titles), titles)
 
+    def test_privacy_consumer_warning_search_angle_does_not_reference_missing_topic(self) -> None:
+        item = _scored(
+            "개인정보 유출 안내 이후 계정 점검",
+            content_type="consumer_warning",
+            topic_group="privacy_security",
+            angle_type="consumer_warning",
+        )
+
+        titles = [candidate.title for candidate in self.svc.generate_titles(item)]
+
+        self.assertTrue(titles)
+        self.assertIn("개인정보 유출 안내 이후 계정 점검", titles)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -176,6 +176,41 @@ class TestIssueSpecificity(unittest.TestCase):
 
         self.assertGreaterEqual(score, 6)
 
+    def test_ai_evergreen_low_issue_specificity_warns_not_blocks(self):
+        gate = NewsQualityGate()
+        title = "직장인 ChatGPT, 시간 줄이려면 먼저 볼 3가지"
+        scored = _make_scored(
+            topic="직장인이 ChatGPT로 업무 시간을 줄이는 방법",
+            original_topic="직장인이 ChatGPT를 써도 시간이 안 줄어드는 이유",
+            content_type="ai_work_tip",
+            topic_group="ai_work",
+            source_type="evergreen_fallback",
+            total_score=88,
+        )
+        scored.candidate.raw["evergreen_axis"] = "ai_automation"
+        scored.candidate.raw["target_reader"] = "30~50대 직장인"
+
+        result = gate.evaluate(
+            selected=scored,
+            selected_title=title,
+            html=_minimal_html(title),
+            image_prompt="AI 업무 자동화 이미지",
+            image_alt_text="AI 업무 자동화 체크리스트",
+            labels=["AI활용", "업무자동화", "생산성"],
+            hashtags=["#AI활용", "#업무자동화", "#생산성"],
+            dry_run=True,
+            news_publish_mode="dry_run",
+        )
+
+        self.assertFalse(
+            any(str(issue).startswith("issue_specificity_below_6:") for issue in result["blocking_issues"]),
+            result["blocking_issues"],
+        )
+        self.assertTrue(
+            any(str(warning).startswith("ai_evergreen_issue_specificity_below_6:") for warning in result["warnings"]),
+            result["warnings"],
+        )
+
     def test_title_latin_entity_matches_source_entity(self):
         scored = _make_scored(
             topic="BTS 공연 주간 비교 전에 확인할 조건",

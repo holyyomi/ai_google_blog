@@ -407,16 +407,31 @@ class NewsQualityGate:
         # 사유: 5일 연속 자동 발행 0건 — 7 임계가 publishable 후보를 과도 차단.
         # 6 미만은 여전히 차단해 generic 변질은 방어한다.
         practical_money_reframe = content_type == "money_checklist" or topic_group == "delivery_money"
+        ai_evergreen_reframe = evergreen_candidate and (
+            content_type == "ai_work_tip"
+            or topic_group == "ai_work"
+            or evergreen_axis == "ai_automation"
+        )
         if issue_specificity_score < 6:
-            blocking_issues.append(
-                f"issue_specificity_below_6:{issue_specificity_score}"
-            )
+            if ai_evergreen_reframe:
+                warnings.append(
+                    f"ai_evergreen_issue_specificity_below_6:{issue_specificity_score}"
+                )
+            else:
+                blocking_issues.append(
+                    f"issue_specificity_below_6:{issue_specificity_score}"
+                )
         elif issue_specificity_score < 7:
             warnings.append(
                 f"issue_specificity_below_7:{issue_specificity_score}"
             )
         if original_issue_preservation_score < 6:
-            if practical_money_reframe and issue_specificity_score >= 6:
+            if ai_evergreen_reframe:
+                warnings.append(
+                    "ai_evergreen_original_issue_preservation_below_6:"
+                    f"{original_issue_preservation_score}"
+                )
+            elif practical_money_reframe and issue_specificity_score >= 6:
                 warnings.append(
                     "original_issue_preservation_below_6_practical_reframe:"
                     f"{original_issue_preservation_score}"

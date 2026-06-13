@@ -785,6 +785,7 @@ class TitleGenerationService:
         if bool(search_angle.get("commercial_support_signal")) and not str(search_angle.get("public_benefit_keyword") or "").strip():
             return []
         demand_topic = str(search_angle.get("search_demand_topic") or "").strip()
+        original_topic = str(search_angle.get("original_topic") or "").strip()
         angle_type = str(search_angle.get("angle_type") or "")
         questions = [str(item) for item in search_angle.get("reader_search_questions") or []]
         if not demand_topic:
@@ -829,7 +830,7 @@ class TitleGenerationService:
                 ("증거확보", "환불 지연 때 소비자가 먼저 남겨야 할 증거", 188),
                 ("피해대응", "환불 지연, 기다리기 전 확인할 기록", 174),
             ]
-        if angle_type == "consumer_warning" and is_privacy_security_text(f"{demand_topic} {topic}"):
+        if angle_type == "consumer_warning" and is_privacy_security_text(f"{demand_topic} {original_topic}"):
             return [
                 ("보안체크", f"{demand_topic}", 188),
                 ("비밀번호", "개인정보 안내 뒤 비밀번호부터 확인할 것", 178),

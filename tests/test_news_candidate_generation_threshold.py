@@ -3,7 +3,8 @@
 핵심 원칙:
 - score 65~74 + allowed real news → article_candidate 생성 진입 가능 (candidate_grade=B/C)
 - 단, publish_quality_gate에 total_score_below_75 hard blocking이 추가되어 자동 발행은 차단됨
-- evergreen_fallback/fallback/general_life/ai_work_tip은 score 90이어도 news 자동발행 후보 아님
+- evergreen_fallback/fallback/general_life는 score 90이어도 news 자동발행 후보 아님
+- ai_work_tip은 일반 news 모드에서는 차단, AI_BLOG_MODE에서는 허용
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 from datetime import date
 import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from blogspot_automation.models.news_models import NewsCandidate, ScoredNewsCandidate
 from blogspot_automation.services.golden_pattern_service import GoldenPatternService
@@ -210,7 +211,22 @@ class TestAutoPublishGateRemainsStrict(unittest.TestCase):
             content_type="ai_work_tip",
             topic_group="ai_work",
         )
-        self.assertFalse(NewsPipeline._is_news_auto_publish_candidate(item))
+        with patch.dict(os.environ, {"AI_BLOG_MODE": "false"}, clear=False):
+            self.assertFalse(NewsPipeline._is_news_auto_publish_candidate(item))
+
+    def test_ai_work_tip_allowed_for_ai_blog_mode(self):
+        from blogspot_automation.pipelines.news_pipeline import NewsPipeline
+
+        item = _make_scored(
+            "ChatGPT 보고서 작성 자동화 체크리스트",
+            90,
+            content_type="ai_work_tip",
+            topic_group="ai_work",
+        )
+        item.candidate.raw["click_potential_score"] = 8
+
+        with patch.dict(os.environ, {"AI_BLOG_MODE": "true"}, clear=False):
+            self.assertTrue(NewsPipeline._is_news_auto_publish_candidate(item))
 
     def test_blogspot_growth_axis_blocked(self):
         from blogspot_automation.pipelines.news_pipeline import NewsPipeline
@@ -221,6 +237,33 @@ class TestAutoPublishGateRemainsStrict(unittest.TestCase):
             evergreen_axis="blogspot_growth",
         )
         self.assertFalse(NewsPipeline._is_news_auto_publish_candidate(item))
+
+    def test_ai_blog_auto_publish_gate_allows_ai_work_tip_daily_fallback(self):
+        from blogspot_automation.pipelines.news_pipeline import NewsPipeline
+
+        pipeline = NewsPipeline(dry_run=False, auto_publish=True, news_publish_mode="publish")
+        base_result = {
+            "source_type": "evergreen_fallback",
+            "fallback_reason": "no_publishable_news_candidate_used_evergreen",
+            "topic_group": "ai_work",
+            "content_angle": {"content_type": "ai_work_tip"},
+            "evergreen_axis": "ai_automation",
+            "article_candidate_generated": True,
+            "publish_ready": True,
+            "geo_ready": True,
+            "sge_ready": True,
+            "human_review_required": False,
+            "near_match": False,
+        }
+
+        with patch.dict(os.environ, {"AI_BLOG_MODE": "true"}, clear=False):
+            gate = pipeline._evaluate_auto_publish_gate(
+                base_result=base_result,
+                publish_quality_gate={"passed": True},
+            )
+
+        self.assertTrue(gate["allowed"], gate)
+        self.assertIn("ai_work_tip", gate["allowed_content_types"])
 
     def test_stock_market_headline_not_platform_change_auto_publish(self):
         from blogspot_automation.pipelines.news_pipeline import NewsPipeline
