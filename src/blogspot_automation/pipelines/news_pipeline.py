@@ -3148,6 +3148,9 @@ class NewsPipeline:
     # 실패 후보는 건너뛰고 다음 후보로(재시도 thrash 없음). 트렌딩이 없거나 모두
     # 탈락하면 None → 기존 파이프라인 폴백. 기존 소비자/에버그린 경로는 불변.
     def _run_clean_trending_publish(self) -> dict[str, Any] | None:
+        if str(os.getenv("AI_BLOG_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+            logger.info("clean_trending: AI_BLOG_MODE에서는 AI 전용 파이프라인 사용")
+            return None
         if str(os.getenv("ENABLE_CLEAN_TRENDING_PUBLISH", "true")).strip().lower() in {"false", "0", "no", "off"}:
             return None
         candidates = self._collect_clean_trending_candidates()

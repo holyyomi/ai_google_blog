@@ -359,6 +359,17 @@ def test_ai_blog_mode_blocks_non_ai_trending_candidate(monkeypatch) -> None:
     assert NewsPipeline(dry_run=True)._handle_trending_candidate(scored) is None
 
 
+def test_ai_blog_mode_skips_clean_trending_pipeline(monkeypatch) -> None:
+    monkeypatch.setenv("AI_BLOG_MODE", "true")
+
+    def _should_not_collect(self):  # noqa: ANN001
+        raise AssertionError("clean_trending collection should be skipped in AI blog mode")
+
+    monkeypatch.setattr(NewsPipeline, "_collect_clean_trending_candidates", _should_not_collect)
+
+    assert NewsPipeline(dry_run=True)._run_clean_trending_publish() is None
+
+
 def test_ai_blog_mode_still_blocks_political_headline(monkeypatch) -> None:
     monkeypatch.setenv("AI_BLOG_MODE", "true")
     monkeypatch.delenv("ALLOW_AI_NEWS_TOPICS", raising=False)
