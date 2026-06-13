@@ -40,8 +40,24 @@ def test_news_env_diagnostics_custom_search_keys_are_optional_by_default() -> No
     assert diagnostics["ok"] is True
     assert diagnostics["checks"]["google_search_api_key"]["present"] is False
     assert diagnostics["checks"]["google_search_cx"]["present"] is False
+    assert diagnostics["checks"]["ai_image_upload_key"]["present"] is False
+    assert diagnostics["advisories"]
     assert diagnostics["checks"]["enable_google_custom_search"]["value"] == "false"
     assert diagnostics["user_required_actions"] == []
+
+
+def test_news_env_diagnostics_reports_ai_image_upload_key() -> None:
+    diagnostics = build_news_env_diagnostics({
+        "GOOGLE_AI_API_KEY": "gemini-key",
+        "OPENAI_API_KEY": "openai-key",
+        "AI_IMAGE_UPLOAD_KEY": "img-upload-key",
+        "AI_DEFAULT_COVER_IMAGE_URL": "https://cdn.example.com/default-ai-cover.png",
+    })
+
+    assert diagnostics["ok"] is True
+    assert diagnostics["checks"]["ai_image_upload_key"]["present"] is True
+    assert diagnostics["checks"]["ai_default_cover_image_url"]["present"] is True
+    assert diagnostics["advisories"] == []
 
 
 def test_news_env_diagnostics_reports_external_search_keys_without_values() -> None:

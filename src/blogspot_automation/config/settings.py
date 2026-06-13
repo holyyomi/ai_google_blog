@@ -150,7 +150,7 @@ class Settings:
             news_tavily_max_requests=_env_int("NEWS_TAVILY_MAX_REQUESTS", 3),
             news_exa_max_requests=_env_int("NEWS_EXA_MAX_REQUESTS", 1),
             news_firecrawl_max_requests=_env_int("NEWS_FIRECRAWL_MAX_REQUESTS", 1),
-            imgbb_api_key=os.getenv("IMGBB_API_KEY"),
+            imgbb_api_key=os.getenv("AI_IMAGE_UPLOAD_KEY") or os.getenv("IMGBB_API_KEY"),
             enable_imgbb_upload=os.getenv("ENABLE_IMGBB_UPLOAD", "false").lower() == "true",
             blogger_access_token=os.getenv("BLOGGER_ACCESS_TOKEN"),
             blogger_client_id=os.getenv("BLOGGER_CLIENT_ID"),

@@ -38,6 +38,10 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
         "blogger_client_secret": _env_state(source, "BLOGGER_CLIENT_SECRET"),
         "blogger_refresh_token": _env_state(source, "BLOGGER_REFRESH_TOKEN"),
         "blogger_blog_id": _env_state(source, "BLOGGER_BLOG_ID"),
+        "ai_cover_image_url": _env_state(source, "AI_COVER_IMAGE_URL"),
+        "ai_default_cover_image_url": _env_state(source, "AI_DEFAULT_COVER_IMAGE_URL"),
+        "ai_image_upload_key": _env_state(source, "AI_IMAGE_UPLOAD_KEY"),
+        "legacy_imgbb_api_key": _env_state(source, "IMGBB_API_KEY"),
     }
     provider_chain = [
         {
@@ -49,6 +53,7 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
         for provider in _PROVIDERS
     ]
     warnings: list[str] = []
+    advisories: list[str] = []
     if str(source.get("OPENROUTER_API_KEY", "")).strip():
         warnings.append("OPENROUTER_API_KEY is set but ignored by the current Gemini -> OpenAI chain.")
     custom_search_enabled = str(source.get("ENABLE_GOOGLE_CUSTOM_SEARCH", "false")).strip().lower() in {
@@ -75,12 +80,15 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
         warnings.append("Firecrawl search is enabled but FIRECRAWL_API_KEY is missing.")
     if not checks["google_ai_api_key"]["present"] and not checks["openai_api_key"]["present"]:
         warnings.append("No LLM key is configured; generation will fall back to local template content only.")
+    if not checks["ai_image_upload_key"]["present"] and not checks["legacy_imgbb_api_key"]["present"]:
+        advisories.append("AI_IMAGE_UPLOAD_KEY is missing; AI cover images will use configured/default fallback URLs only.")
 
     return {
         "ok": not warnings,
         "checks": checks,
         "provider_chain": provider_chain,
         "warnings": warnings,
+        "advisories": advisories,
         "user_required_actions": user_required_actions(source),
     }
 

@@ -43,7 +43,10 @@ gemini_free -> openai_api_fallback
   - `BLOGGER_REFRESH_TOKEN`
 
 ## Optional Image Hosting
-- `IMGBB_API_KEY`
+- `AI_COVER_IMAGE_URL`
+- `AI_DEFAULT_COVER_IMAGE_URL`
+- `AI_IMAGE_UPLOAD_KEY`
+- `IMGBB_API_KEY` (legacy compatibility fallback)
 - `ENABLE_IMGBB_UPLOAD=true|false`
 
 ## App Settings

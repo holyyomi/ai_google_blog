@@ -68,7 +68,7 @@ copy .env.example .env
 
 - 콘텐츠/이미지 생성: `OPENAI_API_KEY`
 - Blogger 발행: `BLOGGER_BLOG_ID` + OAuth 정보
-- 이미지 공개 URL 업로드 사용 시: `IMGBB_API_KEY`
+- 이미지 공개 URL 업로드 사용 시: `AI_IMAGE_UPLOAD_KEY`
 - AI 블로그 기본 URL: `BLOGSPOT_HOME_URL=https://holyyomiai.blogspot.com/`
 
 ### 3. 실행
@@ -101,10 +101,13 @@ streamlit run src/blogspot_automation/ui/app.py
 - `BLOGGER_CLIENT_SECRET`
 - `BLOGGER_REFRESH_TOKEN`
 
-### ImgBB
+### AI Cover Image
 
+- `AI_COVER_IMAGE_URL`
+- `AI_DEFAULT_COVER_IMAGE_URL`
+- `AI_IMAGE_UPLOAD_KEY`
 - `ENABLE_IMGBB_UPLOAD`
-- `IMGBB_API_KEY`
+- `IMGBB_API_KEY` 호환용 fallback
 
 ## Blogger API 설정
 
@@ -125,7 +128,8 @@ streamlit run src/blogspot_automation/ui/app.py
 
 ```env
 ENABLE_IMGBB_UPLOAD=true
-IMGBB_API_KEY=your_key
+AI_IMAGE_UPLOAD_KEY=your_key
+AI_DEFAULT_COVER_IMAGE_URL=https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png
 ```
 
 ## 저장 구조

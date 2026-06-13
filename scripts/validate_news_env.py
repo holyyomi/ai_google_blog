@@ -54,7 +54,7 @@ def _live_google_custom_search_check() -> dict[str, object]:
     params = {
         "key": api_key,
         "cx": cx,
-        "q": "site:holyeverymoments.blogspot.com",
+        "q": "site:holyyomiai.blogspot.com",
         "num": 1,
         "hl": "ko",
     }

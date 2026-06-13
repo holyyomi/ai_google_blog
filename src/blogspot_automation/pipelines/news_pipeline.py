@@ -4593,7 +4593,11 @@ class NewsPipeline:
         topic_group: str,
         image_plan: dict[str, str],
     ) -> str:
-        configured = cover_image_url_from_env(content_type=content_type, topic_group=topic_group)
+        configured = cover_image_url_from_env(
+            content_type=content_type,
+            topic_group=topic_group,
+            include_default=False,
+        )
         if configured:
             return configured
         try:
@@ -4601,22 +4605,24 @@ class NewsPipeline:
 
             service = CoverImageService()
             if not service.enabled():
-                return ""
+                return cover_image_url_from_env(content_type=content_type, topic_group=topic_group)
             slug = build_english_permalink_slug(
                 title=selected_title,
                 topic=selected.candidate.topic or "",
                 labels=[topic_group, content_type],
                 topic_group=topic_group,
             )
-            return service.build_cover_image_url(
+            generated = service.build_cover_image_url(
                 title=selected_title,
                 topic=selected.candidate.topic or "",
                 slug=slug,
                 image_concept=str(image_plan.get("image_prompt") or "")[:500],
             )
+            if generated:
+                return generated
         except Exception as exc:  # noqa: BLE001
             logger.warning("cover image generation skipped: %s", exc)
-            return cover_image_url_from_env(content_type=content_type, topic_group=topic_group)
+        return cover_image_url_from_env(content_type=content_type, topic_group=topic_group)
 
     @staticmethod
     def _internal_link_suggestions(*, selected: ScoredNewsCandidate, content_type: str) -> list[str]:

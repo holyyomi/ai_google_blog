@@ -14,7 +14,8 @@ Register only these API secrets for the current news pipeline.
 | `BLOGGER_CLIENT_SECRET` | Publish only | Blogger OAuth secret |
 | `BLOGGER_REFRESH_TOKEN` | Publish only | Blogger refresh token |
 | `BLOGGER_BLOG_ID` | Publish only | Target Blogspot blog |
-| `NEWS_COVER_IMAGE_URL` | Optional | Reusable cover image URL |
+| `AI_COVER_IMAGE_URL` | Optional | Reusable AI cover image URL. If empty, generated/uploaded image or `AI_DEFAULT_COVER_IMAGE_URL` is used. |
+| `AI_IMAGE_UPLOAD_KEY` | Optional | imgbb upload key used for generated AI cover images |
 
 Do not set `OPENROUTER_API_KEY`. OpenRouter is no longer used.
 
@@ -33,6 +34,9 @@ GEMINI_MODEL: gemini-2.5-flash
 OPENAI_MODEL: gpt-5-mini
 ENABLE_GOOGLE_CUSTOM_SEARCH: false
 AI_BLOG_MODE: true
+AI_COVER_IMAGE_URL: optional
+AI_DEFAULT_COVER_IMAGE_URL: https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png
+AI_IMAGE_UPLOAD_KEY: optional
 NEWS_EXCLUDED_QUERY_GROUPS: ""
 ALLOW_AI_NEWS_TOPICS: true
 ```
@@ -74,6 +78,7 @@ $env:AI_BLOG_MODE='true'
 $env:NEWS_EXCLUDED_QUERY_GROUPS=''
 $env:ALLOW_AI_NEWS_TOPICS='true'
 $env:BLOGSPOT_HOME_URL='https://holyyomiai.blogspot.com/'
+$env:AI_DEFAULT_COVER_IMAGE_URL='https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png'
 $env:DISABLE_IMAGE_GENERATION='true'
 $env:DISABLE_IMAGE_UPLOAD='true'
 $env:RUNS_DIR='runs'

@@ -26,7 +26,10 @@
 | `TAVILY_API_KEY` | 상위 후보 검증 |
 | `EXA_API_KEY` | 의미 기반 검증 |
 | `FIRECRAWL_API_KEY` | 최종 출처 확인 |
-| `NEWS_COVER_IMAGE_URL` | 기본 대표 이미지 |
+| `AI_COVER_IMAGE_URL` | 고정 대표 이미지를 항상 쓸 때 |
+| `AI_DEFAULT_COVER_IMAGE_URL` | 생성/업로드 실패 시 사용할 기본 AI 대표 이미지 |
+| `AI_IMAGE_UPLOAD_KEY` | 생성된 AI 대표 이미지를 imgbb에 업로드할 때 |
+| `IMGBB_API_KEY` | 기존 호환용 업로드 키. 신규 운영은 `AI_IMAGE_UPLOAD_KEY` 우선 |
 
 절대 넣지 말 것:
 
@@ -46,8 +49,10 @@ AUTO_PUBLISH=false
 ALLOW_AI_NEWS_TOPICS=true
 NEWS_EXCLUDED_QUERY_GROUPS=
 ENABLE_GOOGLE_CUSTOM_SEARCH=false
-DISABLE_IMAGE_GENERATION=true
-DISABLE_IMAGE_UPLOAD=true
+DISABLE_IMAGE_GENERATION=false
+DISABLE_IMAGE_UPLOAD=false
+AI_COVER_IMAGE_URL=
+AI_DEFAULT_COVER_IMAGE_URL=https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png
 ```
 
 모델:
@@ -84,12 +89,10 @@ AUTO_PUBLISH=true
 - 사람이 글을 확인
 - 내부 링크와 제목 품질 점검
 
-안정화 후:
+안정화 후 현재 운영 슬롯:
 
-- KST `08:13`, `16:13` 2회 이하 권장
+- KST `08:58` 하루 1회
 - AI 뉴스는 변동이 많으므로 과도한 자동 발행보다 검증 품질을 우선
-
-기존 3회 발행 슬롯을 그대로 쓸 수 있지만, AI 주제는 가격/모델/기능 변화 검증 부담이 크므로 처음에는 줄이는 편이 안전하다.
 
 ## 4. 로컬 검증 명령
 

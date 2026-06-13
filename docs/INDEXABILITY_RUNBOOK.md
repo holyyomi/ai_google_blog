@@ -84,14 +84,14 @@ IndexNow(`services/indexnow_client.py`)는 **Naver SearchAdvisor + Bing**에만 
 (Indexing API는 JobPosting/BroadcastEvent 전용), Search Console 운영 루틴으로 처리한다.
 
 ### 1회 설정
-- [ ] Google Search Console에 `holyeverymoments.blogspot.com` 속성 등록 + 소유권 확인
+- [ ] Google Search Console에 `holyyomiai.blogspot.com` 속성 등록 + 소유권 확인
 - [ ] Sitemaps 메뉴에 `sitemap.xml` 제출 (Blogger는 자동 생성)
 - [ ] (선택) Bing Webmaster Tools에도 동일 등록
 
 ### 새 글 발행 후 (글당)
 - [ ] Search Console **URL 검사(URL Inspection)**에 새 글 URL 입력
 - [ ] "색인 생성 요청(Request indexing)" 클릭
-- [ ] 며칠 뒤 `site:holyeverymoments.blogspot.com <키워드>`로 노출 확인
+- [ ] 며칠 뒤 `site:holyyomiai.blogspot.com <키워드>`로 노출 확인
 
 ### 주간 점검
 - [ ] Search Console **페이지(색인 생성)** 리포트에서 "크롤링됨 - 현재 색인 안 됨

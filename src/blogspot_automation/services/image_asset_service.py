@@ -110,7 +110,7 @@ class ImgBBHostingProvider:
     def __init__(self, settings: Settings) -> None:
         self.api_key = settings.imgbb_api_key
         if not self.api_key:
-            raise RuntimeError("IMGBB_API_KEY is required for imgbb upload.")
+            raise RuntimeError("AI_IMAGE_UPLOAD_KEY or IMGBB_API_KEY is required for imgbb upload.")
 
     def upload(self, *, image_bytes: bytes, filename: str) -> str:
         encoded = base64.b64encode(image_bytes).decode("utf-8")
@@ -294,7 +294,7 @@ def _inject_cover_image(
         return article_html
     if "{{IMG_1}}" in article_html:
         return article_html.replace("{{IMG_1}}", src)
-    safe_alt = html_escape_for_svg(" ".join((alt_text or "news cover image").split()))
+    safe_alt = html_escape_for_svg(" ".join((alt_text or "AI cover image").split()))
     image_block = (
         "<section style=\"margin:0 0 20px 0;\">"
         f"<img src=\"{src}\" alt=\"{safe_alt}\" "

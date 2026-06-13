@@ -9,7 +9,7 @@
   ENABLE_COVER_IMAGE_AUTOGEN (기본 true)
   CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN — Cloudflare Workers AI (무료 1순위)
   GOOGLE_AI_API_KEY  — Gemini 이미지 생성 (2순위)
-  IMGBB_API_KEY      — imgbb 업로드 (필수)
+  AI_IMAGE_UPLOAD_KEY / IMGBB_API_KEY      — imgbb 업로드 (필수)
   COVER_IMAGE_MODEL  — Gemini 모델, 기본 gemini-2.5-flash-image
 """
 from __future__ import annotations
@@ -49,7 +49,10 @@ _STYLE_SUFFIX = (
 class CoverImageService:
     def __init__(self) -> None:
         self.gemini_key = os.getenv("GOOGLE_AI_API_KEY", "").strip()
-        self.imgbb_key = os.getenv("IMGBB_API_KEY", "").strip()
+        self.imgbb_key = (
+            os.getenv("AI_IMAGE_UPLOAD_KEY", "").strip()
+            or os.getenv("IMGBB_API_KEY", "").strip()
+        )
         self.model = os.getenv("COVER_IMAGE_MODEL", DEFAULT_COVER_IMAGE_MODEL).strip()
         self.cf_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
         self.cf_api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()

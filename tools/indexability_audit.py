@@ -35,7 +35,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger("indexability_audit")
 
-DEFAULT_BLOG_BASE = "https://holyeverymoments.blogspot.com"
+DEFAULT_BLOG_BASE = "https://holyyomiai.blogspot.com"
 DEFAULT_PUBLISHED_HISTORY_PATH = Path("state/news_published_history.json")
 DEFAULT_OUTPUT_DIR = Path("runs/indexability_audit")
 _UA = "blogspot-indexability-audit/1.0 (read-only)"

@@ -131,7 +131,7 @@ def test_news_publish_service_preserves_official_source_links_for_consumer_posts
 
 
 def test_news_publish_service_inserts_cover_image_from_env(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("NEWS_COVER_IMAGE_URL", "https://cdn.example.com/news-cover.jpg")
+    monkeypatch.setenv("AI_COVER_IMAGE_URL", "https://cdn.example.com/ai-cover.jpg")
     client = CapturingBloggerClient()
     service = NewsPublishService(
         settings=Settings(blogger_blog_id="blog-1"),
@@ -150,6 +150,6 @@ def test_news_publish_service_inserts_cover_image_from_env(tmp_path, monkeypatch
 
     article_html = str(client.calls[0]["article_html"])
     assert '<figure class="news-cover-image"' in article_html
-    assert '<img src="https://cdn.example.com/news-cover.jpg"' in article_html
+    assert '<img src="https://cdn.example.com/ai-cover.jpg"' in article_html
     assert 'alt="UAE 원전 안전 점검 이미지"' in article_html
 

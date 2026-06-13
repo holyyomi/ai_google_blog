@@ -741,13 +741,13 @@ def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any
         "dateModified": today,
         "author": {
             "@type": "Person",
-            "name": "요미",
+            "name": "holyyomi AI",
             "url": _ABOUT_PAGE_URL,
-            "description": "한국 오늘의 이슈를 복수 보도 교차 확인과 사실·해석 분리 원칙으로 해설하는 에디터",
+            "description": "AI 도구, 자동화, 검색 경험 변화를 실무 적용 관점으로 정리하는 에디터",
         },
         "publisher": {
             "@type": "Organization",
-            "name": "요미의 오늘 이슈",
+            "name": "holyyomi AI Insight",
             "url": _SITE_URL,
         },
         "mainEntityOfPage": {"@type": "WebPage"},

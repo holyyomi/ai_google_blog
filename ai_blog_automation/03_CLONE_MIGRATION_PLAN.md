@@ -104,7 +104,7 @@ live publish 전환은 dry-run 글 품질을 확인한 뒤 한다.
 찾을 키워드:
 
 ```powershell
-rg -n "holyeverymoments|blogspot.com|_OWN_LINK_HOSTS|BLOGGER_BLOG_ID|NEWS_COVER_IMAGE_URL|today-issue|오늘이슈"
+rg -n "holyeverymoments|blogspot.com|_OWN_LINK_HOSTS|BLOGGER_BLOG_ID|AI_COVER_IMAGE_URL|AI_IMAGE_UPLOAD_KEY|NEWS_COVER_IMAGE_URL|today-issue|오늘이슈"
 ```
 
 주의할 파일 후보:

@@ -43,6 +43,17 @@ def test_enabled_with_keys(monkeypatch) -> None:
     assert _service(monkeypatch).enabled() is True
 
 
+def test_ai_image_upload_key_takes_priority(monkeypatch) -> None:
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", "gemini-key")
+    monkeypatch.setenv("AI_IMAGE_UPLOAD_KEY", "ai-upload-key")
+    monkeypatch.setenv("IMGBB_API_KEY", "legacy-imgbb-key")
+
+    svc = CoverImageService()
+
+    assert svc.enabled() is True
+    assert svc.imgbb_key == "ai-upload-key"
+
+
 def test_build_cover_image_url_full_flow(monkeypatch) -> None:
     svc = _service(monkeypatch)
     calls: list[str] = []
