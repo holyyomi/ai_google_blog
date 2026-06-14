@@ -27,30 +27,37 @@ _AI_AXES = {"ai_automation"}
 _NAVER_CONTENT_TYPE = "ai_work_tip"
 _NAVER_TOPIC_GROUP  = "ai_work"
 
-# 프롬프트 레시피형 주제 라우팅 키워드 (taxonomy ai_prompt 토픽그룹)
-_PROMPT_ROUTE_KEYWORDS: tuple[str, ...] = (
-    "프롬프트", "prompt", "지시문", "템플릿", "프롬프트 레시피",
-    "프롬프트 작성", "프롬프트 엔지니어링",
-)
-
-# 도구 리뷰형 주제 라우팅 키워드 (taxonomy ai_tool 토픽그룹)
-_TOOL_REVIEW_ROUTE_KEYWORDS: tuple[str, ...] = (
-    "리뷰", "후기", "써봤", "사용법", "도구 추천", "툴 추천",
-    "ai 도구", "ai 툴", "vs ", "비교", "평가", "perplexity", "copilot", "notion ai",
+# 주제 → (content_type, topic_group) 분류 규칙. 위에서부터 먼저 매칭되는 규칙을 사용한다.
+# 더 구체적인 타입(프롬프트/비교/검색/모델/리스크)을 일반 타입보다 앞에 둔다.
+_AI_ROUTE_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (("프롬프트", "prompt", "지시문", "프롬프트 템플릿", "프롬프트 레시피", "프롬프트 작성", "프롬프트 엔지니어링"),
+     "ai_prompt_recipe", "ai_prompt"),
+    (("vs", " 대 ", "비교", "차이", "어떤 ai", "무엇이 다를", "뭐가 나아", "요금제 비교", "가격 비교", "어느 것"),
+     "ai_comparison", "ai_compare"),
+    (("ai 검색", "ai overview", "ai 오버뷰", "sge", "aeo", "생성형 검색", "답변엔진", "제로클릭", "검색 변화", "ai 인용"),
+     "ai_search_change", "ai_search"),
+    (("모델 업데이트", "ai 업데이트", "새 모델", "신규 모델", "신모델", "모델 출시", "gpt-5", "gpt5", "업그레이드", "버전 공개", "정식 출시"),
+     "ai_model_update", "ai_model"),
+    (("보안", "개인정보", "저작권", "환각", "hallucination", "리스크", "위험", "유출", "프라이버시", "기밀", "ai 윤리", "ai 규제"),
+     "ai_risk_security", "ai_risk"),
+    (("블로그", "애드센스", "수익화", "조회수", "rpm", "트래픽", "포스팅 자동화", "수익형"),
+     "ai_blog_growth", "ai_blog"),
+    (("초보", "입문", "처음", "기초", "왕초보", "시작하는", "첫걸음", "쉬운 ai"),
+     "ai_beginner_guide", "ai_beginner"),
+    (("리뷰", "후기", "써봤", "사용법", "도구 추천", "툴 추천", "ai 도구", "ai 툴", "평가", "perplexity", "copilot", "notion ai"),
+     "ai_tool_review", "ai_tool"),
 )
 
 
 def _classify_ai_topic(topic: str) -> tuple[str, str]:
     """AI 주제를 content_type/topic_group로 분류한다.
 
-    프롬프트 레시피형 → ai_prompt_recipe, 도구 리뷰형 → ai_tool_review,
-    그 외에는 기존 ai_work_tip/ai_work 기본값을 유지한다.
+    구체 규칙을 위에서부터 매칭하고, 매칭이 없으면 ai_work_tip/ai_work 기본값을 유지한다.
     """
     haystack = (topic or "").lower()
-    if any(kw.lower() in haystack for kw in _PROMPT_ROUTE_KEYWORDS):
-        return "ai_prompt_recipe", "ai_prompt"
-    if any(kw.lower() in haystack for kw in _TOOL_REVIEW_ROUTE_KEYWORDS):
-        return "ai_tool_review", "ai_tool"
+    for keywords, ct, tg in _AI_ROUTE_RULES:
+        if any(kw in haystack for kw in keywords):
+            return ct, tg
     return _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
 
 # pattern_id별 16:9 커버 이미지 scene

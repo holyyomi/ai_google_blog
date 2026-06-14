@@ -222,6 +222,45 @@ class TestAiToolReviewFlagship(unittest.TestCase):
         self.assertEqual(_classify_ai_topic("ChatGPT 사용 후기"), ("ai_tool_review", "ai_tool"))
 
 
+class TestAllAiPatternsComplete(unittest.TestCase):
+    """9개 AI content_type 전체가 매칭·생성·잔재없음·라우팅을 만족하는지."""
+
+    # (topic, content_type, topic_group, pattern_id)
+    CASES = [
+        ("직장인이 ChatGPT로 업무 시간 줄이기", "ai_work_tip", "ai_work", "ai_work_time_savings"),
+        ("보고서 초안용 ChatGPT 프롬프트 템플릿", "ai_prompt_recipe", "ai_prompt", "ai_prompt_recipe"),
+        ("Perplexity AI 사용 후기와 무료 한계", "ai_tool_review", "ai_tool", "ai_tool_review"),
+        ("GPT-5 새 모델 업데이트 무엇이 바뀌었나", "ai_model_update", "ai_model", "ai_model_update"),
+        ("AI 검색 시대 블로그 인용되는 글 구조 AEO GEO", "ai_search_change", "ai_search", "ai_search_change"),
+        ("AI 블로그 자동화 조회수 망치는 글 구조 애드센스", "ai_blog_growth", "ai_blog", "ai_blog_growth"),
+        ("ChatGPT vs Claude 업무용 비교 요금제", "ai_comparison", "ai_compare", "ai_comparison"),
+        ("AI에 회사 자료 넣기 전 보안 개인정보 환각 주의", "ai_risk_security", "ai_risk", "ai_risk_security"),
+        ("AI 처음 쓰는 초보 입문 기초 사용법", "ai_beginner_guide", "ai_beginner", "ai_beginner_guide"),
+    ]
+
+    def test_all_patterns_match_and_render_clean(self):
+        svc = GoldenArticlePreviewService()
+        for topic, ct, tg, pid in self.CASES:
+            with self.subTest(pattern=pid):
+                pm = svc._ps.match_pattern(topic=topic, content_type=ct, topic_group=tg)
+                self.assertEqual(pm.get("pattern_id"), pid, f"매칭 실패: {pid}")
+                self.assertGreaterEqual(pm.get("confidence", 0), 80)
+                sr = svc._sf.fill_slots(pattern_id=pid, topic=topic)
+                self.assertGreaterEqual(sr.get("slot_fill_rate", 0), 0.8, f"fill 부족: {pid}")
+                html = svc.render_article_candidate_html(pm, sr, selected_title=topic)
+                leaked = [m for m in _NEWS_RESIDUE if m in html]
+                self.assertEqual(leaked, [], f"{pid} 뉴스 잔재: {leaked}")
+
+    def test_all_patterns_route_correctly(self):
+        from blogspot_automation.pipelines.ai_pipeline import _classify_ai_topic
+        for topic, ct, tg, pid in self.CASES:
+            with self.subTest(pattern=pid):
+                if pid == "ai_work_time_savings":
+                    continue  # 기본값(default) — 별도 키워드 없음
+                r_ct, r_tg = _classify_ai_topic(topic)
+                self.assertEqual(r_ct, ct, f"{topic!r} → {r_ct} (기대 {ct})")
+
+
 class TestAiContentScoring(unittest.TestCase):
     """Phase D: AI 콘텐츠 점수 루브릭이 신호에 따라 합리적으로 산출되는지."""
 
