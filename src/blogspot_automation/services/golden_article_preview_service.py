@@ -189,8 +189,8 @@ _PREVIEW_CSS = """
   .confirmed-section li, .check-needed-section li { margin-bottom: 4px; font-size: 0.87rem; }
   .prompt-recipe-box { margin-bottom: 20px; }
   .prompt-card { border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
-  .prompt-card-label { margin: 0; padding: 8px 14px; background: #111827; color: #f9fafb; font-size: 0.82rem; font-weight: 700; }
-  .prompt-code { margin: 0; padding: 14px 16px; background: #0f172a; color: #e2e8f0; font-family: 'D2Coding','Consolas',monospace; font-size: 0.86rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+  .prompt-card-label { margin: 0; padding: 8px 14px; background: #0f766e; color: #fff; font-size: 0.82rem; font-weight: 700; }
+  .prompt-code { margin: 0; padding: 14px 16px; background: #f1f5f9; color: #0f172a; font-family: 'D2Coding','Consolas',monospace; font-size: 0.88rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow-x: auto; border-top: 1px solid #e2e8f0; }
   .quality-checklist { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 14px 18px; margin-bottom: 20px; border-radius: 6px; }
   .quality-checklist ul { margin: 0; padding-left: 0; list-style: none; }
   .quality-checklist li { padding: 6px 0 6px 28px; position: relative; font-size: 0.9rem; }

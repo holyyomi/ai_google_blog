@@ -109,14 +109,14 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .yomi-internal-links li:before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;border-top:2px solid #00a3a3;border-right:2px solid #00a3a3;transform:rotate(45deg)}
 .yomi-internal-links a{border-bottom:0;font-weight:700}
 .prompt-recipe-box{margin:26px 0}
-.prompt-card{border:1px solid #1f2937;border-radius:10px;margin:0 0 14px;overflow:hidden;box-shadow:0 8px 20px rgba(15,23,42,.08)}
-.prompt-card-label{margin:0;padding:10px 15px;background:#111827;color:#f9fafb;font-size:.86rem;font-weight:850;letter-spacing:0}
-.prompt-code{margin:0;padding:16px 17px;background:#0f172a;color:#e2e8f0;font-family:'D2Coding','Consolas','Courier New',monospace;font-size:.9rem;line-height:1.75;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.prompt-card{border:1px solid #cbd5e1;border-radius:10px;margin:0 0 14px;overflow:hidden;box-shadow:0 8px 20px rgba(15,23,42,.06)}
+.prompt-card-label{margin:0!important;padding:10px 15px!important;background:#0f766e!important;color:#ffffff!important;font-size:.86rem;font-weight:850;letter-spacing:0}
+.yomi-clean-post .prompt-code{margin:0!important;padding:16px 17px!important;background:#f1f5f9!important;color:#0f172a!important;font-family:'D2Coding','Consolas','Courier New',monospace;font-size:.92rem;line-height:1.75;white-space:pre-wrap;word-break:break-word;overflow-x:auto;border-top:1px solid #e2e8f0}
 .quality-checklist{margin:26px 0;padding:18px 20px;border:1px solid #bcebe1;border-left:6px solid #00a3a3;background:#f4fffc;border-radius:8px;box-shadow:0 8px 20px rgba(15,23,42,.05)}
 .quality-checklist ul{margin:10px 0 2px;padding:0;list-style:none}
 .quality-checklist li{margin:0;padding:10px 0 10px 32px;position:relative;border-top:1px dashed #cfe9e2;color:#123a3a}
 .quality-checklist li:first-child{border-top:0}
-.quality-checklist li:before{content:"✓";position:absolute;left:2px;top:9px;color:#00a3a3;font-weight:900;font-size:1.15em}
+.quality-checklist li:before{content:"\\2713";position:absolute;left:2px;top:9px;color:#00a3a3;font-weight:900;font-size:1.15em}
 .risk-note{margin:26px 0;padding:16px 19px;border:1px solid #fed7aa;border-left:6px solid #f97316;background:#fff7ed;border-radius:8px}
 .risk-note .section-label{border-color:#fed7aa;background:#fff1e6;color:#9a3412}
 .risk-note .section-label:before{background:#9a3412}
@@ -180,7 +180,7 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .use-cases{margin:26px 0}
 .use-case-card{border:1px solid #dbe3ee;border-left:5px solid var(--a1,#6366f1);border-radius:0 10px 10px 0;padding:14px 17px;margin:0 0 11px;background:#fbfdff;box-shadow:0 8px 20px rgba(15,23,42,.05)}
 .use-case-when{margin:0 0 5px;font-weight:850;color:#111827}
-.use-case-when:before{content:"▶ ";color:var(--a1,#6366f1)}
+.use-case-when:before{content:"\\25B6\\00A0";color:var(--a1,#6366f1)}
 .use-case-how{margin:0;color:#334155}
 @media(max-width:640px){.ai-hero{padding:18px 18px;border-radius:13px}.ai-hero-title{font-size:1.06rem}}
 @media(max-width:640px){.post-title.entry-title{font-size:19px!important;line-height:1.28!important;word-break:keep-all!important;overflow-wrap:normal!important;letter-spacing:0!important}.yomi-clean-post{width:100%;max-width:100%;font-size:16px;line-height:1.78;padding:0 16px 30px!important;overflow-x:hidden;word-break:normal}.yomi-clean-post h1{font-size:1.42rem}.yomi-clean-post h2{font-size:1.16rem;overflow-wrap:anywhere;margin:34px 0 14px}.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box{padding:16px 17px;border-radius:8px}.yomi-thesis,.yomi-lens,.key-fact-cards{grid-template-columns:1fr;gap:12px}.misconception-box,.quick-decision-table{padding:13px;border-radius:8px}.misconception-box table,.quick-decision-table table,.yomi-risk{display:block;border:0;background:transparent}.misconception-box thead,.quick-decision-table thead,.yomi-risk thead{display:none}.misconception-box tbody,.quick-decision-table tbody,.yomi-risk tbody{display:block}.misconception-box tr,.quick-decision-table tr,.yomi-risk tr{display:block;border:1px solid #dbe3ee;border-radius:8px;margin:0 0 12px;background:#fff;overflow:hidden;box-shadow:0 8px 20px rgba(15,23,42,.05)}.misconception-box td,.quick-decision-table td,.yomi-risk td{display:block;width:100%;border:0!important;border-top:1px solid #edf2f7!important;padding:11px 13px!important;background:#fff!important}.misconception-box td:first-child,.quick-decision-table td:first-child,.yomi-risk td:first-child{border-top:0!important;background:#f4fffc!important;font-weight:850;color:#0f766e}.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support{padding:14px 15px;border-radius:8px}.actions-box,.action-guide-box,.checklist{padding:15px 16px;border-radius:8px}}
@@ -864,7 +864,12 @@ def _ensure_yomi_clean_style(html: str) -> str:
     if ".yomi-clean-post" in (html or ""):
         return html
     if re.search(r"</head>", html or "", flags=re.IGNORECASE):
-        return re.sub(r"</head>", f"{YOMI_CLEAN_ARTICLE_STYLE}\n</head>", html, count=1, flags=re.IGNORECASE)
+        # 함수 치환 — STYLE의 CSS 이스케이프(\2713 등)가 그룹 참조로 오해석되지 않도록.
+        return re.sub(
+            r"</head>",
+            lambda _m: f"{YOMI_CLEAN_ARTICLE_STYLE}\n</head>",
+            html, count=1, flags=re.IGNORECASE,
+        )
     return f"{YOMI_CLEAN_ARTICLE_STYLE}\n{html}"
 
 
