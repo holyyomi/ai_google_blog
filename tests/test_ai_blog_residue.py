@@ -364,6 +364,29 @@ class TestAiStructuredData(unittest.TestCase):
             self.assertIn(t, html, f"누락: {t}")
 
 
+class TestAiInternalLinks(unittest.TestCase):
+    """발행 이력 기반 실제 내부링크 우선, 없으면 라벨 링크 폴백."""
+
+    def _render(self, *, pairs=None):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(topic="ChatGPT vs Claude 비교", content_type="ai_comparison", topic_group="ai_compare")
+        return svc.render_article_candidate_html(
+            pv["pattern_match"], pv["slot_result"], selected_title="AI 비교",
+            internal_link_pairs=pairs,
+        )
+
+    def test_real_links_used_when_provided(self):
+        pairs = [("ChatGPT 업무 활용법", "https://holyyomiai.blogspot.com/2026/06/chatgpt-work.html")]
+        html = self._render(pairs=pairs)
+        self.assertIn("https://holyyomiai.blogspot.com/2026/06/chatgpt-work.html", html)
+        self.assertIn("ChatGPT 업무 활용법", html)
+
+    def test_label_fallback_without_history(self):
+        html = self._render(pairs=None)
+        self.assertIn("yomi-internal-links", html)
+        self.assertIn("/search/label/", html)
+
+
 class TestAiToc(unittest.TestCase):
     """목차(TOC) 출력 — AI 글에만."""
 

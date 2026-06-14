@@ -714,6 +714,7 @@ class GoldenArticlePreviewService:
         slot_result: dict,
         selected_title: str = "",
         cover_image_url: str = "",
+        internal_link_pairs: list[tuple[str, str]] | None = None,
     ) -> str:
         """발행 후보용 클린 HTML을 반환한다.
 
@@ -1246,6 +1247,7 @@ class GoldenArticlePreviewService:
                 internal_links=_list_slot(slots.get("internal_links")),
                 hashtags=_list_slot(slots.get("hashtags")),
                 content_type=_content_type,
+                internal_link_pairs=internal_link_pairs,
             )
         return clean
 
@@ -1312,16 +1314,26 @@ def append_ai_footer_html(
     internal_links: list | None = None,
     hashtags: list | None = None,
     content_type: str = "",
+    internal_link_pairs: list[tuple[str, str]] | None = None,
 ) -> str:
     """발행 직전(마지막 strip 이후) HTML에 내부링크 + 해시태그 푸터를 붙인다.
 
     prepare_blogspot_html이 internal-links/hashtag 섹션을 strip하므로, 반드시
     최종 단계에서 호출해야 살아남는다 (뉴스 발행 서비스와 동일한 패턴).
+
+    internal_link_pairs(실제 발행된 글 (제목,URL))가 있으면 우선 사용하고,
+    부족분은 라벨 검색 링크로 보충한다.
     """
     out = html or ""
-    pairs = ai_internal_link_pairs(internal_links or [], content_type=content_type)
-    if pairs:
-        out = append_internal_links_block(out, links=pairs)
+    real_pairs = [
+        (str(t), str(u)) for t, u in (internal_link_pairs or [])
+        if str(t).strip() and str(u).strip()
+    ]
+    label_pairs = ai_internal_link_pairs(internal_links or [], content_type=content_type)
+    seen_urls = {u for _, u in real_pairs}
+    combined = real_pairs + [lp for lp in label_pairs if lp[1] not in seen_urls]
+    if combined:
+        out = append_internal_links_block(out, links=combined[:3])
     tags = [str(t) for t in (hashtags or []) if str(t).strip()]
     if tags:
         out = append_hashtags_block(out, hashtags=tags)

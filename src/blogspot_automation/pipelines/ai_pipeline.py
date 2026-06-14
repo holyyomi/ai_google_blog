@@ -248,9 +248,14 @@ class AiTopicPipeline:
                 title=selected_title, topic=topic, content_type=ct, topic_group=tg,
             )
 
+            internal_link_pairs = self._build_internal_link_pairs(
+                title=selected_title, topic=topic, content_type=ct,
+            )
+
             _can_gen, candidate_html = self._render_candidate(
                 preview=preview, selected_title=selected_title,
                 cover_image_url=cover_image_url,
+                internal_link_pairs=internal_link_pairs,
             )
 
             blogspot_labels, hashtags = self._build_labels(
@@ -329,6 +334,7 @@ class AiTopicPipeline:
                     content_type=ct,
                     internal_links=_slots_for_footer.get("internal_links") or [],
                     hashtags=_slots_for_footer.get("hashtags") or hashtags,
+                    internal_link_pairs=internal_link_pairs,
                 )
 
             if naver_post and not self.dry_run and publish_succeeded:
@@ -533,7 +539,8 @@ class AiTopicPipeline:
         return tr, selected_title, ctr
 
     def _render_candidate(
-        self, *, preview: dict, selected_title: str, cover_image_url: str = ""
+        self, *, preview: dict, selected_title: str, cover_image_url: str = "",
+        internal_link_pairs: list | None = None,
     ) -> tuple[bool, str]:
         pm = preview.get("pattern_match") or {}
         sr = preview.get("slot_result") or {}
@@ -544,11 +551,34 @@ class AiTopicPipeline:
                 candidate_html = self.golden_preview_service.render_article_candidate_html(
                     pm, sr, selected_title=selected_title,
                     cover_image_url=cover_image_url,
+                    internal_link_pairs=internal_link_pairs,
                 )
             except Exception as e:
                 logger.warning("render_article_candidate_html failed: %s", e)
                 _can_gen = False
         return _can_gen, candidate_html
+
+    def _build_internal_link_pairs(
+        self, *, title: str, topic: str, content_type: str
+    ) -> list[tuple[str, str]]:
+        """발행 이력에서 실제 발행된 Blogspot 글 (제목, URL) 내부링크를 만든다.
+
+        이력이 없으면 빈 목록 → 렌더러가 카테고리 라벨 링크로 폴백한다.
+        """
+        try:
+            from blogspot_automation.services.seo_policy import build_internal_links_from_history
+            records = self.publish_history_service.recent_records(limit=120, published_only=True)
+            pairs = build_internal_links_from_history(
+                records,
+                current_title=title,
+                current_topic=topic,
+                current_content_type=content_type,
+                limit=3,
+            )
+            return list(pairs)
+        except Exception as exc:
+            logger.warning("internal link 생성 실패(비치명): %s", exc)
+            return []
 
     def _resolve_cover_image_url(
         self, *, title: str, topic: str, content_type: str, topic_group: str
@@ -820,6 +850,7 @@ class AiTopicPipeline:
         content_type: str = "",
         internal_links: list | None = None,
         hashtags: list | None = None,
+        internal_link_pairs: list | None = None,
     ) -> tuple[str, bool]:
         """Blogger API에 발행 시도. (url, succeeded) 반환."""
         import json as _json
@@ -838,6 +869,7 @@ class AiTopicPipeline:
                 internal_links=internal_links or [],
                 hashtags=hashtags or [],
                 content_type=content_type,
+                internal_link_pairs=internal_link_pairs or [],
             )
             result = client.publish_post(
                 title=title,
