@@ -291,21 +291,23 @@ class TestWorkflowSchedules(unittest.TestCase):
         self.assertIn('NEWS_NAVER_DISPLAY: "10"', content)
         self.assertIn('git pull --rebase --autostash origin "${{ github.ref_name }}"', content)
 
-    def test_ai_workflow_cron(self) -> None:
+    def test_ai_workflow_manual_dispatch(self) -> None:
+        # 1단계: ai_blog.yml은 수동 dispatch 전용(스케줄 미설정). 검증 후 cron 추가 예정.
         import pathlib
         path = pathlib.Path(".github/workflows/ai_blog.yml")
         if not path.exists():
             self.skipTest("ai_blog.yml not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("0 23 * * *", content, "ai_blog.yml should schedule at 23:00 UTC (08:00 KST)")
+        self.assertIn("workflow_dispatch", content)
+        self.assertIn("cli_ai.py", content)
 
-    def test_ai_workflow_publish_hold(self) -> None:
+    def test_ai_workflow_default_dry_run(self) -> None:
         import pathlib
         path = pathlib.Path(".github/workflows/ai_blog.yml")
         if not path.exists():
             self.skipTest("ai_blog.yml not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("PUBLISH_HOLD_PHASE2", content)
+        self.assertIn("default: 'dry_run'", content)
 
 
 class TestAiPipeline(unittest.TestCase):

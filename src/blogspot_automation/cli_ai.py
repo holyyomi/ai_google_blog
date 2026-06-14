@@ -34,11 +34,14 @@ def main() -> None:
         dry_run, auto_publish, disable_image_generation, disable_image_upload,
     )
 
+    force_topic = os.getenv("AI_FORCE_TOPIC", "").strip()
+
     pipeline = AiTopicPipeline(
         dry_run=dry_run,
         auto_publish=auto_publish,
         disable_image_generation=disable_image_generation,
         disable_image_upload=disable_image_upload,
+        _force_topic=force_topic,
     )
     result = pipeline.run_once()
 
