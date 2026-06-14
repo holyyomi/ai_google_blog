@@ -40,12 +40,24 @@ _SYSTEM_PROMPT = (
 
 # LLM이 채울 수 있는 텍스트형 슬롯과 출력 스펙
 _ENRICH_SPEC = {
+    "title": (
+        "이 글의 제목 1개. 35자 이내, 자연스럽고 구체적인 한국어. "
+        "비문 금지(조사·어미 정확히), '먼저 볼 N가지'·'~할 N가지' 같은 정형구 금지, "
+        "낚시성·과장 금지. 주제의 핵심 이득이나 질문이 드러나게."
+    ),
     "hook_opening": "독자 상황에 공감하며 이 글의 가치를 제시하는 4~6문장. '오늘은/안녕하세요' 같은 인사 금지.",
     "yomi_judgment": "이 주제의 핵심 관점·결론을 단정적으로 3~4문장. '요미 판단:' 같은 라벨 금지.",
     "real_criterion": "실행 단계 3개를 '1단계: ...\\n2단계: ...\\n3단계: ...' 형식의 한 문자열로. 각 단계는 구체적 방법 포함.",
     "misconceptions": "흔한 오해 3개를 [{\"착각\":\"...\",\"실제\":\"...\"}] 배열로. 주제에 특화된 실제 오해.",
     "use_cases": "실전 활용 시나리오 3개를 [{\"상황\":\"...\",\"활용\":\"...\"}] 배열로. 구체적 상황+구체적 활용법.",
     "faq": "자주 묻는 질문 3개를 [{\"Q\":\"...\",\"A\":\"...\"}] 배열로. 주제 특화된 실전 질문과 2~3문장 답변.",
+    "prompt_block": (
+        "이 주제에 바로 복사해 쓰는 완성형 프롬프트 3개를 "
+        "[{\"label\":\"용도(짧게)\",\"prompt\":\"실제 프롬프트 전문\"}] 배열로. "
+        "각 prompt는 그대로 붙여넣어도 결과가 나오도록 구체적 예시 값까지 채울 것. "
+        "대괄호 빈칸은 꼭 필요한 1~2개로 최소화하고 무엇을 넣는지 명확히. "
+        "역할·목적·입력·출력형식·제약을 포함한 실전 수준으로. 화살표는 ->로 표기."
+    ),
 }
 
 
@@ -119,6 +131,28 @@ def enrich_slots_with_llm(
     _apply_pairs(enriched, data, "misconceptions", ("착각", "실제"))
     _apply_pairs(enriched, data, "use_cases", ("상황", "활용"))
     _apply_pairs(enriched, data, "faq", ("Q", "A"), min_items=3)
+
+    # prompt_block: 템플릿에 원래 있던 패턴(프롬프트 레시피 등)에서만 주제 특화로 교체
+    if "prompt_block" in slots:
+        pb = data.get("prompt_block")
+        if isinstance(pb, list):
+            cards = []
+            for item in pb:
+                if isinstance(item, dict) and str(item.get("label", "")).strip() and str(item.get("prompt", "")).strip():
+                    cards.append({
+                        "label": str(item["label"]).strip(),
+                        "prompt": str(item["prompt"]).strip().replace("→", "->"),
+                    })
+            if len(cards) >= 2:
+                enriched["prompt_block"] = cards[:5]
+
+    # 제목: LLM이 만든 자연스러운 제목을 특수 키에 담아 파이프라인이 채택하게 한다
+    llm_title = data.get("title")
+    if isinstance(llm_title, str):
+        t = re.sub(r"\s+", " ", llm_title).strip().strip('"').strip()
+        if 6 <= len(t) <= 60 and not re.search(r"먼저\s*(볼|확인할|정할|해야)\s*\d+\s*가지", t):
+            enriched["_llm_title"] = t
+
     logger.info("ai_slot_enricher: 주제 특화 본문 적용 완료 (topic=%s)", topic[:40])
     return enriched
 

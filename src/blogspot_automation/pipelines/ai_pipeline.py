@@ -44,7 +44,9 @@ _AI_ROUTE_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "ai_blog_growth", "ai_blog"),
     (("초보", "입문", "처음", "기초", "왕초보", "시작하는", "첫걸음", "쉬운 ai"),
      "ai_beginner_guide", "ai_beginner"),
-    (("리뷰", "후기", "써봤", "사용법", "도구 추천", "툴 추천", "ai 도구", "ai 툴", "평가", "perplexity", "copilot", "notion ai"),
+    (("리뷰", "후기", "써봤", "사용법", "도구 추천", "툴 추천", "ai 도구", "ai 툴",
+      "평가", "쓸 만한", "쓸만한", "따져", "테스트", "체험", "생성 툴", "생성 도구",
+      "perplexity", "copilot", "notion ai", "미드저니", "midjourney"),
      "ai_tool_review", "ai_tool"),
 )
 
@@ -244,17 +246,22 @@ class AiTopicPipeline:
                 raw_candidate=raw_candidate,
             )
 
+            # LLM 주제 특화 본문 보강 (실패 시 템플릿 그대로 — 발행 안전)
+            self._enrich_preview_slots(
+                preview=preview, topic=topic, content_type=ct, selected_title=selected_title,
+            )
+            # LLM이 더 자연스러운 제목을 만들었으면 채택
+            _llm_title = ((preview.get("slot_result") or {}).get("slots") or {}).get("_llm_title")
+            if _llm_title:
+                logger.info("AiTopicPipeline: LLM 제목 채택 — %s", _llm_title)
+                selected_title = _llm_title
+
             cover_image_url = self._resolve_cover_image_url(
                 title=selected_title, topic=topic, content_type=ct, topic_group=tg,
             )
 
             internal_link_pairs = self._build_internal_link_pairs(
                 title=selected_title, topic=topic, content_type=ct,
-            )
-
-            # LLM 주제 특화 본문 보강 (실패 시 템플릿 그대로 — 발행 안전)
-            self._enrich_preview_slots(
-                preview=preview, topic=topic, content_type=ct, selected_title=selected_title,
             )
 
             _can_gen, candidate_html = self._render_candidate(
