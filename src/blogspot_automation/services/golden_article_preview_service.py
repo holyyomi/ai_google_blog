@@ -56,6 +56,36 @@ def _is_ai_family(pattern_id: str = "", content_type: str = "") -> bool:
     return str(pattern_id or "").startswith("ai_") or str(content_type or "") in _AI_CONTENT_TYPES
 
 
+# AI 글마다 매번 같지 않게 색감을 바꾸기 위한 테마 (article 클래스로 적용).
+# 뉴스 글에는 테마 클래스가 붙지 않으므로 영향 없음.
+_AI_THEMES: tuple[str, ...] = (
+    "theme-teal", "theme-violet", "theme-blue", "theme-emerald",
+    "theme-rose", "theme-indigo", "theme-sky", "theme-amber",
+)
+
+
+def _pick_ai_theme(topic: str, pattern_id: str = "") -> str:
+    """주제 문자열 해시로 테마를 결정 — 같은 주제는 항상 같은 색, 주제별로는 다양."""
+    import hashlib as _hl
+    seed = f"{topic}|{pattern_id}".encode("utf-8", errors="ignore")
+    idx = int(_hl.sha1(seed).hexdigest(), 16) % len(_AI_THEMES)
+    return _AI_THEMES[idx]
+
+
+# content_type → 본문 상단 히어로 배너용 (카테고리 라벨, 이모지)
+_AI_HERO_META: dict[str, tuple[str, str]] = {
+    "ai_work_tip": ("AI 업무 활용", "⚡"),
+    "ai_prompt_recipe": ("프롬프트 레시피", "📝"),
+    "ai_tool_review": ("AI 도구 리뷰", "🧩"),
+    "ai_model_update": ("AI 모델 업데이트", "🚀"),
+    "ai_search_change": ("AI 검색 변화", "🔎"),
+    "ai_blog_growth": ("AI 블로그 성장", "📈"),
+    "ai_comparison": ("AI 비교 분석", "⚖️"),
+    "ai_risk_security": ("AI 리스크·보안", "🛡️"),
+    "ai_beginner_guide": ("AI 입문 가이드", "🎓"),
+}
+
+
 # 섹션 라벨: (slot_key) -> {"ai": ..., "news": ...}
 # 클래스명은 바꾸지 않으므로 게이트(geo_score)에 영향 없음 — 표시 텍스트만 분기.
 def _section_label(slot_key: str, ai: bool) -> str:
@@ -347,6 +377,7 @@ class GoldenArticlePreviewService:
         _p_data_rh = self._ps.get_pattern(_pid_raw) if _pid_raw else {}
         _ct_rh = str((_p_data_rh or {}).get("content_type") or "")
         ai_family = _is_ai_family(_pid_raw, _ct_rh)
+        _theme_class = f" {_pick_ai_theme(str(slot_result.get('topic', '')), _pid_raw)}" if ai_family else ""
 
         sections: list[str] = []
 
@@ -619,7 +650,7 @@ class GoldenArticlePreviewService:
   </style>
 </head>
 <body>
-  <article class="golden-preview">
+  <article class="golden-preview{_theme_class}">
     <h1>{topic}</h1>
 {body}
     <div class="preview-meta">
@@ -748,7 +779,14 @@ class GoldenArticlePreviewService:
             _ia = []
             _trust_text = "이 글은 공개 정보를 바탕으로 정리했습니다. 최신 정보를 직접 확인하세요."
 
-        _overview_heading = "30초 요약" if _ai_family else "먼저 볼 핵심"
+        # 모델 업데이트/새 도구 등 '이슈형' AI 주제는 '왜 지금 화제인가' 프레이밍 사용
+        _ai_issue_type = _pattern_id in {"ai_model_update", "ai_search_change"}
+        if _ai_issue_type:
+            _overview_heading = "지금 핵심만"
+        elif _ai_family:
+            _overview_heading = "30초 요약"
+        else:
+            _overview_heading = "먼저 볼 핵심"
         ai_overview_block = (
             '\n  <section id="AI_OVERVIEW_TARGET_ANSWER" class="ai-overview-box">\n'
             f'    <h2>{escape(_overview_heading)}</h2>\n'
@@ -757,10 +795,20 @@ class GoldenArticlePreviewService:
         ) if _sge_overview_text else ""
 
         if topic_str and topic_str not in str(_ic or ""):
-            _ic_prefix = f"{topic_str} 핵심 정리입니다." if _ai_family else f"{topic_str} 관련 이슈입니다."
+            if _ai_issue_type:
+                _ic_prefix = f"{topic_str}, 지금 주목받는 이유입니다."
+            elif _ai_family:
+                _ic_prefix = f"{topic_str} 핵심 정리입니다."
+            else:
+                _ic_prefix = f"{topic_str} 관련 이슈입니다."
             _ic = f"{_ic_prefix} {_ic}"
 
-        _context_heading = "이 글이 도움이 되는 사람" if _ai_family else "왜 지금 봐야 하나"
+        if _ai_issue_type:
+            _context_heading = "지금 왜 화제인가"
+        elif _ai_family:
+            _context_heading = "이 글이 도움이 되는 사람"
+        else:
+            _context_heading = "왜 지금 봐야 하나"
         issue_context_block = (
             '\n  <section id="ISSUE_CONTEXT_BLOCK" class="issue-context-box">\n'
             f'    <h2>{escape(_context_heading)}</h2>\n'
@@ -853,8 +901,34 @@ class GoldenArticlePreviewService:
 
         # </h1> 직후에 삽입 순서:
         # AI_OVERVIEW → AI_CITATION → UPDATED_DATE → ISSUE_CONTEXT → INTENT_ANSWER → PAA
+        # 히어로 시각 요소: 공개 이미지 URL이 있으면 실제 커버 사진, 없으면 CSS 히어로 배너.
+        _visual_block = ""
+        if _ai_family:
+            try:
+                from blogspot_automation.services.cover_image_policy import cover_image_url_from_env
+                _cover_url = cover_image_url_from_env(
+                    content_type=_content_type,
+                    topic_group=str((_p_data or {}).get("topic_group") or ""),
+                )
+            except Exception:
+                _cover_url = ""
+            _visual_title = (selected_title or "").strip() or topic_str
+            if _cover_url:
+                _alt = escape(f"{_visual_title} 대표 이미지", quote=True)
+                _visual_block = (
+                    '\n  <figure class="ai-cover-image" data-yomi-block="cover-image" data-yomi-cover-kind="ai">'
+                    f'<img src="{escape(_cover_url, quote=True)}" alt="{_alt}" '
+                    'loading="eager" decoding="async" width="1200" height="675"/></figure>'
+                )
+            else:
+                _visual_block = _hero_banner_html(
+                    content_type=_content_type, topic=_visual_title,
+                    theme_class=_pick_ai_theme(topic_str, _pattern_id),
+                )
+
         _after_h1 = (
-            ai_overview_block
+            _visual_block
+            + ai_overview_block
             + ai_citation_block
             + updated_date_block
             + issue_context_block
@@ -1116,10 +1190,28 @@ _HEADING_EMOJI_MAP: dict[str, str] = {
     "오늘 업데이트": "📅",
     # AI 가이드형 섹션 제목
     "30초 요약": "⚡",
+    "지금 핵심만": "⚡",
     "이 글이 도움이 되는 사람": "🎯",
+    "지금 왜 화제인가": "🔥",
     "검증된 점과 직접 확인할 점": "🔍",
     "자주 묻는 질문": "❓",
 }
+
+
+def _hero_banner_html(*, content_type: str = "", topic: str = "", theme_class: str = "") -> str:
+    """이미지가 없을 때도 모든 AI 글 상단에 들어가는 CSS 히어로 배너.
+    카테고리 배지 + 이모지 + 주제를 테마 색으로 보여준다 (외부 이미지 의존 없음)."""
+    label, emoji = _AI_HERO_META.get(content_type, ("AI 인사이트", "🤖"))
+    topic_short = (topic or "").strip()
+    if len(topic_short) > 70:
+        topic_short = topic_short[:69] + "…"
+    return (
+        f'\n  <div class="ai-hero {escape(theme_class)}">\n'
+        f'    <span class="ai-hero-icon">{emoji}</span>\n'
+        f'    <span class="ai-hero-badge">{escape(label)}</span>\n'
+        f'    <span class="ai-hero-title">{escape(topic_short)}</span>\n'
+        f'  </div>'
+    )
 
 
 def _faq_heading_for_pattern(*, pattern_id: str = "", content_type: str = "") -> str:

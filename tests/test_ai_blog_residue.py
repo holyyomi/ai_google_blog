@@ -261,6 +261,51 @@ class TestAllAiPatternsComplete(unittest.TestCase):
                 self.assertEqual(r_ct, ct, f"{topic!r} → {r_ct} (기대 {ct})")
 
 
+class TestAiVisualUpgrade(unittest.TestCase):
+    """업그레이드: 테마 색상 다양화 + 히어로 배너 + 모델 이슈형 프레이밍."""
+
+    def _render(self, topic, ct, tg):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(topic=topic, content_type=ct, topic_group=tg)
+        return svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title=topic)
+
+    def test_ai_post_has_theme_and_hero(self):
+        html = self._render("보고서 초안용 ChatGPT 프롬프트 템플릿", "ai_prompt_recipe", "ai_prompt")
+        self.assertRegex(html, r'class="yomi-clean-post[^"]*\btheme-\w+', "테마 클래스 없음")
+        self.assertIn('class="ai-hero', html)
+        self.assertIn("ai-hero-badge", html)
+
+    @staticmethod
+    def _article_theme(html: str) -> str:
+        import re
+        m = re.search(r'<article class="yomi-clean-post([^"]*)"', html)
+        if not m:
+            return ""
+        tm = re.search(r'theme-\w+', m.group(1))
+        return tm.group(0) if tm else ""
+
+    def test_news_post_has_no_theme_or_hero(self):
+        html = self._render("홈택스 종합소득세 환급금 조회 방법", "tax_refund", "policy_benefit")
+        self.assertEqual(self._article_theme(html), "", "뉴스 글에 테마 클래스가 붙음")
+        self.assertNotIn('class="ai-hero', html)
+
+    def test_themes_vary_by_topic(self):
+        svc = GoldenArticlePreviewService()
+        themes = set()
+        for t in ("AI 글쓰기 도구 후기", "AI 이미지 생성 도구 후기", "AI 코딩 도구 후기", "AI 번역 도구 후기"):
+            pv = svc.build_preview(topic=t, content_type="ai_tool_review", topic_group="ai_tool")
+            html = svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title=t)
+            themes.add(self._article_theme(html))
+        self.assertGreaterEqual(len(themes), 2, f"테마가 다양하지 않음: {themes}")
+
+    def test_model_update_uses_issue_framing(self):
+        html = self._render("GPT-5 새 모델 업데이트 무엇이 바뀌었나", "ai_model_update", "ai_model")
+        self.assertIn("지금 왜 화제인가", html)
+        self.assertIn("활용법", html)
+        # 일반 AI 프레이밍은 쓰지 않음
+        self.assertNotIn("이 글이 도움이 되는 사람", html)
+
+
 class TestAiContentScoring(unittest.TestCase):
     """Phase D: AI 콘텐츠 점수 루브릭이 신호에 따라 합리적으로 산출되는지."""
 

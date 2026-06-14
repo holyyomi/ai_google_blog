@@ -147,6 +147,31 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 @media(max-width:640px){.who-for-cols{grid-template-columns:1fr}.pricing-table table{display:block}.pricing-table thead{display:none}.pricing-table tbody,.pricing-table tr,.pricing-table td{display:block;width:100%}.pricing-table tr{border:1px solid #dbe3ee;border-radius:8px;margin:0 0 12px;overflow:hidden;box-shadow:0 8px 20px rgba(15,23,42,.05)}.pricing-table td{border:0;border-top:1px solid #edf2f7;padding:11px 13px}.pricing-table td:first-child{border-top:0;background:#eef2ff;font-weight:850;color:#312e81}}
 .ai-cover-image,figure[data-yomi-block="cover-image"]{margin:0 0 24px}
 .ai-cover-image img,figure[data-yomi-block="cover-image"] img{width:100%;height:auto;display:block;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid #dbe3ee;box-shadow:0 10px 26px rgba(15,23,42,.09)}
+.ai-hero{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:2px 0 28px;padding:22px 24px;border-radius:16px;background:linear-gradient(120deg,var(--a1,#0d9488),var(--a2,#f59e0b));color:#fff;box-shadow:0 16px 34px rgba(15,23,42,.18)}
+.ai-hero-icon{font-size:2rem;line-height:1}
+.ai-hero-badge{font-size:.8rem;font-weight:900;letter-spacing:.02em;background:rgba(255,255,255,.24);padding:6px 13px;border-radius:999px;backdrop-filter:blur(2px)}
+.ai-hero-title{flex:1 1 100%;font-size:1.18rem;font-weight:850;line-height:1.42;margin-top:6px;text-shadow:0 1px 3px rgba(0,0,0,.22)}
+.yomi-clean-post[class*="theme-"]{--a1:#0d9488;--a2:#f59e0b}
+.yomi-clean-post.theme-teal{--a1:#0d9488;--a2:#f59e0b}
+.yomi-clean-post.theme-violet{--a1:#7c3aed;--a2:#ec4899}
+.yomi-clean-post.theme-blue{--a1:#2563eb;--a2:#06b6d4}
+.yomi-clean-post.theme-emerald{--a1:#059669;--a2:#84cc16}
+.yomi-clean-post.theme-rose{--a1:#e11d48;--a2:#fb923c}
+.yomi-clean-post.theme-indigo{--a1:#4f46e5;--a2:#f59e0b}
+.yomi-clean-post.theme-sky{--a1:#0284c7;--a2:#22d3ee}
+.yomi-clean-post.theme-amber{--a1:#d97706;--a2:#f43f5e}
+.yomi-clean-post[class*="theme-"] h1{background:linear-gradient(90deg,#111827 0 34px,var(--a1) 34px 72px,var(--a2) 72px 108px) bottom left/108px 4px no-repeat}
+.yomi-clean-post[class*="theme-"] h2{background:linear-gradient(90deg,var(--a1),var(--a2)) bottom left/48px 3px no-repeat}
+.yomi-clean-post[class*="theme-"] .section-label{color:var(--a1)}
+.yomi-clean-post[class*="theme-"] li::marker{color:var(--a1)}
+.yomi-clean-post[class*="theme-"] a{color:var(--a1)}
+.yomi-clean-post[class*="theme-"] .yomi-lede,.yomi-clean-post[class*="theme-"] .preview-hook{border-left-color:var(--a1)}
+.yomi-clean-post[class*="theme-"] .quick-decision-table{border-left-color:var(--a1)}
+.yomi-clean-post[class*="theme-"] .quick-decision-table th{background:var(--a1)}
+.yomi-clean-post[class*="theme-"] .actions-box li:before{background:var(--a1)}
+.yomi-clean-post[class*="theme-"] .actions-box strong{color:var(--a1)}
+.yomi-clean-post[class*="theme-"] .real-criterion{border-left-color:var(--a2)}
+@media(max-width:640px){.ai-hero{padding:18px 18px;border-radius:13px}.ai-hero-title{font-size:1.06rem}}
 @media(max-width:640px){.post-title.entry-title{font-size:19px!important;line-height:1.28!important;word-break:keep-all!important;overflow-wrap:normal!important;letter-spacing:0!important}.yomi-clean-post{width:100%;max-width:100%;font-size:16px;line-height:1.78;padding:0 16px 30px!important;overflow-x:hidden;word-break:normal}.yomi-clean-post h1{font-size:1.42rem}.yomi-clean-post h2{font-size:1.16rem;overflow-wrap:anywhere;margin:34px 0 14px}.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box{padding:16px 17px;border-radius:8px}.yomi-thesis,.yomi-lens,.key-fact-cards{grid-template-columns:1fr;gap:12px}.misconception-box,.quick-decision-table{padding:13px;border-radius:8px}.misconception-box table,.quick-decision-table table,.yomi-risk{display:block;border:0;background:transparent}.misconception-box thead,.quick-decision-table thead,.yomi-risk thead{display:none}.misconception-box tbody,.quick-decision-table tbody,.yomi-risk tbody{display:block}.misconception-box tr,.quick-decision-table tr,.yomi-risk tr{display:block;border:1px solid #dbe3ee;border-radius:8px;margin:0 0 12px;background:#fff;overflow:hidden;box-shadow:0 8px 20px rgba(15,23,42,.05)}.misconception-box td,.quick-decision-table td,.yomi-risk td{display:block;width:100%;border:0!important;border-top:1px solid #edf2f7!important;padding:11px 13px!important;background:#fff!important}.misconception-box td:first-child,.quick-decision-table td:first-child,.yomi-risk td:first-child{border-top:0!important;background:#f4fffc!important;font-weight:850;color:#0f766e}.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support{padding:14px 15px;border-radius:8px}.actions-box,.action-guide-box,.checklist{padding:15px 16px;border-radius:8px}}
 </style>"""
 
