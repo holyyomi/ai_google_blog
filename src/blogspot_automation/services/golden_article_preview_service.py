@@ -145,6 +145,10 @@ _PREVIEW_CSS = """
   .quality-checklist ul { margin: 0; padding-left: 0; list-style: none; }
   .quality-checklist li { padding: 6px 0 6px 28px; position: relative; font-size: 0.9rem; }
   .quality-checklist li:before { content: "☑"; position: absolute; left: 4px; color: #16a34a; font-weight: 800; }
+  .risk-note { background: #fff7ed; border: 1px solid #fed7aa; border-left: 4px solid #f97316; padding: 14px 18px; margin-bottom: 20px; border-radius: 0 6px 6px 0; }
+  .risk-note ul { margin: 0; padding-left: 18px; }
+  .risk-note li { margin-bottom: 6px; font-size: 0.9rem; color: #7c2d12; }
+  .risk-note p { margin: 0; font-size: 0.9rem; color: #7c2d12; }
 """
 
 
@@ -462,6 +466,28 @@ class GoldenArticlePreviewService:
                     f'      <ul>\n{items_html}\n      </ul>\n'
                     f'    </section>'
                 )
+
+        # risk_note (위험 알림 — 보안/저작권/개인정보/환각 주의)
+        risk_items = _list_slot(slots.get("risk_note"))
+        risk_text = _str_slot(slots.get("risk_note"))
+        if risk_items:
+            li = "\n".join(
+                f'        <li>{escape(str(c))}</li>' for c in risk_items if str(c).strip()
+            )
+            if li:
+                sections.append(
+                    f'    <section class="risk-note">\n'
+                    f'      <p class="section-label">⚠️ 쓰기 전 주의할 점</p>\n'
+                    f'      <ul>\n{li}\n      </ul>\n'
+                    f'    </section>'
+                )
+        elif risk_text:
+            sections.append(
+                f'    <section class="risk-note">\n'
+                f'      <p class="section-label">⚠️ 쓰기 전 주의할 점</p>\n'
+                f'      <p>{escape(risk_text)}</p>\n'
+                f'    </section>'
+            )
 
         # faq
         faq = _list_slot(slots.get("faq"))

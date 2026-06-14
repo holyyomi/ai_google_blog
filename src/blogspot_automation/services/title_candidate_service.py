@@ -47,8 +47,17 @@ _PATTERN_REQUIRED_KEYWORDS: dict[str, list[str]] = {
     "ai_work_time_savings": ["ChatGPT", "챗GPT", "직장인", "AI", "업무", "시간", "생산성", "자동화"],
     "ai_tool_comparison": ["AI 도구", "ChatGPT", "Claude", "비교", "업무용", "선택", "AI", "생산성 도구"],
     "ai_automation_workflow": ["자동화", "워크플로우", "반복 업무", "AI 자동화", "업무 자동화", "프로세스"],
+    "ai_prompt_recipe": ["프롬프트", "ChatGPT", "AI", "템플릿", "프롬프트 템플릿", "지시문", "보고서", "요약"],
     "delivery_money_checklist": ["배달앱", "배달비", "결제금액", "쿠폰", "무료배달", "최소주문", "배달"],
 }
+
+# 과장 표현 감점을 공유하는 AI 패턴 집합
+_AI_PATTERN_IDS: frozenset[str] = frozenset({
+    "ai_work_time_savings",
+    "ai_tool_comparison",
+    "ai_automation_workflow",
+    "ai_prompt_recipe",
+})
 
 _PATTERN_FORBIDDEN_CROSSOVER: dict[str, list[str]] = {
     "tax_refund_hometax_check": ["지원금", "사용처", "바우처", "가맹점", "드라마", "넷플릭스"],
@@ -60,6 +69,7 @@ _PATTERN_FORBIDDEN_CROSSOVER: dict[str, list[str]] = {
     "ai_work_time_savings": ["지원금", "환급금", "드라마", "넷플릭스", "사생활"],
     "ai_tool_comparison": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스"],
     "ai_automation_workflow": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스"],
+    "ai_prompt_recipe": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스", "배달"],
     "delivery_money_checklist": ["지원금", "환급", "세금", "홈택스", "신청마감", "복지급여", "드라마", "넷플릭스"],
 }
 
@@ -124,6 +134,18 @@ _PATTERN_TITLE_TEMPLATES: dict[str, list[tuple[str, str]]] = {
         ("자동화 도구 설치 전에 프로세스 정의가 먼저인 이유", "curiosity"),
         ("직장인 업무 자동화 입문, 처음 자동화할 업무 고르는 기준", "howto"),
         ("AI 자동화 워크플로우, 검수 루프 없이 확대하면 안 되는 이유", "loss"),
+    ],
+    "ai_prompt_recipe": [
+        ("복사해서 쓰는 ChatGPT 보고서 프롬프트, 값만 바꾸면 끝", "howto"),
+        ("좋은 프롬프트는 길이가 아니라 구조에서 나온다", "curiosity"),
+        ("프롬프트가 매번 달라 결과가 들쭉날쭉할 때 고정할 것", "loss"),
+        ("ChatGPT 프롬프트, 매번 새로 쓰지 말고 템플릿으로 굳히는 법", "save_time"),
+        ("보고서 초안용 프롬프트, 역할·목적·출력 형식부터 정하기", "howto"),
+        ("AI에게 요약 시킬 때 결과 품질을 정하는 프롬프트 한 줄", "curiosity"),
+        ("프롬프트 잘 쓰는 법, 예시보다 출력 형식을 먼저 지정하라", "howto"),
+        ("업무용 프롬프트 템플릿, 복사해서 바로 쓰는 기본 양식", "search"),
+        ("AI 결과물이 매번 다른 이유와 프롬프트로 고정하는 법", "search"),
+        ("프롬프트 한 줄 차이로 보고서 초안 품질이 달라지는 이유", "curiosity"),
     ],
     "delivery_money_checklist": [
         ("배달앱 결제 전 확인할 배달비·쿠폰·최소주문금액 3가지", "howto"),
@@ -398,10 +420,13 @@ class TitleCandidateService:
                     ctr -= 10
 
         # AI 패턴 전용 과장 표현 감점
-        if pattern_id in ("ai_work_time_savings", "ai_tool_comparison", "ai_automation_workflow"):
+        if pattern_id in _AI_PATTERN_IDS:
             for phrase in ("대박", "끝판왕", "인생이 바뀐다", "돈 복사", "자동수익", "충격"):
                 if phrase in title:
                     ctr -= 15
+            # 매일 반복되는 "먼저 볼/확인할 N가지" 정형 패턴 완화 → 제목 다양성 유도
+            if re.search(r"먼저\s*(볼|확인할|정할|해야)\s*\d+\s*가지", title):
+                ctr -= 12
 
         # 단어 반복 감점
         words = re.split(r"[\s,·\-]+", title)
@@ -436,7 +461,7 @@ class TitleCandidateService:
             for phrase in ("0원으로 보입니다", "못 받습니다", "사라집니다"):
                 if phrase in title:
                     pms -= 15
-        if pattern_id in ("ai_work_time_savings", "ai_tool_comparison", "ai_automation_workflow"):
+        if pattern_id in _AI_PATTERN_IDS:
             for phrase in ("대박", "끝판왕", "인생이 바뀐다", "돈 복사", "자동수익"):
                 if phrase in title:
                     pms -= 20

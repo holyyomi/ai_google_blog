@@ -151,6 +151,34 @@ class TestAiPromptRecipeFlagship(unittest.TestCase):
         leaked = [m for m in _NEWS_RESIDUE if m in self.html]
         self.assertEqual(leaked, [], f"뉴스 잔재: {leaked}")
 
+    def test_risk_note_rendered(self):
+        # 위험 알림(보안/저작권/환각) 모듈이 렌더링되는지 (Phase C 디자인 모듈)
+        self.assertIn('class="risk-note"', self.html)
+        self.assertIn("쓰기 전 주의할 점", self.html)
+
+
+class TestAiTitleDiversity(unittest.TestCase):
+    """AI 제목이 '먼저 볼 N가지' 정형에 고정되지 않고 다양화되는지 (Phase C, point 6)."""
+
+    def _best(self, topic, pid, ct, tg):
+        from blogspot_automation.services.title_candidate_service import TitleCandidateService
+        r = TitleCandidateService().generate_candidates(
+            topic=topic, content_type=ct, topic_group=tg, pattern_id=pid
+        )
+        return (r.get("best_title") or {}).get("title", "")
+
+    def test_prompt_recipe_title_not_formulaic(self):
+        import re
+        title = self._best(
+            "보고서 초안용 ChatGPT 프롬프트 템플릿",
+            "ai_prompt_recipe", "ai_prompt_recipe", "ai_prompt",
+        )
+        self.assertTrue(title, "best_title 비어 있음")
+        self.assertIsNone(
+            re.search(r"먼저\s*(볼|확인할|정할|해야)\s*\d+\s*가지", title),
+            f"정형 패턴 제목이 선택됨: {title!r}",
+        )
+
 
 class TestAiTopicRouting(unittest.TestCase):
     """프롬프트형 주제가 ai_prompt_recipe로, 그 외는 ai_work_tip로 라우팅되는지."""
