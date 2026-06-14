@@ -180,6 +180,48 @@ class TestAiTitleDiversity(unittest.TestCase):
         )
 
 
+class TestAiToolReviewFlagship(unittest.TestCase):
+    """플래그십 #2: ai_tool_review (master_guide Category A) 구조/스키마 검증."""
+
+    @classmethod
+    def setUpClass(cls):
+        from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+        from blogspot_automation.services.slot_filler_service import SlotFillerService
+        topic = "Perplexity AI 사용 후기와 무료 한계"
+        ps = GoldenPatternService()
+        cls.pm = ps.match_pattern(topic=topic, content_type="ai_tool_review", topic_group="ai_tool")
+        sf = SlotFillerService()
+        cls.sr = sf.fill_slots(pattern_id="ai_tool_review", topic=topic)
+        cls.html = GoldenArticlePreviewService().render_article_candidate_html(
+            cls.pm, cls.sr, selected_title="Perplexity AI 후기: 무료로 어디까지 되나",
+        )
+
+    def test_pattern_matched(self):
+        self.assertEqual(self.pm.get("pattern_id"), "ai_tool_review")
+        self.assertGreaterEqual(self.pm.get("confidence", 0), 80)
+
+    def test_guide_modules_rendered(self):
+        for marker in (
+            'class="tool-summary"', 'class="who-for"', 'class="pricing-table"',
+            'class="verdict-box"', "한 줄 요약", "추천 대상", "비추 대상",
+            "무료 / 유료 경계", "최종 판정",
+        ):
+            self.assertIn(marker, self.html, f"모듈 누락: {marker}")
+
+    def test_review_jsonld(self):
+        self.assertIn("SoftwareApplication", self.html)
+        self.assertIn('"@type": "Review"', self.html)
+        self.assertIn('"reviewRating"', self.html)
+
+    def test_no_news_residue(self):
+        leaked = [m for m in _NEWS_RESIDUE if m in self.html]
+        self.assertEqual(leaked, [], f"뉴스 잔재: {leaked}")
+
+    def test_routes_to_tool_review(self):
+        from blogspot_automation.pipelines.ai_pipeline import _classify_ai_topic
+        self.assertEqual(_classify_ai_topic("ChatGPT 사용 후기"), ("ai_tool_review", "ai_tool"))
+
+
 class TestAiContentScoring(unittest.TestCase):
     """Phase D: AI 콘텐츠 점수 루브릭이 신호에 따라 합리적으로 산출되는지."""
 

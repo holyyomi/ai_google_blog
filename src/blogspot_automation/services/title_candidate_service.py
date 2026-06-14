@@ -48,6 +48,7 @@ _PATTERN_REQUIRED_KEYWORDS: dict[str, list[str]] = {
     "ai_tool_comparison": ["AI 도구", "ChatGPT", "Claude", "비교", "업무용", "선택", "AI", "생산성 도구"],
     "ai_automation_workflow": ["자동화", "워크플로우", "반복 업무", "AI 자동화", "업무 자동화", "프로세스"],
     "ai_prompt_recipe": ["프롬프트", "ChatGPT", "AI", "템플릿", "프롬프트 템플릿", "지시문", "보고서", "요약"],
+    "ai_tool_review": ["AI 도구", "AI 툴", "리뷰", "후기", "AI", "사용법", "무료", "유료", "추천"],
     "delivery_money_checklist": ["배달앱", "배달비", "결제금액", "쿠폰", "무료배달", "최소주문", "배달"],
 }
 
@@ -57,6 +58,7 @@ _AI_PATTERN_IDS: frozenset[str] = frozenset({
     "ai_tool_comparison",
     "ai_automation_workflow",
     "ai_prompt_recipe",
+    "ai_tool_review",
 })
 
 _PATTERN_FORBIDDEN_CROSSOVER: dict[str, list[str]] = {
@@ -70,6 +72,7 @@ _PATTERN_FORBIDDEN_CROSSOVER: dict[str, list[str]] = {
     "ai_tool_comparison": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스"],
     "ai_automation_workflow": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스"],
     "ai_prompt_recipe": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스", "배달"],
+    "ai_tool_review": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스", "배달"],
     "delivery_money_checklist": ["지원금", "환급", "세금", "홈택스", "신청마감", "복지급여", "드라마", "넷플릭스"],
 }
 
@@ -134,6 +137,18 @@ _PATTERN_TITLE_TEMPLATES: dict[str, list[tuple[str, str]]] = {
         ("자동화 도구 설치 전에 프로세스 정의가 먼저인 이유", "curiosity"),
         ("직장인 업무 자동화 입문, 처음 자동화할 업무 고르는 기준", "howto"),
         ("AI 자동화 워크플로우, 검수 루프 없이 확대하면 안 되는 이유", "loss"),
+    ],
+    "ai_tool_review": [
+        ("직접 써본 AI 도구 후기, 무료로 어디까지 되나", "search"),
+        ("이 AI 도구, 이런 사람에게 맞고 이런 사람은 패스", "curiosity"),
+        ("AI 도구 고를 때 기능 목록보다 먼저 봐야 할 것", "howto"),
+        ("무료 AI 도구로 충분한 경우와 유료가 필요한 순간", "comparison"),
+        ("광고 후기 말고, 내 업무로 검증한 AI 도구 판단 기준", "loss"),
+        ("AI 도구 무료/유료 경계, 가격표로 한눈에 보기", "comparison"),
+        ("써보기 전에 알았으면 좋았을 AI 도구 한계", "curiosity"),
+        ("AI 도구 도입 전 무료로 먼저 테스트하는 순서", "howto"),
+        ("비슷한 AI 도구 중 내게 맞는 걸 고르는 법", "search"),
+        ("AI 도구 리뷰, 별점보다 중요한 실제 사용 기준", "curiosity"),
     ],
     "ai_prompt_recipe": [
         ("복사해서 쓰는 ChatGPT 보고서 프롬프트, 값만 바꾸면 끝", "howto"),

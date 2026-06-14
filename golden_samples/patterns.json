@@ -727,6 +727,86 @@
       }
     },
     {
+      "pattern_id": "ai_tool_review",
+      "title": "AI 도구 리뷰 — 직접 써보고 판단하는 기준",
+      "content_type": "ai_tool_review",
+      "topic_group": "ai_tool",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+        "리뷰",
+        "후기",
+        "사용법",
+        "써봤다",
+        "도구 리뷰",
+        "AI 리뷰",
+        "AI 도구",
+        "AI 툴",
+        "툴 리뷰",
+        "AI 서비스",
+        "ChatGPT 리뷰",
+        "Claude 리뷰",
+        "Gemini 리뷰",
+        "Perplexity",
+        "Copilot",
+        "Notion AI",
+        "AI 글쓰기",
+        "AI 이미지",
+        "무료 AI",
+        "유료 AI",
+        "AI 평가",
+        "AI 추천",
+        "AI 사용 후기",
+        "AI 도구 추천"
+      ],
+      "match_negative": [
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "OTT",
+        "드라마",
+        "넷플릭스",
+        "배달앱"
+      ],
+      "required_slots": {
+        "hook_opening": true,
+        "tool_summary": true,
+        "who_for": true,
+        "real_criterion": true,
+        "pricing_table": true,
+        "quick_decision_table": true,
+        "verdict": true,
+        "actions": true,
+        "faq": true,
+        "hashtags": true,
+        "internal_links": true
+      },
+      "quality_checks": {
+        "tool_one_line_summary_required": true,
+        "who_is_this_for_required": true,
+        "free_vs_paid_boundary_required": true,
+        "final_verdict_required": true,
+        "no_unverified_price_or_performance_claim": true,
+        "no_unconditional_recommendation": true
+      },
+      "banned_default_phrases": [
+        "무조건 이 도구를 쓰세요",
+        "가장 완벽한 AI입니다",
+        "직접 써보니 최고였습니다",
+        "이 도구에 대해 알아보겠습니다",
+        "함께 알아볼게요",
+        "이번 포스팅에서는",
+        "정리해 보았습니다"
+      ],
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
       "pattern_id": "ai_prompt_recipe",
       "title": "AI 프롬프트 레시피 — 복사해서 바로 쓰는 템플릿",
       "content_type": "ai_prompt_recipe",

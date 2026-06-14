@@ -275,6 +275,11 @@ TOPIC_GROUP_KEYWORDS: dict[str, tuple[str, ...]] = {
         "프롬프트 레시피", "프롬프트 엔지니어링", "지시문", "프롬프트 모음", "프롬프트 작성법",
         "프롬프트 패턴", "프롬프트 양식", "프롬프트 공식", "프롬프트 꿀팁",
     ),
+    "ai_tool": (
+        "AI 도구", "AI 툴", "AI 리뷰", "도구 리뷰", "툴 리뷰", "AI 후기", "사용 후기",
+        "AI 서비스", "AI 글쓰기", "AI 이미지", "AI 도구 추천", "AI 툴 추천",
+        "Perplexity", "Copilot", "Notion AI", "AI 평가",
+    ),
     "trend_meme": (
         "밈", "틱톡", "인스타", "릴스", "오픈런", "품절", "인증샷", "유행", "신조어",
     ),
@@ -308,6 +313,7 @@ CONTENT_TYPE_BY_TOPIC_GROUP: dict[str, str] = {
     "privacy_security": "consumer_warning",
     "ai_work": "ai_work_tip",
     "ai_prompt": "ai_prompt_recipe",
+    "ai_tool": "ai_tool_review",
     "trend_meme": "trend_decode",
     "entertainment_sports": "viral_issue_decode",
     "ott_platform": "viral_issue_decode",
@@ -321,6 +327,7 @@ CONTENT_TYPE_BY_TOPIC_GROUP: dict[str, str] = {
 EDITORIAL_AXIS_BY_TOPIC_GROUP: dict[str, str] = {
     "ai_work": "AI 자동화",
     "ai_prompt": "AI 자동화",
+    "ai_tool": "AI 자동화",
     "policy_benefit": "돈 되는 이슈",
     "delivery_money": "돈 되는 이슈",
     "refund_consumer": "생활 선택 기준",

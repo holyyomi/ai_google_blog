@@ -33,16 +33,24 @@ _PROMPT_ROUTE_KEYWORDS: tuple[str, ...] = (
     "프롬프트 작성", "프롬프트 엔지니어링",
 )
 
+# 도구 리뷰형 주제 라우팅 키워드 (taxonomy ai_tool 토픽그룹)
+_TOOL_REVIEW_ROUTE_KEYWORDS: tuple[str, ...] = (
+    "리뷰", "후기", "써봤", "사용법", "도구 추천", "툴 추천",
+    "ai 도구", "ai 툴", "vs ", "비교", "평가", "perplexity", "copilot", "notion ai",
+)
+
 
 def _classify_ai_topic(topic: str) -> tuple[str, str]:
     """AI 주제를 content_type/topic_group로 분류한다.
 
-    프롬프트 레시피형 신호가 있으면 ai_prompt_recipe로 라우팅하고,
+    프롬프트 레시피형 → ai_prompt_recipe, 도구 리뷰형 → ai_tool_review,
     그 외에는 기존 ai_work_tip/ai_work 기본값을 유지한다.
     """
     haystack = (topic or "").lower()
     if any(kw.lower() in haystack for kw in _PROMPT_ROUTE_KEYWORDS):
         return "ai_prompt_recipe", "ai_prompt"
+    if any(kw.lower() in haystack for kw in _TOOL_REVIEW_ROUTE_KEYWORDS):
+        return "ai_tool_review", "ai_tool"
     return _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
 
 # pattern_id별 16:9 커버 이미지 scene

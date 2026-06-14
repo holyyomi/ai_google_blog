@@ -124,6 +124,27 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .risk-note li{margin:7px 0;color:#7c2d12}
 .risk-note li::marker{color:#f97316}
 .risk-note p{color:#7c2d12;margin:8px 0 0}
+.tool-summary{margin:24px 0;padding:16px 19px;border:1px solid #c7d2fe;border-left:6px solid #6366f1;background:#eef2ff;border-radius:8px}
+.tool-summary p[itemprop="description"]{margin:0;color:#312e81;font-weight:650;font-size:1.02em}
+.who-for{margin:26px 0}
+.who-for-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+.who-for-rec,.who-for-non{border:1px solid #dbe3ee;border-radius:8px;padding:15px 17px;box-shadow:0 8px 20px rgba(15,23,42,.05)}
+.who-for-rec{background:#f4fffc;border-left:5px solid #00a3a3}
+.who-for-non{background:#fff7f8;border-left:5px solid #e11d48}
+.who-for-rec h3,.who-for-non h3{margin:0 0 9px;font-size:1rem}
+.who-for ul{margin:0;padding-left:20px}
+.who-for li{margin:7px 0}
+.pricing-table{margin:26px 0;padding:15px;border:1px solid #dbe3ee;border-left:6px solid #6366f1;background:#fff;border-radius:8px;overflow-x:auto;box-shadow:0 8px 20px rgba(15,23,42,.05)}
+.pricing-table table{width:100%;border-collapse:separate;border-spacing:0;margin:10px 0 4px;font-size:.95rem;background:#fff;border:1px solid #dbe3ee;border-radius:8px;overflow:hidden}
+.pricing-table caption{caption-side:top;text-align:left;color:#64748b;font-size:.88rem;margin-bottom:8px}
+.pricing-table th{background:#312e81;color:#fff;text-align:left;padding:12px 14px;font-weight:800;font-size:.9rem}
+.pricing-table td{border-top:1px solid #edf2f7;padding:12px 14px;vertical-align:top;background:#fff}
+.pricing-table tr:nth-child(even) td{background:#f8fafc}
+.verdict-box{margin:28px 0;padding:18px 20px;border:2px solid #2563eb;background:#f0f7ff;border-radius:10px;box-shadow:0 10px 24px rgba(37,99,235,.1)}
+.verdict-box p{margin:0 0 8px;color:#1e3a8a}
+.verdict-box p:last-child{margin-bottom:0}
+.verdict-rating{color:#f59e0b;font-size:1.18rem;font-weight:900;letter-spacing:2px}
+@media(max-width:640px){.who-for-cols{grid-template-columns:1fr}.pricing-table table{display:block}.pricing-table thead{display:none}.pricing-table tbody,.pricing-table tr,.pricing-table td{display:block;width:100%}.pricing-table tr{border:1px solid #dbe3ee;border-radius:8px;margin:0 0 12px;overflow:hidden;box-shadow:0 8px 20px rgba(15,23,42,.05)}.pricing-table td{border:0;border-top:1px solid #edf2f7;padding:11px 13px}.pricing-table td:first-child{border-top:0;background:#eef2ff;font-weight:850;color:#312e81}}
 .ai-cover-image,figure[data-yomi-block="cover-image"]{margin:0 0 24px}
 .ai-cover-image img,figure[data-yomi-block="cover-image"] img{width:100%;height:auto;display:block;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid #dbe3ee;box-shadow:0 10px 26px rgba(15,23,42,.09)}
 @media(max-width:640px){.post-title.entry-title{font-size:19px!important;line-height:1.28!important;word-break:keep-all!important;overflow-wrap:normal!important;letter-spacing:0!important}.yomi-clean-post{width:100%;max-width:100%;font-size:16px;line-height:1.78;padding:0 16px 30px!important;overflow-x:hidden;word-break:normal}.yomi-clean-post h1{font-size:1.42rem}.yomi-clean-post h2{font-size:1.16rem;overflow-wrap:anywhere;margin:34px 0 14px}.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box{padding:16px 17px;border-radius:8px}.yomi-thesis,.yomi-lens,.key-fact-cards{grid-template-columns:1fr;gap:12px}.misconception-box,.quick-decision-table{padding:13px;border-radius:8px}.misconception-box table,.quick-decision-table table,.yomi-risk{display:block;border:0;background:transparent}.misconception-box thead,.quick-decision-table thead,.yomi-risk thead{display:none}.misconception-box tbody,.quick-decision-table tbody,.yomi-risk tbody{display:block}.misconception-box tr,.quick-decision-table tr,.yomi-risk tr{display:block;border:1px solid #dbe3ee;border-radius:8px;margin:0 0 12px;background:#fff;overflow:hidden;box-shadow:0 8px 20px rgba(15,23,42,.05)}.misconception-box td,.quick-decision-table td,.yomi-risk td{display:block;width:100%;border:0!important;border-top:1px solid #edf2f7!important;padding:11px 13px!important;background:#fff!important}.misconception-box td:first-child,.quick-decision-table td:first-child,.yomi-risk td:first-child{border-top:0!important;background:#f4fffc!important;font-weight:850;color:#0f766e}.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support{padding:14px 15px;border-radius:8px}.actions-box,.action-guide-box,.checklist{padding:15px 16px;border-radius:8px}}

@@ -27,6 +27,7 @@ _HOWTO_ELIGIBLE_PATTERNS: frozenset[str] = frozenset(
         "ai_tool_comparison",
         "ai_automation_workflow",
         "ai_prompt_recipe",
+        "ai_tool_review",
         "delivery_money_checklist",
     }
 )
@@ -149,6 +150,22 @@ _PREVIEW_CSS = """
   .risk-note ul { margin: 0; padding-left: 18px; }
   .risk-note li { margin-bottom: 6px; font-size: 0.9rem; color: #7c2d12; }
   .risk-note p { margin: 0; font-size: 0.9rem; color: #7c2d12; }
+  .tool-summary { background: #eef2ff; border-left: 4px solid #6366f1; padding: 14px 18px; margin-bottom: 20px; border-radius: 0 6px 6px 0; }
+  .tool-summary p[itemprop="description"] { margin: 0; font-size: 0.95rem; color: #312e81; }
+  .who-for-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .who-for-rec, .who-for-non { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
+  .who-for-rec { background: #f0fdf4; border-color: #bbf7d0; }
+  .who-for-non { background: #fef2f2; border-color: #fecaca; }
+  .who-for-rec h3, .who-for-non h3 { margin: 0 0 8px; font-size: 0.92rem; }
+  .who-for ul { margin: 0; padding-left: 18px; }
+  .who-for li { margin-bottom: 5px; font-size: 0.88rem; }
+  .pricing-table table { width: 100%; border-collapse: collapse; }
+  .pricing-table caption { text-align: left; font-size: 0.82rem; color: #6b7280; margin-bottom: 6px; }
+  .pricing-table th { background: #312e81; color: #fff; padding: 8px 10px; text-align: left; font-size: 0.84rem; }
+  .pricing-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-size: 0.86rem; vertical-align: top; }
+  .verdict-box { background: #f0f7ff; border: 2px solid #2563eb; padding: 16px 20px; margin-bottom: 20px; border-radius: 8px; }
+  .verdict-box p { margin: 0 0 6px; font-size: 0.92rem; }
+  .verdict-rating { color: #f59e0b; font-size: 1.1rem; font-weight: 800; }
 """
 
 
@@ -342,6 +359,17 @@ class GoldenArticlePreviewService:
                 f'    </section>'
             )
 
+        # tool_summary (AI 도구 1줄 요약 — SoftwareApplication 마이크로데이터)
+        tool_summary = _str_slot(slots.get("tool_summary"))
+        if tool_summary:
+            sections.append(
+                f'    <section class="tool-summary" itemscope itemtype="https://schema.org/SoftwareApplication">\n'
+                f'      <p class="section-label">🧩 한 줄 요약</p>\n'
+                f'      <p itemprop="description">{escape(tool_summary)}</p>\n'
+                f'      <meta itemprop="applicationCategory" content="AIApplication">\n'
+                f'    </section>'
+            )
+
         # yomi_judgment
         yomi = _str_slot(slots.get("yomi_judgment"))
         if yomi:
@@ -349,6 +377,29 @@ class GoldenArticlePreviewService:
                 f'    <section class="yomi-judgment-box">\n'
                 f'      <p class="section-label">{escape(_section_label("yomi_judgment", ai_family))}</p>\n'
                 f'      <p>{escape(yomi)}</p>\n'
+                f'    </section>'
+            )
+
+        # who_for (이런 사람에게 맞다 / 패스 — 2열)
+        who_for = slots.get("who_for")
+        if isinstance(who_for, dict) and (who_for.get("추천") or who_for.get("비추")):
+            rec = _list_slot(who_for.get("추천"))
+            non = _list_slot(who_for.get("비추"))
+            rec_li = "\n".join(f'          <li>{escape(str(x))}</li>' for x in rec if str(x).strip())
+            non_li = "\n".join(f'          <li>{escape(str(x))}</li>' for x in non if str(x).strip())
+            sections.append(
+                f'    <section class="who-for">\n'
+                f'      <p class="section-label">🎯 이런 사람에게 맞다 / 패스</p>\n'
+                f'      <div class="who-for-cols">\n'
+                f'        <div class="who-for-rec">\n'
+                f'          <h3>✅ 추천 대상</h3>\n'
+                f'          <ul>\n{rec_li}\n          </ul>\n'
+                f'        </div>\n'
+                f'        <div class="who-for-non">\n'
+                f'          <h3>❌ 비추 대상</h3>\n'
+                f'          <ul>\n{non_li}\n          </ul>\n'
+                f'        </div>\n'
+                f'      </div>\n'
                 f'    </section>'
             )
 
@@ -410,6 +461,31 @@ class GoldenArticlePreviewService:
                 f'    </section>'
             )
 
+        # pricing_table (무료/유료 경계 비교표)
+        pricing = _list_slot(slots.get("pricing_table"))
+        if pricing:
+            prows = "\n".join(
+                f'          <tr>'
+                f'<td>{escape(str(item.get("플랜", "")))}</td>'
+                f'<td>{escape(str(item.get("가격", "")))}</td>'
+                f'<td>{escape(str(item.get("핵심 기능", item.get("핵심기능", ""))))}</td>'
+                f'<td>{escape(str(item.get("한계", "")))}</td>'
+                f'</tr>'
+                for item in pricing
+                if isinstance(item, dict)
+            )
+            if prows:
+                sections.append(
+                    f'    <section class="pricing-table">\n'
+                    f'      <p class="section-label">💳 무료 / 유료 경계</p>\n'
+                    f'      <table>\n'
+                    f'        <caption>플랜별 가격과 한계 비교</caption>\n'
+                    f'        <thead><tr><th>플랜</th><th>가격</th><th>핵심 기능</th><th>한계</th></tr></thead>\n'
+                    f'        <tbody>\n{prows}\n        </tbody>\n'
+                    f'      </table>\n'
+                    f'    </section>'
+                )
+
         # quick_decision_table
         qdt = _list_slot(slots.get("quick_decision_table"))
         if qdt:
@@ -466,6 +542,27 @@ class GoldenArticlePreviewService:
                     f'      <ul>\n{items_html}\n      </ul>\n'
                     f'    </section>'
                 )
+
+        # verdict (최종 판정 + 별점)
+        verdict = slots.get("verdict")
+        if isinstance(verdict, dict) and _str_slot(verdict.get("결론")):
+            try:
+                stars_n = int(verdict.get("별점") or 0)
+            except (TypeError, ValueError):
+                stars_n = 0
+            stars_n = max(0, min(5, stars_n))
+            star_str = ("★" * stars_n) + ("☆" * (5 - stars_n))
+            rating_html = (
+                f'      <p class="verdict-rating">{star_str} ({stars_n}/5)</p>\n'
+                if stars_n else ""
+            )
+            sections.append(
+                f'    <section class="verdict-box">\n'
+                f'      <p class="section-label">⭐ 최종 판정</p>\n'
+                f'      <p><strong>한 줄 결론:</strong> {escape(_str_slot(verdict.get("결론")))}</p>\n'
+                f'{rating_html}'
+                f'    </section>'
+            )
 
         # risk_note (위험 알림 — 보안/저작권/개인정보/환각 주의)
         risk_items = _list_slot(slots.get("risk_note"))
@@ -933,6 +1030,47 @@ class GoldenArticlePreviewService:
                 )
                 clean = clean.replace('</head>', howto_script + '</head>', 1)
 
+        # SoftwareApplication + Review JSON-LD (ai_tool_review 전용 — master_guide Category A)
+        if _pattern_id == "ai_tool_review":
+            _verdict = slots.get("verdict") if isinstance(slots.get("verdict"), dict) else {}
+            _tool_name = st or topic_str
+            _sw_app = {
+                "@type": "SoftwareApplication",
+                "name": _tool_name,
+                "applicationCategory": "AIApplication",
+                "operatingSystem": "Web",
+            }
+            try:
+                _rating = int(_verdict.get("별점") or 0)
+            except (TypeError, ValueError):
+                _rating = 0
+            if 1 <= _rating <= 5:
+                review_ld = {
+                    "@context": "https://schema.org",
+                    "@type": "Review",
+                    "itemReviewed": _sw_app,
+                    "reviewRating": {
+                        "@type": "Rating",
+                        "ratingValue": str(_rating),
+                        "bestRating": "5",
+                        "worstRating": "1",
+                    },
+                    "author": {
+                        "@type": "Person",
+                        "name": os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI"),
+                    },
+                    "reviewBody": str(_verdict.get("결론") or candidate_meta_description),
+                    "datePublished": today_str,
+                }
+            else:
+                review_ld = {"@context": "https://schema.org", **_sw_app}
+            review_script = (
+                f'  <script type="application/ld+json">'
+                f'{_json.dumps(review_ld, ensure_ascii=False)}'
+                f'</script>\n'
+            )
+            clean = clean.replace('</head>', review_script + '</head>', 1)
+
         if _ia:
             clean = _re.sub(
                 r'\n?\s*<section[^>]*class="faq[^"]*"[^>]*>.*?</section>',
@@ -1262,6 +1400,12 @@ _PATTERN_CITATION_SUMMARIES: dict[str, str] = {
         "출력 형식을 명시하고 '확실하지 않으면 추측하지 말 것'이라는 제약을 더하면 환각을 줄일 수 있다. "
         "다만 프롬프트가 좋아져도 AI 출력은 초안이므로 핵심 사실은 결과물 품질 체크리스트로 직접 검수해야 한다."
     ),
+    "ai_tool_review": (
+        "AI 도구는 기능 수가 아니라 내 반복 업무에서 검수 시간을 실제로 줄여주는지로 판단해야 한다. "
+        "광고성 후기 대신 무료 범위에서 내 업무 한 가지를 직접 시켜 결과물의 검수 시간을 측정하는 것이 정확하다. "
+        "무료로 어디까지 되는지, 사용량·고급 모델·파일 처리에서 어디가 막히는지가 유료 전환 판단 기준이다. "
+        "요금·기능·무료 한도는 수시로 바뀌므로 공식 가격 페이지에서 직접 확인하고, 민감정보 입력과 사실 검증은 사람이 책임져야 한다."
+    ),
     "viral_ott_reaction_decode": (
         "반응이 갈리는 이슈는 확인된 사실, 이용자 기대, 커뮤니티 해석을 분리해서 봐야 한다. "
         "화제성이 높아도 공식 확인 범위와 추측성 반응은 같은 무게로 볼 수 없다. "
@@ -1410,6 +1554,7 @@ _PATTERN_DATE_DISCLAIMERS: dict[str, str] = {
     "ai_tool_comparison": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
     "ai_automation_workflow": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
     "ai_prompt_recipe": "AI 모델 동작과 출력은 버전·설정에 따라 달라질 수 있으므로 결과는 직접 검수하세요.",
+    "ai_tool_review": "AI 도구의 요금·기능·무료 한도는 서비스 정책에 따라 바뀔 수 있으므로 공식 페이지를 확인하세요.",
     "delivery_money_checklist": "배달앱 배달비·쿠폰·최소주문금액 조건은 앱 정책에 따라 달라질 수 있습니다.",
     "platform_change_service_update": "플랫폼 서비스·약관·요금제는 운영사 정책에 따라 변경될 수 있습니다.",
     "consumer_warning_refund": "환불·소비자 보호 절차는 운영사 약관과 관련 법령에 따라 달라질 수 있습니다.",
@@ -1437,6 +1582,10 @@ _PATTERN_META_TEMPLATES: dict[str, str] = {
     "ai_prompt_recipe": (
         "복사해서 바로 쓰는 AI 프롬프트 템플릿과 보고서·요약 변형 예시, 결과물 품질 체크리스트를 "
         "정리했습니다. 역할·목적·출력 형식·제약을 고정해 결과를 안정시키는 방법입니다."
+    ),
+    "ai_tool_review": (
+        "AI 도구를 직접 써보고 판단하는 기준과 추천·비추 대상, 무료/유료 경계, 최종 판정을 "
+        "정리했습니다. 기능 목록이 아니라 내 반복 업무의 검수 시간으로 도구를 고르는 방법입니다."
     ),
     "viral_ott_reaction_decode": (
         "반응이 갈리는 이슈에서 확인된 사실, 이용자 영향, 커뮤니티 해석, 루머 구분 기준을 "
