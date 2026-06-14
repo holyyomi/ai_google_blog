@@ -616,6 +616,10 @@ class GoldenArticlePreviewService:
             _p_data_ct = self._ps.get_pattern(_pattern_id) if _pattern_id else {}
             _ct = str((_p_data_ct or {}).get("content_type") or _content_type)
             _tg = str((_p_data_ct or {}).get("topic_group") or "")
+            # AI 블로그 전용 content_type은 geo_intent의 AI 브랜치(ai_work_tip)로 정규화 —
+            # 전용 분기가 없는 신규 AI 타입이 뉴스형 generic 텍스트로 빠지는 것을 방지.
+            if _is_ai_family(_pattern_id, _ct):
+                _ct, _tg = "ai_work_tip", "ai_work"
             _iq = _geo_intent.generate_reader_intent_questions(
                 topic=topic_str, content_type=_ct, topic_group=_tg, slots=slots,
             )

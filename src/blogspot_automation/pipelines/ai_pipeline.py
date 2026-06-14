@@ -78,6 +78,81 @@ def _build_ai_image_prompt(*, pattern_id: str, selected_title: str) -> tuple[str
     return prompt, alt_text
 
 
+_AI_TOOL_TOKENS: tuple[str, ...] = (
+    "chatgpt", "gpt", "claude", "gemini", "copilot", "perplexity", "midjourney",
+    "notion", "n8n", "zapier", "make", "프롬프트", "워크플로", "api",
+)
+
+
+def compute_ai_content_scores(
+    *,
+    slots: dict[str, Any],
+    candidate_html: str,
+    content_type: str = "",
+    geo_score: int = 0,
+) -> dict[str, int]:
+    """AI 블로그 주제용 점수 루브릭(0~100)을 후보 신호에서 계산한다.
+
+    뉴스/이슈성 점수 대신 AI 콘텐츠 가치 기준으로 평가한다 (Phase D).
+    슬롯/HTML 신호 기반의 결정론적 점수로, 검토·정렬 보조에 사용한다.
+    """
+    s = slots or {}
+    html = candidate_html or ""
+
+    def has(slot: str) -> bool:
+        v = s.get(slot)
+        if isinstance(v, (list, dict)):
+            return bool(v)
+        return bool(str(v or "").strip())
+
+    text_blob = " ".join(
+        str(v) for v in s.values() if isinstance(v, str)
+    ).lower() + " " + html.lower()
+    tool_hits = sum(1 for t in _AI_TOOL_TOKENS if t in text_blob)
+
+    faq_n = len(s.get("faq") or []) if isinstance(s.get("faq"), list) else 0
+
+    scores = {
+        # 검색 의도 명확도 — hook + intent answer 블록
+        "search_intent_clarity": 80 + (10 if has("hook_opening") else 0)
+        + (10 if 'id="INTENT_ANSWER_BLOCK"' in html else 0),
+        # 실무 적용 가능성 — 따라하는 순서 + 행동 + 프롬프트
+        "practical_applicability": 60 + (15 if has("real_criterion") else 0)
+        + (10 if has("actions") else 0) + (15 if has("prompt_block") else 0),
+        # 저장 가치 — 프롬프트/체크리스트 같이 다시 꺼내 쓰는 자산
+        "save_worthiness": 60 + (20 if has("prompt_block") else 0)
+        + (20 if has("checklist") else 0),
+        # 도구/모델 구체성 — 실제 도구명 언급 수
+        "tool_specificity": min(100, 55 + tool_hits * 9),
+        # 비교/선택 가치 — 비교/판단 표
+        "comparison_value": 60 + (25 if has("quick_decision_table") else 0)
+        + (15 if has("misconceptions") else 0),
+        # 초보자 이해도 — 오해표 + FAQ
+        "beginner_clarity": 60 + (20 if has("misconceptions") else 0)
+        + min(20, faq_n * 7),
+        # 수익화/광고 가치 — 도구 비교/리뷰 성격일수록 높음
+        "monetization_value": min(
+            100,
+            65 + tool_hits * 5 + (10 if has("quick_decision_table") else 0),
+        ),
+        # 업데이트 신선도 — 갱신일 블록
+        "freshness": 75 + (15 if 'id="UPDATED_DATE_BLOCK"' in html else 0)
+        + (10 if content_type == "ai_model_update" else 0),
+        # 보안/리스크 필요성 충족 — 위험 알림
+        "risk_coverage": 60 + (40 if has("risk_note") else 0),
+        # AI 답변엔진 인용 가능성 — citation/overview + geo_score 반영
+        "ai_citation_likelihood": min(
+            100,
+            (10 if 'id="AI_CITATION_SUMMARY"' in html else 0)
+            + (10 if 'id="AI_OVERVIEW_TARGET_ANSWER"' in html else 0)
+            + int(geo_score or 0) * 0.8,
+        ),
+    }
+    result = {k: int(min(100, max(0, v))) for k, v in scores.items()}
+    result["ai_content_score_avg"] = int(sum(result.values()) / len(result))
+    return result
+
+
 def _naver_post_to_source_meta(post: NaverPost) -> dict[str, Any]:
     """NaverPost → source 메타데이터 dict."""
     return {
@@ -618,6 +693,12 @@ class AiTopicPipeline:
             "selected_title": selected_title,
             "selected_title_ctr_score": selected_title_ctr,
             "stale_penalty_applied": False,
+            "ai_content_scores": compute_ai_content_scores(
+                slots=(preview.get("slot_result") or {}).get("slots") or {},
+                candidate_html=str(preview.get("_article_candidate_html") or ""),
+                content_type=ct,
+                geo_score=_geo_score,
+            ),
             "blocking_issues": list(preview.get("blocking_issues") or []),
             "reason": (
                 f"source={source_meta.get('source_type','unknown')} "

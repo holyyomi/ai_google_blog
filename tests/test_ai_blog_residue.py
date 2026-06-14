@@ -180,6 +180,46 @@ class TestAiTitleDiversity(unittest.TestCase):
         )
 
 
+class TestAiContentScoring(unittest.TestCase):
+    """Phase D: AI 콘텐츠 점수 루브릭이 신호에 따라 합리적으로 산출되는지."""
+
+    def _scores(self, topic, ct, tg, pid):
+        from blogspot_automation.pipelines.ai_pipeline import compute_ai_content_scores
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(topic=topic, content_type=ct, topic_group=tg)
+        html = svc.render_article_candidate_html(
+            pv["pattern_match"], pv["slot_result"], selected_title=topic
+        )
+        return compute_ai_content_scores(
+            slots=pv["slot_result"].get("slots") or {},
+            candidate_html=html, content_type=ct, geo_score=85,
+        )
+
+    def test_rubric_dimensions_present(self):
+        sc = self._scores(
+            "보고서 초안용 ChatGPT 프롬프트 템플릿",
+            "ai_prompt_recipe", "ai_prompt", "ai_prompt_recipe",
+        )
+        for key in (
+            "search_intent_clarity", "practical_applicability", "save_worthiness",
+            "tool_specificity", "comparison_value", "beginner_clarity",
+            "monetization_value", "freshness", "risk_coverage",
+            "ai_citation_likelihood", "ai_content_score_avg",
+        ):
+            self.assertIn(key, sc)
+            self.assertGreaterEqual(sc[key], 0)
+            self.assertLessEqual(sc[key], 100)
+
+    def test_prompt_recipe_high_save_worth_and_risk(self):
+        sc = self._scores(
+            "보고서 초안용 ChatGPT 프롬프트 템플릿",
+            "ai_prompt_recipe", "ai_prompt", "ai_prompt_recipe",
+        )
+        # 프롬프트박스+체크리스트 → 저장가치 높음, risk_note → 리스크 충족
+        self.assertGreaterEqual(sc["save_worthiness"], 90)
+        self.assertGreaterEqual(sc["risk_coverage"], 90)
+
+
 class TestAiTopicRouting(unittest.TestCase):
     """프롬프트형 주제가 ai_prompt_recipe로, 그 외는 ai_work_tip로 라우팅되는지."""
 
