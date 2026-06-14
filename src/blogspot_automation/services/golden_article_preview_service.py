@@ -11,7 +11,12 @@ from blogspot_automation.services.official_sources import (
     get_official_sources_for_pattern,
     render_official_sources_html,
 )
-from blogspot_automation.services.seo_policy import BLOGSPOT_HOME_URL, prepare_blogspot_html
+from blogspot_automation.services.seo_policy import (
+    BLOGSPOT_HOME_URL,
+    append_hashtags_block,
+    append_internal_links_block,
+    prepare_blogspot_html,
+)
 from blogspot_automation.services.slot_filler_service import SlotFillerService
 
 logger = logging.getLogger(__name__)
@@ -26,9 +31,93 @@ _HOWTO_ELIGIBLE_PATTERNS: frozenset[str] = frozenset(
         "ai_work_time_savings",
         "ai_tool_comparison",
         "ai_automation_workflow",
+        "ai_prompt_recipe",
+        "ai_tool_review",
         "delivery_money_checklist",
     }
 )
+
+# AI 블로그 전용 content_type 집합 (Phase A~B). 이 집합이거나 pattern_id가 "ai_"로
+# 시작하면 뉴스 이슈형 대신 AI 가이드형 섹션 라벨/프레이밍을 사용한다.
+_AI_CONTENT_TYPES: frozenset[str] = frozenset(
+    {
+        "ai_work_tip",
+        "ai_tool_review",
+        "ai_workflow_guide",
+        "ai_prompt_recipe",
+        "ai_model_update",
+        "ai_search_change",
+        "ai_blog_growth",
+        "ai_comparison",
+        "ai_risk_security",
+        "ai_beginner_guide",
+    }
+)
+
+
+def _is_ai_family(pattern_id: str = "", content_type: str = "") -> bool:
+    """AI 블로그 패밀리 여부 판별. CSS 클래스/섹션 ID는 동일하게 유지하되,
+    사람이 보는 섹션 제목·프레이밍만 AI 가이드형으로 바꾸기 위한 분기."""
+    return str(pattern_id or "").startswith("ai_") or str(content_type or "") in _AI_CONTENT_TYPES
+
+
+# AI 글마다 매번 같지 않게 색감을 바꾸기 위한 테마 (article 클래스로 적용).
+# 뉴스 글에는 테마 클래스가 붙지 않으므로 영향 없음.
+_AI_THEMES: tuple[str, ...] = (
+    "theme-teal", "theme-violet", "theme-blue", "theme-emerald",
+    "theme-rose", "theme-indigo", "theme-sky", "theme-amber",
+)
+
+
+def _pick_ai_theme(topic: str, pattern_id: str = "") -> str:
+    """주제 문자열 해시로 테마를 결정 — 같은 주제는 항상 같은 색, 주제별로는 다양."""
+    import hashlib as _hl
+    seed = f"{topic}|{pattern_id}".encode("utf-8", errors="ignore")
+    idx = int(_hl.sha1(seed).hexdigest(), 16) % len(_AI_THEMES)
+    return _AI_THEMES[idx]
+
+
+# content_type → 블로그스팟 라벨(내부링크 검색 페이지용 한국어 라벨)
+_AI_LABEL_FOR_CT: dict[str, str] = {
+    "ai_work_tip": "AI활용",
+    "ai_prompt_recipe": "프롬프트",
+    "ai_tool_review": "AI도구",
+    "ai_model_update": "AI모델",
+    "ai_search_change": "AI검색",
+    "ai_blog_growth": "AI블로그",
+    "ai_comparison": "AI비교",
+    "ai_risk_security": "AI보안",
+    "ai_beginner_guide": "AI입문",
+}
+
+
+# content_type → 본문 상단 히어로 배너용 (카테고리 라벨, 이모지)
+_AI_HERO_META: dict[str, tuple[str, str]] = {
+    "ai_work_tip": ("AI 업무 활용", "⚡"),
+    "ai_prompt_recipe": ("프롬프트 레시피", "📝"),
+    "ai_tool_review": ("AI 도구 리뷰", "🧩"),
+    "ai_model_update": ("AI 모델 업데이트", "🚀"),
+    "ai_search_change": ("AI 검색 변화", "🔎"),
+    "ai_blog_growth": ("AI 블로그 성장", "📈"),
+    "ai_comparison": ("AI 비교 분석", "⚖️"),
+    "ai_risk_security": ("AI 리스크·보안", "🛡️"),
+    "ai_beginner_guide": ("AI 입문 가이드", "🎓"),
+}
+
+
+# 섹션 라벨: (slot_key) -> {"ai": ..., "news": ...}
+# 클래스명은 바꾸지 않으므로 게이트(geo_score)에 영향 없음 — 표시 텍스트만 분기.
+def _section_label(slot_key: str, ai: bool) -> str:
+    _LABELS: dict[str, tuple[str, str]] = {
+        # slot_key: (ai_label, news_label)
+        "yomi_judgment": ("결론부터 말하면", "핵심 관점"),
+        "real_criterion": ("📋 따라 하는 순서", "공식 기준 / 단계별 확인"),
+        "actions": ("✅ 지금 바로 해보기", "바로 할 행동"),
+    }
+    pair = _LABELS.get(slot_key)
+    if not pair:
+        return ""
+    return pair[0] if ai else pair[1]
 
 _BANNED_DEFAULT_PHRASES: tuple[str, ...] = (
     "이 이슈는 나와 직접 관련이 없다",
@@ -98,6 +187,38 @@ _PREVIEW_CSS = """
   .check-needed-section h3 { font-size: 0.9rem; margin: 0 0 6px; color: #92400e; }
   .confirmed-section ul, .check-needed-section ul { margin: 0; padding-left: 16px; }
   .confirmed-section li, .check-needed-section li { margin-bottom: 4px; font-size: 0.87rem; }
+  .prompt-recipe-box { margin-bottom: 20px; }
+  .prompt-card { border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .prompt-card-label { margin: 0; padding: 8px 14px; background: #111827; color: #f9fafb; font-size: 0.82rem; font-weight: 700; }
+  .prompt-code { margin: 0; padding: 14px 16px; background: #0f172a; color: #e2e8f0; font-family: 'D2Coding','Consolas',monospace; font-size: 0.86rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+  .quality-checklist { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 14px 18px; margin-bottom: 20px; border-radius: 6px; }
+  .quality-checklist ul { margin: 0; padding-left: 0; list-style: none; }
+  .quality-checklist li { padding: 6px 0 6px 28px; position: relative; font-size: 0.9rem; }
+  .quality-checklist li:before { content: "☑"; position: absolute; left: 4px; color: #16a34a; font-weight: 800; }
+  .risk-note { background: #fff7ed; border: 1px solid #fed7aa; border-left: 4px solid #f97316; padding: 14px 18px; margin-bottom: 20px; border-radius: 0 6px 6px 0; }
+  .risk-note ul { margin: 0; padding-left: 18px; }
+  .risk-note li { margin-bottom: 6px; font-size: 0.9rem; color: #7c2d12; }
+  .risk-note p { margin: 0; font-size: 0.9rem; color: #7c2d12; }
+  .tool-summary { background: #eef2ff; border-left: 4px solid #6366f1; padding: 14px 18px; margin-bottom: 20px; border-radius: 0 6px 6px 0; }
+  .tool-summary p[itemprop="description"] { margin: 0; font-size: 0.95rem; color: #312e81; }
+  .who-for-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .who-for-rec, .who-for-non { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
+  .who-for-rec { background: #f0fdf4; border-color: #bbf7d0; }
+  .who-for-non { background: #fef2f2; border-color: #fecaca; }
+  .who-for-rec h3, .who-for-non h3 { margin: 0 0 8px; font-size: 0.92rem; }
+  .who-for ul { margin: 0; padding-left: 18px; }
+  .who-for li { margin-bottom: 5px; font-size: 0.88rem; }
+  .pricing-table table { width: 100%; border-collapse: collapse; }
+  .pricing-table caption { text-align: left; font-size: 0.82rem; color: #6b7280; margin-bottom: 6px; }
+  .pricing-table th { background: #312e81; color: #fff; padding: 8px 10px; text-align: left; font-size: 0.84rem; }
+  .pricing-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-size: 0.86rem; vertical-align: top; }
+  .verdict-box { background: #f0f7ff; border: 2px solid #2563eb; padding: 16px 20px; margin-bottom: 20px; border-radius: 8px; }
+  .verdict-box p { margin: 0 0 6px; font-size: 0.92rem; }
+  .verdict-rating { color: #f59e0b; font-size: 1.1rem; font-weight: 800; }
+  .use-cases { margin-bottom: 20px; }
+  .use-case-card { border: 1px solid #e5e7eb; border-left: 4px solid #6366f1; border-radius: 0 8px 8px 0; padding: 12px 16px; margin-bottom: 10px; background: #fafaff; }
+  .use-case-when { margin: 0 0 4px; font-weight: 700; color: #312e81; font-size: 0.9rem; }
+  .use-case-how { margin: 0; font-size: 0.88rem; color: #374151; }
 """
 
 
@@ -274,6 +395,13 @@ class GoldenArticlePreviewService:
         fill_rate = float(slot_result.get("slot_fill_rate", 0.0))
         slots: dict[str, Any] = slot_result.get("slots", {})
 
+        # AI 패밀리 판별 (라벨/프레이밍만 분기, 클래스명은 동일 유지)
+        _pid_raw = str(pattern_match.get("pattern_id", ""))
+        _p_data_rh = self._ps.get_pattern(_pid_raw) if _pid_raw else {}
+        _ct_rh = str((_p_data_rh or {}).get("content_type") or "")
+        ai_family = _is_ai_family(_pid_raw, _ct_rh)
+        _theme_class = f" {_pick_ai_theme(str(slot_result.get('topic', '')), _pid_raw)}" if ai_family else ""
+
         sections: list[str] = []
 
         # hook_opening
@@ -285,15 +413,77 @@ class GoldenArticlePreviewService:
                 f'    </section>'
             )
 
+        # tool_summary (AI 도구 1줄 요약 — SoftwareApplication 마이크로데이터)
+        tool_summary = _str_slot(slots.get("tool_summary"))
+        if tool_summary:
+            sections.append(
+                f'    <section class="tool-summary" itemscope itemtype="https://schema.org/SoftwareApplication">\n'
+                f'      <p class="section-label">🧩 한 줄 요약</p>\n'
+                f'      <p itemprop="description">{escape(tool_summary)}</p>\n'
+                f'      <meta itemprop="applicationCategory" content="AIApplication">\n'
+                f'    </section>'
+            )
+
         # yomi_judgment
         yomi = _str_slot(slots.get("yomi_judgment"))
         if yomi:
+            if ai_family:
+                # AI 글에서는 내부 마커 '요미 판단:' 접두어를 노출하지 않는다
+                yomi = re.sub(r'^\s*요미\s*(?:의)?\s*판단\s*[:：]\s*', '', yomi)
             sections.append(
                 f'    <section class="yomi-judgment-box">\n'
-                f'      <p class="section-label">핵심 관점</p>\n'
+                f'      <p class="section-label">{escape(_section_label("yomi_judgment", ai_family))}</p>\n'
                 f'      <p>{escape(yomi)}</p>\n'
                 f'    </section>'
             )
+
+        # who_for (이런 사람에게 맞다 / 패스 — 2열)
+        who_for = slots.get("who_for")
+        if isinstance(who_for, dict) and (who_for.get("추천") or who_for.get("비추")):
+            rec = _list_slot(who_for.get("추천"))
+            non = _list_slot(who_for.get("비추"))
+            rec_li = "\n".join(f'          <li>{escape(str(x))}</li>' for x in rec if str(x).strip())
+            non_li = "\n".join(f'          <li>{escape(str(x))}</li>' for x in non if str(x).strip())
+            sections.append(
+                f'    <section class="who-for">\n'
+                f'      <p class="section-label">🎯 이런 사람에게 맞다 / 패스</p>\n'
+                f'      <div class="who-for-cols">\n'
+                f'        <div class="who-for-rec">\n'
+                f'          <h3>✅ 추천 대상</h3>\n'
+                f'          <ul>\n{rec_li}\n          </ul>\n'
+                f'        </div>\n'
+                f'        <div class="who-for-non">\n'
+                f'          <h3>❌ 비추 대상</h3>\n'
+                f'          <ul>\n{non_li}\n          </ul>\n'
+                f'        </div>\n'
+                f'      </div>\n'
+                f'    </section>'
+            )
+
+        # prompt_block (AI 프롬프트 레시피 전용 — 복사 가능한 프롬프트 박스)
+        prompt_block = _list_slot(slots.get("prompt_block"))
+        if prompt_block:
+            cards = []
+            for item in prompt_block:
+                if not isinstance(item, dict):
+                    continue
+                label = escape(str(item.get("label", "프롬프트")))
+                prompt_text = escape(str(item.get("prompt", "")))
+                if not prompt_text.strip():
+                    continue
+                cards.append(
+                    f'      <div class="prompt-card">\n'
+                    f'        <p class="prompt-card-label">{label}</p>\n'
+                    f'        <pre class="prompt-code">{prompt_text}</pre>\n'
+                    f'      </div>'
+                )
+            if cards:
+                sections.append(
+                    f'    <section class="prompt-recipe-box">\n'
+                    f'      <p class="section-label">📝 복사해서 쓰는 프롬프트</p>\n'
+                    + "\n".join(cards) + "\n"
+                    f'    </section>'
+                )
 
         # misconceptions
         misconceptions = _list_slot(slots.get("misconceptions"))
@@ -305,11 +495,14 @@ class GoldenArticlePreviewService:
                 if isinstance(item, dict)
             )
             if rows:
+                _mis_label = "🤔 자주 하는 오해와 실제" if ai_family else "🔁 흔한 착각 vs 실제 기준"
+                _mis_th_left = "자주 하는 오해" if ai_family else "흔한 착각"
+                _mis_th_right = "실제" if ai_family else "실제 기준"
                 sections.append(
                     f'    <section class="misconception-box">\n'
-                    f'      <p class="section-label">🔁 흔한 착각 vs 실제 기준</p>\n'
+                    f'      <p class="section-label">{_mis_label}</p>\n'
                     f'      <table>\n'
-                    f'        <thead><tr><th>흔한 착각</th><th>실제 기준</th></tr></thead>\n'
+                    f'        <thead><tr><th>{_mis_th_left}</th><th>{_mis_th_right}</th></tr></thead>\n'
                     f'        <tbody>\n{rows}\n        </tbody>\n'
                     f'      </table>\n'
                     f'    </section>'
@@ -320,10 +513,35 @@ class GoldenArticlePreviewService:
         if real:
             sections.append(
                 f'    <section class="real-criterion">\n'
-                f'      <p class="section-label">공식 기준 / 단계별 확인</p>\n'
+                f'      <p class="section-label">{escape(_section_label("real_criterion", ai_family))}</p>\n'
                 f'      <p>{escape(real)}</p>\n'
                 f'    </section>'
             )
+
+        # pricing_table (무료/유료 경계 비교표)
+        pricing = _list_slot(slots.get("pricing_table"))
+        if pricing:
+            prows = "\n".join(
+                f'          <tr>'
+                f'<td>{escape(str(item.get("플랜", "")))}</td>'
+                f'<td>{escape(str(item.get("가격", "")))}</td>'
+                f'<td>{escape(str(item.get("핵심 기능", item.get("핵심기능", ""))))}</td>'
+                f'<td>{escape(str(item.get("한계", "")))}</td>'
+                f'</tr>'
+                for item in pricing
+                if isinstance(item, dict)
+            )
+            if prows:
+                sections.append(
+                    f'    <section class="pricing-table">\n'
+                    f'      <p class="section-label">💳 무료 / 유료 경계</p>\n'
+                    f'      <table>\n'
+                    f'        <caption>플랜별 가격과 한계 비교</caption>\n'
+                    f'        <thead><tr><th>플랜</th><th>가격</th><th>핵심 기능</th><th>한계</th></tr></thead>\n'
+                    f'        <tbody>\n{prows}\n        </tbody>\n'
+                    f'      </table>\n'
+                    f'    </section>'
+                )
 
         # quick_decision_table
         qdt = _list_slot(slots.get("quick_decision_table"))
@@ -337,13 +555,40 @@ class GoldenArticlePreviewService:
                 if isinstance(item, dict)
             )
             if rows:
+                _qdt_label = "🧭 상황별 추천" if ai_family else "⚡ 30초 판단표"
+                _qdt_th_right = "추천 방법" if ai_family else "먼저 할 것"
                 sections.append(
                     f'    <section class="quick-decision-table">\n'
-                    f'      <p class="section-label">⚡ 30초 판단표</p>\n'
+                    f'      <p class="section-label">{_qdt_label}</p>\n'
                     f'      <table>\n'
-                    f'        <thead><tr><th>내 상황</th><th>먼저 할 것</th></tr></thead>\n'
+                    f'        <thead><tr><th>내 상황</th><th>{_qdt_th_right}</th></tr></thead>\n'
                     f'        <tbody>\n{rows}\n        </tbody>\n'
                     f'      </table>\n'
+                    f'    </section>'
+                )
+
+        # use_cases (실전 활용 시나리오 — 이럴 때 이렇게)
+        use_cases = _list_slot(slots.get("use_cases"))
+        if use_cases:
+            cards = []
+            for item in use_cases:
+                if not isinstance(item, dict):
+                    continue
+                situ = str(item.get("상황", "")).strip()
+                howto = str(item.get("활용", "")).strip()
+                if not situ or not howto:
+                    continue
+                cards.append(
+                    f'      <div class="use-case-card">\n'
+                    f'        <p class="use-case-when">{escape(situ)}</p>\n'
+                    f'        <p class="use-case-how">{escape(howto)}</p>\n'
+                    f'      </div>'
+                )
+            if cards:
+                sections.append(
+                    f'    <section class="use-cases">\n'
+                    f'      <p class="section-label">💡 실전 활용 시나리오</p>\n'
+                    + "\n".join(cards) + "\n"
                     f'    </section>'
                 )
 
@@ -359,10 +604,69 @@ class GoldenArticlePreviewService:
             if items_html:
                 sections.append(
                     f'    <section class="actions-box">\n'
-                    f'      <p class="section-label">바로 할 행동</p>\n'
+                    f'      <p class="section-label">{escape(_section_label("actions", ai_family))}</p>\n'
                     f'      <ol>\n{items_html}\n      </ol>\n'
                     f'    </section>'
                 )
+
+        # checklist (결과물 품질 체크리스트 — 체크박스형 리스트)
+        checklist = _list_slot(slots.get("checklist"))
+        if checklist:
+            items_html = "\n".join(
+                f'        <li>{escape(str(c))}</li>'
+                for c in checklist
+                if str(c).strip()
+            )
+            if items_html:
+                sections.append(
+                    f'    <section class="quality-checklist">\n'
+                    f'      <p class="section-label">✅ 결과물 품질 체크리스트</p>\n'
+                    f'      <ul>\n{items_html}\n      </ul>\n'
+                    f'    </section>'
+                )
+
+        # verdict (최종 판정 + 별점)
+        verdict = slots.get("verdict")
+        if isinstance(verdict, dict) and _str_slot(verdict.get("결론")):
+            try:
+                stars_n = int(verdict.get("별점") or 0)
+            except (TypeError, ValueError):
+                stars_n = 0
+            stars_n = max(0, min(5, stars_n))
+            star_str = ("★" * stars_n) + ("☆" * (5 - stars_n))
+            rating_html = (
+                f'      <p class="verdict-rating">{star_str} ({stars_n}/5)</p>\n'
+                if stars_n else ""
+            )
+            sections.append(
+                f'    <section class="verdict-box">\n'
+                f'      <p class="section-label">⭐ 최종 판정</p>\n'
+                f'      <p><strong>한 줄 결론:</strong> {escape(_str_slot(verdict.get("결론")))}</p>\n'
+                f'{rating_html}'
+                f'    </section>'
+            )
+
+        # risk_note (위험 알림 — 보안/저작권/개인정보/환각 주의)
+        risk_items = _list_slot(slots.get("risk_note"))
+        risk_text = _str_slot(slots.get("risk_note"))
+        if risk_items:
+            li = "\n".join(
+                f'        <li>{escape(str(c))}</li>' for c in risk_items if str(c).strip()
+            )
+            if li:
+                sections.append(
+                    f'    <section class="risk-note">\n'
+                    f'      <p class="section-label">⚠️ 쓰기 전 주의할 점</p>\n'
+                    f'      <ul>\n{li}\n      </ul>\n'
+                    f'    </section>'
+                )
+        elif risk_text:
+            sections.append(
+                f'    <section class="risk-note">\n'
+                f'      <p class="section-label">⚠️ 쓰기 전 주의할 점</p>\n'
+                f'      <p>{escape(risk_text)}</p>\n'
+                f'    </section>'
+            )
 
         # faq
         faq = _list_slot(slots.get("faq"))
@@ -397,7 +701,7 @@ class GoldenArticlePreviewService:
   </style>
 </head>
 <body>
-  <article class="golden-preview">
+  <article class="golden-preview{_theme_class}">
     <h1>{topic}</h1>
 {body}
     <div class="preview-meta">
@@ -412,6 +716,8 @@ class GoldenArticlePreviewService:
         pattern_match: dict,
         slot_result: dict,
         selected_title: str = "",
+        cover_image_url: str = "",
+        internal_link_pairs: list[tuple[str, str]] | None = None,
     ) -> str:
         """발행 후보용 클린 HTML을 반환한다.
 
@@ -447,6 +753,7 @@ class GoldenArticlePreviewService:
         # pattern 실제 content_type 조회 (bonus 전달용 인자와 구분)
         _p_data = self._ps.get_pattern(_pattern_id) if _pattern_id else {}
         _content_type = str((_p_data or {}).get("content_type") or "")
+        _ai_family = _is_ai_family(_pattern_id, _content_type)
 
         # --- meta description 생성 (80~160자, 구조적) ---
         candidate_meta_description = _build_meta_description(
@@ -490,6 +797,10 @@ class GoldenArticlePreviewService:
             _p_data_ct = self._ps.get_pattern(_pattern_id) if _pattern_id else {}
             _ct = str((_p_data_ct or {}).get("content_type") or _content_type)
             _tg = str((_p_data_ct or {}).get("topic_group") or "")
+            # AI 블로그 전용 content_type은 geo_intent의 AI 브랜치(ai_work_tip)로 정규화 —
+            # 전용 분기가 없는 신규 AI 타입이 뉴스형 generic 텍스트로 빠지는 것을 방지.
+            if _is_ai_family(_pattern_id, _ct):
+                _ct, _tg = "ai_work_tip", "ai_work"
             _iq = _geo_intent.generate_reader_intent_questions(
                 topic=topic_str, content_type=_ct, topic_group=_tg, slots=slots,
             )
@@ -521,19 +832,39 @@ class GoldenArticlePreviewService:
             _ia = []
             _trust_text = "이 글은 공개 정보를 바탕으로 정리했습니다. 최신 정보를 직접 확인하세요."
 
+        # 모델 업데이트/새 도구 등 '이슈형' AI 주제는 '왜 지금 화제인가' 프레이밍 사용
+        _ai_issue_type = _pattern_id in {"ai_model_update", "ai_search_change"}
+        if _ai_issue_type:
+            _overview_heading = "지금 핵심만"
+        elif _ai_family:
+            _overview_heading = "30초 요약"
+        else:
+            _overview_heading = "먼저 볼 핵심"
         ai_overview_block = (
             '\n  <section id="AI_OVERVIEW_TARGET_ANSWER" class="ai-overview-box">\n'
-            '    <h2>먼저 볼 핵심</h2>\n'
+            f'    <h2>{escape(_overview_heading)}</h2>\n'
             f'    <p>{_emphasize_first_sentence(escape(_sge_overview_text))}</p>\n'
             '  </section>'
         ) if _sge_overview_text else ""
 
         if topic_str and topic_str not in str(_ic or ""):
-            _ic = f"{topic_str} 관련 이슈입니다. {_ic}"
+            if _ai_issue_type:
+                _ic_prefix = f"{topic_str}, 지금 주목받는 이유입니다."
+            elif _ai_family:
+                _ic_prefix = f"{topic_str} 핵심 정리입니다."
+            else:
+                _ic_prefix = f"{topic_str} 관련 이슈입니다."
+            _ic = f"{_ic_prefix} {_ic}"
 
+        if _ai_issue_type:
+            _context_heading = "지금 왜 화제인가"
+        elif _ai_family:
+            _context_heading = "이 글이 도움이 되는 사람"
+        else:
+            _context_heading = "왜 지금 봐야 하나"
         issue_context_block = (
             '\n  <section id="ISSUE_CONTEXT_BLOCK" class="issue-context-box">\n'
-            '    <h2>왜 지금 봐야 하나</h2>\n'
+            f'    <h2>{escape(_context_heading)}</h2>\n'
             f'    <p>{escape(_ic)}</p>\n'
             '  </section>'
         )
@@ -594,11 +925,13 @@ class GoldenArticlePreviewService:
             _chk_items = "\n".join(
                 f'        <li>{escape(str(c))}</li>' for c in _sge_check_needed
             )
+            _cvck_heading = "검증된 점과 직접 확인할 점" if _ai_family else "확인된 내용과 직접 확인할 내용"
+            _confirmed_subheading = "✓ 검증된 사실" if _ai_family else "✓ 확인된 내용"
             _cvck_html = (
                 '\n  <section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">\n'
-                '    <h2>확인된 내용과 직접 확인할 내용</h2>\n'
+                f'    <h2>{escape(_cvck_heading)}</h2>\n'
                 '    <div class="confirmed-section">\n'
-                '      <h3>✓ 확인된 내용</h3>\n'
+                f'      <h3>{escape(_confirmed_subheading)}</h3>\n'
                 f'      <ul>\n{_conf_items}\n      </ul>\n'
                 '    </div>\n'
                 '    <div class="check-needed-section">\n'
@@ -621,8 +954,36 @@ class GoldenArticlePreviewService:
 
         # </h1> 직후에 삽입 순서:
         # AI_OVERVIEW → AI_CITATION → UPDATED_DATE → ISSUE_CONTEXT → INTENT_ANSWER → PAA
+        # 히어로 시각 요소: 공개 이미지 URL이 있으면 실제 커버 사진, 없으면 CSS 히어로 배너.
+        _visual_block = ""
+        if _ai_family:
+            _cover_url = (cover_image_url or "").strip()
+            if not _cover_url:
+                try:
+                    from blogspot_automation.services.cover_image_policy import cover_image_url_from_env
+                    _cover_url = cover_image_url_from_env(
+                        content_type=_content_type,
+                        topic_group=str((_p_data or {}).get("topic_group") or ""),
+                    )
+                except Exception:
+                    _cover_url = ""
+            _visual_title = (selected_title or "").strip() or topic_str
+            if _cover_url:
+                _alt = escape(f"{_visual_title} 대표 이미지", quote=True)
+                _visual_block = (
+                    '\n  <figure class="ai-cover-image" data-yomi-block="cover-image" data-yomi-cover-kind="ai">'
+                    f'<img src="{escape(_cover_url, quote=True)}" alt="{_alt}" '
+                    'loading="eager" decoding="async" width="1200" height="675"/></figure>'
+                )
+            else:
+                _visual_block = _hero_banner_html(
+                    content_type=_content_type, topic=_visual_title,
+                    theme_class=_pick_ai_theme(topic_str, _pattern_id),
+                )
+
         _after_h1 = (
-            ai_overview_block
+            _visual_block
+            + ai_overview_block
             + ai_citation_block
             + updated_date_block
             + issue_context_block
@@ -757,14 +1118,43 @@ class GoldenArticlePreviewService:
             )
             clean = clean.replace('</head>', faq_script + '</head>', 1)
 
+        # --- BreadcrumbList JSON-LD (홈 → 카테고리 → 글) ---
+        if _ai_family:
+            from urllib.parse import quote as _quote_bc
+            _bc_label = _AI_LABEL_FOR_CT.get(_content_type, "AI활용")
+            _home = BLOGSPOT_HOME_URL.rstrip("/")
+            breadcrumb_ld = {
+                "@context": "https://schema.org",
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "홈", "item": _home},
+                    {
+                        "@type": "ListItem", "position": 2, "name": _bc_label,
+                        "item": f"{_home}/search/label/{_quote_bc(_bc_label)}",
+                    },
+                    {"@type": "ListItem", "position": 3, "name": st or topic_str},
+                ],
+            }
+            bc_script = (
+                f'  <script type="application/ld+json">'
+                f'{_json.dumps(breadcrumb_ld, ensure_ascii=False)}'
+                f'</script>\n'
+            )
+            clean = clean.replace('</head>', bc_script + '</head>', 1)
+
         if _pattern_id in _HOWTO_ELIGIBLE_PATTERNS:
             howto_steps: list[dict[str, Any]] = []
             for idx, action in enumerate((actions_list or [])[:5]):
                 if isinstance(action, dict):
-                    name = str(action.get("title") or action.get("step") or "").strip()
+                    # 슬롯 빌더는 행동/설명 키를 쓴다 (title/description 아님)
+                    name = str(
+                        action.get("행동") or action.get("title") or action.get("step") or ""
+                    ).strip()
                     text = str(
-                        action.get("description")
+                        action.get("설명")
+                        or action.get("description")
                         or action.get("desc")
+                        or action.get("행동")
                         or action.get("title")
                         or ""
                     ).strip()
@@ -798,6 +1188,47 @@ class GoldenArticlePreviewService:
                 )
                 clean = clean.replace('</head>', howto_script + '</head>', 1)
 
+        # SoftwareApplication + Review JSON-LD (ai_tool_review 전용 — master_guide Category A)
+        if _pattern_id == "ai_tool_review":
+            _verdict = slots.get("verdict") if isinstance(slots.get("verdict"), dict) else {}
+            _tool_name = st or topic_str
+            _sw_app = {
+                "@type": "SoftwareApplication",
+                "name": _tool_name,
+                "applicationCategory": "AIApplication",
+                "operatingSystem": "Web",
+            }
+            try:
+                _rating = int(_verdict.get("별점") or 0)
+            except (TypeError, ValueError):
+                _rating = 0
+            if 1 <= _rating <= 5:
+                review_ld = {
+                    "@context": "https://schema.org",
+                    "@type": "Review",
+                    "itemReviewed": _sw_app,
+                    "reviewRating": {
+                        "@type": "Rating",
+                        "ratingValue": str(_rating),
+                        "bestRating": "5",
+                        "worstRating": "1",
+                    },
+                    "author": {
+                        "@type": "Person",
+                        "name": os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI"),
+                    },
+                    "reviewBody": str(_verdict.get("결론") or candidate_meta_description),
+                    "datePublished": today_str,
+                }
+            else:
+                review_ld = {"@context": "https://schema.org", **_sw_app}
+            review_script = (
+                f'  <script type="application/ld+json">'
+                f'{_json.dumps(review_ld, ensure_ascii=False)}'
+                f'</script>\n'
+            )
+            clean = clean.replace('</head>', review_script + '</head>', 1)
+
         if _ia:
             clean = _re.sub(
                 r'\n?\s*<section[^>]*class="faq[^"]*"[^>]*>.*?</section>',
@@ -808,8 +1239,20 @@ class GoldenArticlePreviewService:
             )
 
         clean = _decorate_section_headings(clean)
+        if _ai_family:
+            clean = _inject_toc_html(clean)
 
-        return prepare_blogspot_html(clean)
+        clean = prepare_blogspot_html(clean)
+        # 내부링크 + 해시태그는 prepare의 strip 이후에 붙여야 살아남는다 (AI 글만)
+        if _ai_family:
+            clean = append_ai_footer_html(
+                clean,
+                internal_links=_list_slot(slots.get("internal_links")),
+                hashtags=_list_slot(slots.get("hashtags")),
+                content_type=_content_type,
+                internal_link_pairs=internal_link_pairs,
+            )
+        return clean
 
     @staticmethod
     def validate_preview_html(html: str) -> dict[str, Any]:
@@ -841,10 +1284,145 @@ _HEADING_EMOJI_MAP: dict[str, str] = {
     "오늘의 핵심": "🔥",
     "AI 인용 요약": "🤖",
     "오늘 업데이트": "📅",
+    # AI 가이드형 섹션 제목
+    "30초 요약": "⚡",
+    "지금 핵심만": "⚡",
+    "이 글이 도움이 되는 사람": "🎯",
+    "지금 왜 화제인가": "🔥",
+    "검증된 점과 직접 확인할 점": "🔍",
+    "자주 묻는 질문": "❓",
 }
 
 
+_AI_LABEL_POOL: tuple[str, ...] = (
+    "AI활용", "AI도구", "프롬프트", "AI비교", "AI입문", "AI모델", "AI검색", "AI보안", "AI블로그",
+)
+
+
+def ai_internal_link_pairs(internal_links: list, *, content_type: str = "") -> list[tuple[str, str]]:
+    """internal_links 슬롯 → (앵커, 라벨검색 URL) 튜플 목록. 내 블로그 라벨 페이지로 연결.
+
+    같은 content_type이 반복돼 URL이 겹치면 다른 카테고리 라벨로 회전시켜
+    서로 다른 내부 페이지로 연결되게 한다(최소 2개 이상 확보).
+    """
+    from urllib.parse import quote as _quote
+    pairs: list[tuple[str, str]] = []
+    base = BLOGSPOT_HOME_URL.rstrip("/")
+    used: set[str] = set()
+    pool_i = 0
+
+    def _url(label: str) -> str:
+        return f"{base}/search/label/{_quote(label)}"
+
+    for item in internal_links or []:
+        if not isinstance(item, dict):
+            continue
+        subject = str(item.get("주제", "")).strip()
+        if not subject:
+            continue
+        lct = str(item.get("content_type", "")).strip() or content_type
+        label = _AI_LABEL_FOR_CT.get(lct, "AI활용")
+        url = _url(label)
+        if url in used:  # 라벨 충돌 → 다른 카테고리로 회전
+            while pool_i < len(_AI_LABEL_POOL) and _url(_AI_LABEL_POOL[pool_i]) in used:
+                pool_i += 1
+            if pool_i < len(_AI_LABEL_POOL):
+                url = _url(_AI_LABEL_POOL[pool_i])
+                pool_i += 1
+        if url in used:
+            continue
+        used.add(url)
+        pairs.append((subject, url))
+    return pairs
+
+
+def append_ai_footer_html(
+    html: str,
+    *,
+    internal_links: list | None = None,
+    hashtags: list | None = None,
+    content_type: str = "",
+    internal_link_pairs: list[tuple[str, str]] | None = None,
+) -> str:
+    """발행 직전(마지막 strip 이후) HTML에 내부링크 + 해시태그 푸터를 붙인다.
+
+    prepare_blogspot_html이 internal-links/hashtag 섹션을 strip하므로, 반드시
+    최종 단계에서 호출해야 살아남는다 (뉴스 발행 서비스와 동일한 패턴).
+
+    internal_link_pairs(실제 발행된 글 (제목,URL))가 있으면 우선 사용하고,
+    부족분은 라벨 검색 링크로 보충한다.
+    """
+    out = html or ""
+    real_pairs = [
+        (str(t), str(u)) for t, u in (internal_link_pairs or [])
+        if str(t).strip() and str(u).strip()
+    ]
+    label_pairs = ai_internal_link_pairs(internal_links or [], content_type=content_type)
+    seen_urls = {u for _, u in real_pairs}
+    combined = real_pairs + [lp for lp in label_pairs if lp[1] not in seen_urls]
+    if combined:
+        out = append_internal_links_block(out, links=combined[:3])
+    tags = [str(t) for t in (hashtags or []) if str(t).strip()]
+    if tags:
+        out = append_hashtags_block(out, hashtags=tags)
+    return out
+
+
+def _inject_toc_html(html: str) -> str:
+    """본문 콘텐츠 섹션(section-label 보유)에 id를 부여하고 목차(TOC)를 삽입한다.
+    AEO/가독성 향상. 섹션이 4개 미만이면 생략."""
+    pat = re.compile(
+        r'<section class="(?P<cls>[^"]*)">\s*<p class="section-label">(?P<label>[^<]*)</p>'
+    )
+    entries: list[tuple[str, str]] = []
+    counter = {"i": 0}
+
+    def _repl(m: "re.Match[str]") -> str:
+        counter["i"] += 1
+        anchor = f"sec-{counter['i']}"
+        cls = m.group("cls")
+        label = m.group("label").strip()
+        clean_label = re.sub(r'^[^가-힣A-Za-z0-9]+', '', label).strip() or label
+        entries.append((anchor, clean_label))
+        return f'<section id="{anchor}" class="{cls}">\n      <p class="section-label">{m.group("label")}</p>'
+
+    new_html = pat.sub(_repl, html)
+    if len(entries) < 4:
+        return html
+    items = "".join(f'<li><a href="#{a}">{escape(lbl)}</a></li>' for a, lbl in entries)
+    toc = (
+        '\n  <nav class="ai-toc" aria-label="목차">\n'
+        '    <p class="ai-toc-title">목차</p>\n'
+        f'    <ol>{items}</ol>\n'
+        '  </nav>'
+    )
+    # 본문 첫 콘텐츠 섹션(리드/훅) 앞에 삽입
+    m_first = re.search(r'<section class="preview-hook">', new_html)
+    if m_first:
+        return new_html[:m_first.start()] + toc + "\n" + new_html[m_first.start():]
+    # 폴백: PAA 블록 뒤
+    return re.sub(r'(</section>)(\s*<section class=")', r'\1' + toc + r'\2', new_html, count=1)
+
+
+def _hero_banner_html(*, content_type: str = "", topic: str = "", theme_class: str = "") -> str:
+    """이미지가 없을 때도 모든 AI 글 상단에 들어가는 CSS 히어로 배너.
+    카테고리 배지 + 이모지 + 주제를 테마 색으로 보여준다 (외부 이미지 의존 없음)."""
+    label, emoji = _AI_HERO_META.get(content_type, ("AI 인사이트", "🤖"))
+    topic_short = (topic or "").strip()
+    if len(topic_short) > 70:
+        topic_short = topic_short[:69] + "…"
+    return (
+        f'\n  <div class="ai-hero {escape(theme_class)}">\n'
+        f'    <span class="ai-hero-icon">{emoji}</span>\n'
+        f'    <span class="ai-hero-badge">{escape(label)}</span>\n'
+        f'    <span class="ai-hero-title">{escape(topic_short)}</span>\n'
+        f'  </div>'
+    )
+
+
 def _faq_heading_for_pattern(*, pattern_id: str = "", content_type: str = "") -> str:
+    if _is_ai_family(pattern_id, content_type):
+        return "자주 묻는 질문"
     if pattern_id == "consumer_warning_refund" or content_type == "consumer_warning":
         return "피해 대응 전 많이 묻는 질문"
     if pattern_id in {"policy_deadline_support", "tax_refund_hometax_check"} or content_type in {
@@ -1011,17 +1589,18 @@ def _validate_preview_html_impl(html: str) -> dict[str, Any]:
     if "<h1" not in html.lower():
         issues.append("missing_h1")
 
-    required_markers = {
-        "핵심 관점": "missing_yomi_judgment",
-        "흔한 착각": "missing_misconception",
-        "30초 판단표": "missing_quick_decision_table",
-        "빠른 확인 답변": "missing_faq",
-        "피해 대응 전 많이 묻는 질문": "missing_faq",
-        "신청 전 확인 질문": "missing_faq",
-        "많이 묻는 질문": "missing_faq",
+    # 뉴스/AI 양쪽 라벨 또는 CSS 클래스 중 하나라도 있으면 통과 (클래스는 게이트 기준)
+    required_markers: dict[str, tuple[str, ...]] = {
+        "missing_yomi_judgment": ("핵심 관점", "결론부터 말하면", 'class="yomi-judgment-box"'),
+        "missing_misconception": ("흔한 착각", "자주 하는 오해", 'class="misconception-box"'),
+        "missing_quick_decision_table": ("30초 판단표", "상황별 추천", 'class="quick-decision-table"'),
+        "missing_faq": (
+            "빠른 확인 답변", "자주 묻는 질문", "피해 대응 전 많이 묻는 질문",
+            "신청 전 확인 질문", "많이 묻는 질문", 'class="faq',
+        ),
     }
-    for marker, issue_key in required_markers.items():
-        if marker not in html:
+    for issue_key, markers in required_markers.items():
+        if not any(marker in html for marker in markers):
             warnings.append(issue_key)
 
     return {
@@ -1112,6 +1691,54 @@ _PATTERN_CITATION_SUMMARIES: dict[str, str] = {
         "자동화에 적합한 업무는 규칙이 명확하고 검수 기준이 정해진 반복 작업이다. "
         "검수 루프 없이 자동화하면 오류 누적으로 수정 비용이 증가할 수 있다. "
         "자동화 도구 도입 전 파일럿 테스트로 실제 시간 절감 효과를 확인하는 것이 권장된다."
+    ),
+    "ai_prompt_recipe": (
+        "좋은 프롬프트는 길이가 아니라 구조에서 나온다. 역할 지정, 작업 목적, 입력 자료, 출력 형식, 제약 조건 다섯 가지를 고정하면 결과가 안정된다. "
+        "매번 새로 쓰지 말고 잘 나온 프롬프트를 템플릿으로 저장해 값만 바꿔 재사용하는 것이 효율적이다. "
+        "출력 형식을 명시하고 '확실하지 않으면 추측하지 말 것'이라는 제약을 더하면 환각을 줄일 수 있다. "
+        "다만 프롬프트가 좋아져도 AI 출력은 초안이므로 핵심 사실은 결과물 품질 체크리스트로 직접 검수해야 한다."
+    ),
+    "ai_tool_review": (
+        "AI 도구는 기능 수가 아니라 내 반복 업무에서 검수 시간을 실제로 줄여주는지로 판단해야 한다. "
+        "광고성 후기 대신 무료 범위에서 내 업무 한 가지를 직접 시켜 결과물의 검수 시간을 측정하는 것이 정확하다. "
+        "무료로 어디까지 되는지, 사용량·고급 모델·파일 처리에서 어디가 막히는지가 유료 전환 판단 기준이다. "
+        "요금·기능·무료 한도는 수시로 바뀌므로 공식 가격 페이지에서 직접 확인하고, 민감정보 입력과 사실 검증은 사람이 책임져야 한다."
+    ),
+    "ai_model_update": (
+        "AI 모델 업데이트는 버전 숫자가 아니라 내 반복 업무에서 체감되는 변화로 판단해야 한다. "
+        "벤치마크와 데모는 참고치이며, 글쓰기·요약처럼 이미 잘 되던 작업은 차이가 작을 수 있다. "
+        "추론·코딩·긴 문서 처리처럼 한계가 있던 영역에서 변화가 크므로 내 핵심 업무로 직접 비교하는 것이 정확하다. "
+        "공식 발표에서 확인된 사실과 추측을 구분하고, 달라진 요금·사용량 제한도 함께 확인해야 한다."
+    ),
+    "ai_search_change": (
+        "AEO·GEO·SGE는 AI 답변에 내 글이 소스로 인용되도록 하는 최적화를 가리킨다. "
+        "기존 SEO가 끝난 것이 아니라 명확한 사실, 구조화된 정보, 신뢰 신호가 더 중요해진 것이다. "
+        "질문에 첫 문장으로 직접 답하고 정의 박스·표·번호 목록으로 구조화하면 인용 확률이 높아진다. "
+        "업데이트 날짜, 작성자 정보, 공식 출처 링크 같은 신뢰 신호를 함께 더하는 것이 효과적이다."
+    ),
+    "ai_blog_growth": (
+        "AI 블로그의 성패는 발행량이 아니라 검색 의도를 충족하는 깊이에서 갈린다. "
+        "AI 초안을 그대로 올리면 비슷한 글이 양산돼 검색에서 밀리므로 경험·데이터·관점을 더해야 한다. "
+        "발행 전 품질 체크리스트로 사실·구조·중복을 거르는 검수 루프가 핵심이다. "
+        "구매·비교 의도 키워드 글의 비중을 높이면 광고 단가(RPM)를 개선할 수 있다."
+    ),
+    "ai_comparison": (
+        "AI 도구·모델 비교에 절대 승자는 없으며, 글쓰기에 강한 도구와 코딩·분석에 강한 도구가 다르다. "
+        "기능 목록이 아니라 같은 업무를 두 도구에 시켜 결과 품질과 검수 시간을 비교하는 것이 정확하다. "
+        "무료로 어디까지 되는지, 유료 전환 시 무엇이 풀리는지의 경계가 실제 선택 기준이다. "
+        "요금·성능 정보는 수시로 바뀌므로 공식 가격 페이지에서 직접 확인해야 한다."
+    ),
+    "ai_risk_security": (
+        "AI 리스크는 사용 금지가 아니라 안전하게 쓰는 규칙으로 관리하는 것이 현실적이다. "
+        "민감정보(기밀·개인정보)는 입력하지 않고, 결과의 핵심 사실은 원문으로 직접 검증해야 한다. "
+        "환각은 기술로 완전히 막을 수 없으므로 사람의 검수 단계가 필수이며, 생성물은 저작권·표절 확인이 필요하다. "
+        "회사 AI 사용 정책과 도구의 데이터 처리 옵션(학습 제외·기업용 보안)을 먼저 확인하는 것이 안전하다."
+    ),
+    "ai_beginner_guide": (
+        "AI를 처음 시작할 때는 도구를 늘리기보다 무료 도구 하나로 내 작은 업무부터 맡겨 보는 것이 빠르다. "
+        "AI는 완성본을 주는 도구가 아니라 80점 초안을 빠르게 주는 도구라는 점을 기억해야 한다. "
+        "요청에 역할·목적·형식을 적으면 결과 품질이 올라가고, 무료 버전으로도 요약·번역·초안 작성은 충분하다. "
+        "결과는 그대로 쓰지 말고 핵심 사실을 확인한 뒤 내 말투로 다듬고, 민감 정보는 입력하지 않아야 한다."
     ),
     "viral_ott_reaction_decode": (
         "반응이 갈리는 이슈는 확인된 사실, 이용자 기대, 커뮤니티 해석을 분리해서 봐야 한다. "
@@ -1260,6 +1887,14 @@ _PATTERN_DATE_DISCLAIMERS: dict[str, str] = {
     "ai_work_time_savings": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
     "ai_tool_comparison": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
     "ai_automation_workflow": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
+    "ai_prompt_recipe": "AI 모델 동작과 출력은 버전·설정에 따라 달라질 수 있으므로 결과는 직접 검수하세요.",
+    "ai_tool_review": "AI 도구의 요금·기능·무료 한도는 서비스 정책에 따라 바뀔 수 있으므로 공식 페이지를 확인하세요.",
+    "ai_model_update": "AI 모델의 사양·요금·제공 범위는 공식 발표와 후속 업데이트에 따라 달라질 수 있습니다.",
+    "ai_search_change": "AI 검색·답변엔진의 동작과 노출 기준은 플랫폼 정책에 따라 수시로 바뀔 수 있습니다.",
+    "ai_blog_growth": "검색 알고리즘·애드센스 정책은 변경될 수 있으며 수익은 보장되지 않습니다.",
+    "ai_comparison": "AI 도구·모델의 요금·성능은 서비스 정책에 따라 바뀌므로 공식 페이지에서 확인하세요.",
+    "ai_risk_security": "AI 보안·저작권·데이터 정책은 서비스 약관과 법령에 따라 달라질 수 있습니다.",
+    "ai_beginner_guide": "AI 도구의 기능·요금은 서비스 정책에 따라 달라질 수 있으므로 결과는 직접 확인하세요.",
     "delivery_money_checklist": "배달앱 배달비·쿠폰·최소주문금액 조건은 앱 정책에 따라 달라질 수 있습니다.",
     "platform_change_service_update": "플랫폼 서비스·약관·요금제는 운영사 정책에 따라 변경될 수 있습니다.",
     "consumer_warning_refund": "환불·소비자 보호 절차는 운영사 약관과 관련 법령에 따라 달라질 수 있습니다.",
@@ -1283,6 +1918,38 @@ _PATTERN_META_TEMPLATES: dict[str, str] = {
     "ai_automation_workflow": (
         "AI 자동화 워크플로우 구성 전 반복 업무 분류, 검수 루프 설계, 파일럿 테스트 방법을 "
         "단계별로 정리했습니다. 도구 선택보다 자동화 프로세스 정의가 먼저입니다."
+    ),
+    "ai_prompt_recipe": (
+        "복사해서 바로 쓰는 AI 프롬프트 템플릿과 보고서·요약 변형 예시, 결과물 품질 체크리스트를 "
+        "정리했습니다. 역할·목적·출력 형식·제약을 고정해 결과를 안정시키는 방법입니다."
+    ),
+    "ai_tool_review": (
+        "AI 도구를 직접 써보고 판단하는 기준과 추천·비추 대상, 무료/유료 경계, 최종 판정을 "
+        "정리했습니다. 기능 목록이 아니라 내 반복 업무의 검수 시간으로 도구를 고르는 방법입니다."
+    ),
+    "ai_model_update": (
+        "새 AI 모델 업데이트에서 무엇이 바뀌었는지, 확인된 사실과 과장된 기대를 구분하고 "
+        "누가 영향을 받는지, 내 업무로 직접 비교하는 방법을 정리했습니다."
+    ),
+    "ai_search_change": (
+        "AI 검색(AEO·GEO·SGE) 변화에서 내 블로그 글이 AI 답변에 인용되려면 무엇을 바꿔야 하는지 "
+        "용어 정리부터 실전 단계까지 정리했습니다."
+    ),
+    "ai_blog_growth": (
+        "AI 블로그에서 조회수를 망치는 글 구조를 피하고, 검수 루프를 갖춘 자동화로 "
+        "검색 노출과 수익을 높이는 운영 기준을 정리했습니다."
+    ),
+    "ai_comparison": (
+        "AI 도구·모델·요금제 비교에서 무료/유료 경계, 상황별 추천, 최종 판단 기준을 "
+        "비교표로 정리했습니다. 절대 승자가 아니라 내 업무에 맞는 선택 기준입니다."
+    ),
+    "ai_risk_security": (
+        "AI 사용 시 개인정보·보안·저작권·환각 리스크를 안전하게 관리하는 구체적 규칙과 "
+        "입력 전 점검·결과 검증 단계를 정리했습니다."
+    ),
+    "ai_beginner_guide": (
+        "AI를 처음 쓰는 초보자를 위해 용어를 쉽게 풀고, 무료로 시작하는 순서와 "
+        "첫 시도 점검표를 정리했습니다."
     ),
     "viral_ott_reaction_decode": (
         "반응이 갈리는 이슈에서 확인된 사실, 이용자 영향, 커뮤니티 해석, 루머 구분 기준을 "

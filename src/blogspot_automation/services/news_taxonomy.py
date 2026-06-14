@@ -270,6 +270,40 @@ TOPIC_GROUP_KEYWORDS: dict[str, tuple[str, ...]] = {
     "ai_work": (
         "챗GPT", "ChatGPT", "생성형", "업무 자동화", "생산성", "AI 채용", "AI 해고", "저작권",
     ),
+    "ai_prompt": (
+        "프롬프트", "prompt", "프롬프트 템플릿", "프롬프트 작성", "프롬프트 예시",
+        "프롬프트 레시피", "프롬프트 엔지니어링", "지시문", "프롬프트 모음", "프롬프트 작성법",
+        "프롬프트 패턴", "프롬프트 양식", "프롬프트 공식", "프롬프트 꿀팁",
+    ),
+    "ai_tool": (
+        "AI 도구", "AI 툴", "AI 리뷰", "도구 리뷰", "툴 리뷰", "AI 후기", "사용 후기",
+        "AI 서비스", "AI 글쓰기", "AI 이미지", "AI 도구 추천", "AI 툴 추천",
+        "Perplexity", "Copilot", "Notion AI", "AI 평가",
+    ),
+    "ai_model": (
+        "모델 업데이트", "AI 업데이트", "새 모델", "신규 모델", "모델 출시", "GPT-5", "GPT5",
+        "Claude 3", "Gemini", "오픈AI", "OpenAI", "Anthropic", "업그레이드", "신기능 출시", "버전 공개",
+    ),
+    "ai_search": (
+        "AI 검색", "AI 오버뷰", "AI Overview", "SGE", "GEO", "AEO", "생성형 검색",
+        "답변엔진", "검색 변화", "AI 인용", "제로클릭", "생성형 엔진", "검색 최적화 변화",
+    ),
+    "ai_blog": (
+        "AI 블로그", "블로그 자동화", "블로그 수익화", "애드센스", "블로그 조회수", "블로그 RPM",
+        "블로그 운영", "콘텐츠 자동화", "수익형 블로그", "블로그 트래픽", "포스팅 자동화",
+    ),
+    "ai_compare": (
+        "AI 비교", "모델 비교", "도구 비교", "요금제 비교", "ChatGPT vs", "Claude vs", "Gemini vs",
+        "어떤 AI", "무엇이 다를까", "성능 비교", "가격 비교", "플랜 비교", "AI 선택",
+    ),
+    "ai_risk": (
+        "AI 보안", "AI 개인정보", "AI 저작권", "환각", "hallucination", "AI 리스크", "AI 위험",
+        "데이터 유출", "AI 윤리", "프라이버시", "기밀 유출", "AI 규제",
+    ),
+    "ai_beginner": (
+        "AI 입문", "AI 초보", "AI 처음", "AI 기초", "AI 시작", "왕초보 AI", "초보자 AI",
+        "AI 첫걸음", "쉬운 AI", "AI 배우기", "AI 입문 가이드",
+    ),
     "trend_meme": (
         "밈", "틱톡", "인스타", "릴스", "오픈런", "품절", "인증샷", "유행", "신조어",
     ),
@@ -302,6 +336,14 @@ CONTENT_TYPE_BY_TOPIC_GROUP: dict[str, str] = {
     "refund_consumer": "consumer_warning",
     "privacy_security": "consumer_warning",
     "ai_work": "ai_work_tip",
+    "ai_prompt": "ai_prompt_recipe",
+    "ai_tool": "ai_tool_review",
+    "ai_model": "ai_model_update",
+    "ai_search": "ai_search_change",
+    "ai_blog": "ai_blog_growth",
+    "ai_compare": "ai_comparison",
+    "ai_risk": "ai_risk_security",
+    "ai_beginner": "ai_beginner_guide",
     "trend_meme": "trend_decode",
     "entertainment_sports": "viral_issue_decode",
     "ott_platform": "viral_issue_decode",
@@ -314,6 +356,14 @@ CONTENT_TYPE_BY_TOPIC_GROUP: dict[str, str] = {
 
 EDITORIAL_AXIS_BY_TOPIC_GROUP: dict[str, str] = {
     "ai_work": "AI 자동화",
+    "ai_prompt": "AI 자동화",
+    "ai_tool": "AI 자동화",
+    "ai_model": "AI 자동화",
+    "ai_search": "AI 자동화",
+    "ai_blog": "AI 자동화",
+    "ai_compare": "AI 자동화",
+    "ai_risk": "AI 자동화",
+    "ai_beginner": "AI 자동화",
     "policy_benefit": "돈 되는 이슈",
     "delivery_money": "돈 되는 이슈",
     "refund_consumer": "생활 선택 기준",
@@ -328,6 +378,16 @@ EDITORIAL_AXIS_BY_TOPIC_GROUP: dict[str, str] = {
 
 EDITORIAL_AXIS_BY_CONTENT_TYPE: dict[str, str] = {
     "ai_work_tip": "AI 자동화",
+    # AI 블로그 전용 content_type (Phase B taxonomy 등록)
+    "ai_tool_review": "AI 자동화",
+    "ai_workflow_guide": "AI 자동화",
+    "ai_prompt_recipe": "AI 자동화",
+    "ai_model_update": "AI 자동화",
+    "ai_search_change": "AI 자동화",
+    "ai_blog_growth": "AI 자동화",
+    "ai_comparison": "AI 자동화",
+    "ai_risk_security": "AI 자동화",
+    "ai_beginner_guide": "AI 자동화",
     "policy_deadline": "돈 되는 이슈",
     "tax_refund": "돈 되는 이슈",
     "money_checklist": "돈 되는 이슈",
@@ -346,6 +406,16 @@ ARTICLE_TYPE_BY_CONTENT_TYPE: dict[str, str] = {
     "consumer_warning": "실수 방지형",
     "platform_change": "실수 방지형",
     "ai_work_tip": "방법론가이드형",
+    # AI 블로그 전용 content_type별 본문 구조 성격 (Phase B)
+    "ai_tool_review": "방법론가이드형",
+    "ai_workflow_guide": "방법론가이드형",
+    "ai_prompt_recipe": "레시피형",
+    "ai_model_update": "업데이트 해설형",
+    "ai_search_change": "이슈 해석형",
+    "ai_blog_growth": "방법론가이드형",
+    "ai_comparison": "비교선택형",
+    "ai_risk_security": "실수 방지형",
+    "ai_beginner_guide": "방법론가이드형",
     "trend_decode": "이슈 해석형",
     "viral_issue_decode": "viral_issue_decode형",
     "today_issue_explainer": "today_issue_explainer",

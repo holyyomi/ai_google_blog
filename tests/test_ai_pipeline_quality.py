@@ -261,10 +261,10 @@ class TestAiTitleQuality(unittest.TestCase):
 
 
 # ------------------------------------------------------------------ #
-# ai_blog.yml 스케줄 검증 (작업 E)
+# ai_blog.yml 검증 (1단계: 수동 dry-run 전용)
 # ------------------------------------------------------------------ #
 
-class TestAiBlogYmlSchedule(unittest.TestCase):
+class TestAiBlogYml(unittest.TestCase):
 
     @classmethod
     def _yml_content(cls) -> str:
@@ -273,25 +273,32 @@ class TestAiBlogYmlSchedule(unittest.TestCase):
             return ""
         return path.read_text(encoding="utf-8")
 
-    def test_cron_is_0_23(self):
-        content = self._yml_content()
-        if not content:
-            self.skipTest("ai_blog.yml not found")
-        self.assertIn("0 23 * * *", content, "cron이 '0 23 * * *'가 아님")
-
     def test_workflow_dispatch_present(self):
         content = self._yml_content()
         if not content:
             self.skipTest("ai_blog.yml not found")
         self.assertIn("workflow_dispatch", content)
 
-    def test_publish_hold_phase2_true(self):
+    def test_runs_cli_ai(self):
         content = self._yml_content()
         if not content:
             self.skipTest("ai_blog.yml not found")
-        self.assertIn("PUBLISH_HOLD_PHASE2", content)
-        # PUBLISH_HOLD_PHASE2: "true" 확인
-        self.assertIn('"true"', content)
+        self.assertIn("cli_ai.py", content)
+        self.assertIn("ENABLE_AI_PIPELINE", content)
+
+    def test_default_is_dry_run(self):
+        content = self._yml_content()
+        if not content:
+            self.skipTest("ai_blog.yml not found")
+        # 1단계는 기본 dry_run (실수로 실제 발행되지 않도록)
+        self.assertIn("default: 'dry_run'", content)
+
+    def test_llm_and_image_keys_injected(self):
+        content = self._yml_content()
+        if not content:
+            self.skipTest("ai_blog.yml not found")
+        for marker in ("ENABLE_AI_LLM_ENRICH", "GOOGLE_AI_API_KEY", "IMGBB_API_KEY", "CLOUDFLARE_API_TOKEN"):
+            self.assertIn(marker, content, f"키 주입 누락: {marker}")
 
     def test_artifact_upload_present(self):
         content = self._yml_content()

@@ -27,6 +27,39 @@ _AI_AXES = {"ai_automation"}
 _NAVER_CONTENT_TYPE = "ai_work_tip"
 _NAVER_TOPIC_GROUP  = "ai_work"
 
+# 주제 → (content_type, topic_group) 분류 규칙. 위에서부터 먼저 매칭되는 규칙을 사용한다.
+# 더 구체적인 타입(프롬프트/비교/검색/모델/리스크)을 일반 타입보다 앞에 둔다.
+_AI_ROUTE_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (("프롬프트", "prompt", "지시문", "프롬프트 템플릿", "프롬프트 레시피", "프롬프트 작성", "프롬프트 엔지니어링"),
+     "ai_prompt_recipe", "ai_prompt"),
+    (("vs", " 대 ", "비교", "차이", "어떤 ai", "무엇이 다를", "뭐가 나아", "요금제 비교", "가격 비교", "어느 것"),
+     "ai_comparison", "ai_compare"),
+    (("ai 검색", "ai overview", "ai 오버뷰", "sge", "aeo", "생성형 검색", "답변엔진", "제로클릭", "검색 변화", "ai 인용"),
+     "ai_search_change", "ai_search"),
+    (("모델 업데이트", "ai 업데이트", "새 모델", "신규 모델", "신모델", "모델 출시", "gpt-5", "gpt5", "업그레이드", "버전 공개", "정식 출시"),
+     "ai_model_update", "ai_model"),
+    (("보안", "개인정보", "저작권", "환각", "hallucination", "리스크", "위험", "유출", "프라이버시", "기밀", "ai 윤리", "ai 규제"),
+     "ai_risk_security", "ai_risk"),
+    (("블로그", "애드센스", "수익화", "조회수", "rpm", "트래픽", "포스팅 자동화", "수익형"),
+     "ai_blog_growth", "ai_blog"),
+    (("초보", "입문", "처음", "기초", "왕초보", "시작하는", "첫걸음", "쉬운 ai"),
+     "ai_beginner_guide", "ai_beginner"),
+    (("리뷰", "후기", "써봤", "사용법", "도구 추천", "툴 추천", "ai 도구", "ai 툴", "평가", "perplexity", "copilot", "notion ai"),
+     "ai_tool_review", "ai_tool"),
+)
+
+
+def _classify_ai_topic(topic: str) -> tuple[str, str]:
+    """AI 주제를 content_type/topic_group로 분류한다.
+
+    구체 규칙을 위에서부터 매칭하고, 매칭이 없으면 ai_work_tip/ai_work 기본값을 유지한다.
+    """
+    haystack = (topic or "").lower()
+    for keywords, ct, tg in _AI_ROUTE_RULES:
+        if any(kw in haystack for kw in keywords):
+            return ct, tg
+    return _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+
 # pattern_id별 16:9 커버 이미지 scene
 _AI_IMAGE_SCENES: dict[str, str] = {
     "ai_work_time_savings": (
@@ -58,6 +91,81 @@ def _build_ai_image_prompt(*, pattern_id: str, selected_title: str) -> tuple[str
     )
     alt_text = f"{selected_title} 관련 AI 업무 활용 이미지"
     return prompt, alt_text
+
+
+_AI_TOOL_TOKENS: tuple[str, ...] = (
+    "chatgpt", "gpt", "claude", "gemini", "copilot", "perplexity", "midjourney",
+    "notion", "n8n", "zapier", "make", "프롬프트", "워크플로", "api",
+)
+
+
+def compute_ai_content_scores(
+    *,
+    slots: dict[str, Any],
+    candidate_html: str,
+    content_type: str = "",
+    geo_score: int = 0,
+) -> dict[str, int]:
+    """AI 블로그 주제용 점수 루브릭(0~100)을 후보 신호에서 계산한다.
+
+    뉴스/이슈성 점수 대신 AI 콘텐츠 가치 기준으로 평가한다 (Phase D).
+    슬롯/HTML 신호 기반의 결정론적 점수로, 검토·정렬 보조에 사용한다.
+    """
+    s = slots or {}
+    html = candidate_html or ""
+
+    def has(slot: str) -> bool:
+        v = s.get(slot)
+        if isinstance(v, (list, dict)):
+            return bool(v)
+        return bool(str(v or "").strip())
+
+    text_blob = " ".join(
+        str(v) for v in s.values() if isinstance(v, str)
+    ).lower() + " " + html.lower()
+    tool_hits = sum(1 for t in _AI_TOOL_TOKENS if t in text_blob)
+
+    faq_n = len(s.get("faq") or []) if isinstance(s.get("faq"), list) else 0
+
+    scores = {
+        # 검색 의도 명확도 — hook + intent answer 블록
+        "search_intent_clarity": 80 + (10 if has("hook_opening") else 0)
+        + (10 if 'id="INTENT_ANSWER_BLOCK"' in html else 0),
+        # 실무 적용 가능성 — 따라하는 순서 + 행동 + 프롬프트
+        "practical_applicability": 60 + (15 if has("real_criterion") else 0)
+        + (10 if has("actions") else 0) + (15 if has("prompt_block") else 0),
+        # 저장 가치 — 프롬프트/체크리스트 같이 다시 꺼내 쓰는 자산
+        "save_worthiness": 60 + (20 if has("prompt_block") else 0)
+        + (20 if has("checklist") else 0),
+        # 도구/모델 구체성 — 실제 도구명 언급 수
+        "tool_specificity": min(100, 55 + tool_hits * 9),
+        # 비교/선택 가치 — 비교/판단 표
+        "comparison_value": 60 + (25 if has("quick_decision_table") else 0)
+        + (15 if has("misconceptions") else 0),
+        # 초보자 이해도 — 오해표 + FAQ
+        "beginner_clarity": 60 + (20 if has("misconceptions") else 0)
+        + min(20, faq_n * 7),
+        # 수익화/광고 가치 — 도구 비교/리뷰 성격일수록 높음
+        "monetization_value": min(
+            100,
+            65 + tool_hits * 5 + (10 if has("quick_decision_table") else 0),
+        ),
+        # 업데이트 신선도 — 갱신일 블록
+        "freshness": 75 + (15 if 'id="UPDATED_DATE_BLOCK"' in html else 0)
+        + (10 if content_type == "ai_model_update" else 0),
+        # 보안/리스크 필요성 충족 — 위험 알림
+        "risk_coverage": 60 + (40 if has("risk_note") else 0),
+        # AI 답변엔진 인용 가능성 — citation/overview + geo_score 반영
+        "ai_citation_likelihood": min(
+            100,
+            (10 if 'id="AI_CITATION_SUMMARY"' in html else 0)
+            + (10 if 'id="AI_OVERVIEW_TARGET_ANSWER"' in html else 0)
+            + int(geo_score or 0) * 0.8,
+        ),
+    }
+    result = {k: int(min(100, max(0, v))) for k, v in scores.items()}
+    result["ai_content_score_avg"] = int(sum(result.values()) / len(result))
+    return result
 
 
 def _naver_post_to_source_meta(post: NaverPost) -> dict[str, Any]:
@@ -136,8 +244,23 @@ class AiTopicPipeline:
                 raw_candidate=raw_candidate,
             )
 
+            cover_image_url = self._resolve_cover_image_url(
+                title=selected_title, topic=topic, content_type=ct, topic_group=tg,
+            )
+
+            internal_link_pairs = self._build_internal_link_pairs(
+                title=selected_title, topic=topic, content_type=ct,
+            )
+
+            # LLM 주제 특화 본문 보강 (실패 시 템플릿 그대로 — 발행 안전)
+            self._enrich_preview_slots(
+                preview=preview, topic=topic, content_type=ct, selected_title=selected_title,
+            )
+
             _can_gen, candidate_html = self._render_candidate(
-                preview=preview, selected_title=selected_title
+                preview=preview, selected_title=selected_title,
+                cover_image_url=cover_image_url,
+                internal_link_pairs=internal_link_pairs,
             )
 
             blogspot_labels, hashtags = self._build_labels(
@@ -186,6 +309,14 @@ class AiTopicPipeline:
             _meta_valid = bool(_cand_meta.get("candidate_meta_description_valid"))
             _cit_valid  = bool(_cand_meta.get("geo_ai_citation_summary_valid"))
 
+            # soft 품질 게이트: hard_block만 발행 중지, soft_warning은 로그/기록만
+            from blogspot_automation.services.ai_quality_gate import evaluate_ai_publish_quality
+            _quality = evaluate_ai_publish_quality(candidate_html, content_type=ct)
+            if _quality["soft_warnings"]:
+                logger.info("AiTopicPipeline: quality soft_warnings=%s", _quality["soft_warnings"])
+            if _quality["hard_blocks"]:
+                logger.warning("AiTopicPipeline: quality hard_blocks=%s", _quality["hard_blocks"])
+
             # 실제 발행 시도 (auto_publish + 품질 조건)
             publish_attempted = False
             publish_succeeded = False
@@ -204,14 +335,21 @@ class AiTopicPipeline:
                 skip_reason = "candidate_meta_description_valid=false"
             elif not _cit_valid:
                 skip_reason = "geo_ai_citation_summary_valid=false"
+            elif not _quality["passed"]:
+                skip_reason = "quality_hard_block:" + ",".join(_quality["hard_blocks"])
             else:
                 publish_attempted = True
+                _slots_for_footer = (preview.get("slot_result") or {}).get("slots") or {}
                 blogger_url, publish_succeeded = self._attempt_blogger_publish(
                     title=selected_title,
                     candidate_html=candidate_html,
                     labels=blogspot_labels,
                     cand_meta=_cand_meta,
                     run_path=run_path,
+                    content_type=ct,
+                    internal_links=_slots_for_footer.get("internal_links") or [],
+                    hashtags=_slots_for_footer.get("hashtags") or hashtags,
+                    internal_link_pairs=internal_link_pairs,
                 )
 
             if naver_post and not self.dry_run and publish_succeeded:
@@ -271,7 +409,8 @@ class AiTopicPipeline:
         if self._force_naver_post:
             post = self._force_naver_post
             meta = _naver_post_to_source_meta(post)
-            return post, meta, post.title, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+            _ct, _tg = _classify_ai_topic(post.title)
+            return post, meta, post.title, _ct, _tg
         if self._force_topic:
             meta = {
                 "source_type": "forced_topic",
@@ -281,7 +420,8 @@ class AiTopicPipeline:
                 "source_published_at": "",
                 "already_rewritten": False,
             }
-            return None, meta, self._force_topic, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+            _ct, _tg = _classify_ai_topic(self._force_topic)
+            return None, meta, self._force_topic, _ct, _tg
 
         # 1순위: Naver Blog AI 포스트
         try:
@@ -292,7 +432,8 @@ class AiTopicPipeline:
 
         if post:
             meta = _naver_post_to_source_meta(post)
-            return post, meta, post.title, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+            _ct, _tg = _classify_ai_topic(post.title)
+            return post, meta, post.title, _ct, _tg
 
         # Fallback: evergreen_topic_service
         logger.info("AiTopicPipeline: Naver 소스 없음 — evergreen fallback 사용")
@@ -413,7 +554,8 @@ class AiTopicPipeline:
         return tr, selected_title, ctr
 
     def _render_candidate(
-        self, *, preview: dict, selected_title: str
+        self, *, preview: dict, selected_title: str, cover_image_url: str = "",
+        internal_link_pairs: list | None = None,
     ) -> tuple[bool, str]:
         pm = preview.get("pattern_match") or {}
         sr = preview.get("slot_result") or {}
@@ -422,12 +564,81 @@ class AiTopicPipeline:
         if _can_gen and pm:
             try:
                 candidate_html = self.golden_preview_service.render_article_candidate_html(
-                    pm, sr, selected_title=selected_title
+                    pm, sr, selected_title=selected_title,
+                    cover_image_url=cover_image_url,
+                    internal_link_pairs=internal_link_pairs,
                 )
             except Exception as e:
                 logger.warning("render_article_candidate_html failed: %s", e)
                 _can_gen = False
         return _can_gen, candidate_html
+
+    def _enrich_preview_slots(
+        self, *, preview: dict, topic: str, content_type: str, selected_title: str
+    ) -> None:
+        """preview의 slot_result.slots를 LLM 주제 특화 본문으로 교체(제자리 수정).
+
+        실패/비활성 시 원본 유지 — 발행은 항상 진행 가능.
+        """
+        try:
+            sr = preview.get("slot_result") or {}
+            slots = sr.get("slots") or {}
+            if not slots:
+                return
+            from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+            enriched = enrich_slots_with_llm(
+                slots=slots, topic=topic, content_type=content_type,
+                selected_title=selected_title,
+            )
+            sr["slots"] = enriched
+            preview["slot_result"] = sr
+        except Exception as exc:
+            logger.warning("AiTopicPipeline: slot enrich 실패(템플릿 폴백): %s", exc)
+
+    def _build_internal_link_pairs(
+        self, *, title: str, topic: str, content_type: str
+    ) -> list[tuple[str, str]]:
+        """발행 이력에서 실제 발행된 Blogspot 글 (제목, URL) 내부링크를 만든다.
+
+        이력이 없으면 빈 목록 → 렌더러가 카테고리 라벨 링크로 폴백한다.
+        """
+        try:
+            from blogspot_automation.services.seo_policy import build_internal_links_from_history
+            records = self.publish_history_service.recent_records(limit=120, published_only=True)
+            pairs = build_internal_links_from_history(
+                records,
+                current_title=title,
+                current_topic=topic,
+                current_content_type=content_type,
+                limit=3,
+            )
+            return list(pairs)
+        except Exception as exc:
+            logger.warning("internal link 생성 실패(비치명): %s", exc)
+            return []
+
+    def _resolve_cover_image_url(
+        self, *, title: str, topic: str, content_type: str, topic_group: str
+    ) -> str:
+        """이미지 생성/업로드가 활성화된 경우 CoverImageService로 ImgBB 영구 URL을 만든다.
+
+        생성/업로드 비활성이거나 키가 없으면 ""(비치명) — 렌더러가 CSS 히어로로 폴백.
+        """
+        if self.disable_image_generation or self.disable_image_upload:
+            return ""
+        try:
+            from blogspot_automation.services.cover_image_service import CoverImageService
+            svc = CoverImageService()
+            if not svc.enabled():
+                logger.info("CoverImageService disabled (키 누락) → 이미지 없이 진행")
+                return ""
+            url = svc.build_cover_image_url(title=title or topic, topic=topic)
+            if url:
+                logger.info("AiTopicPipeline: cover image ready → %s", url)
+            return url or ""
+        except Exception as exc:
+            logger.warning("cover image 생성 실패(비치명): %s", exc)
+            return ""
 
     def _build_labels(
         self, *, pattern_id: str, ct: str, tg: str, topic: str, selected_title: str
@@ -597,6 +808,12 @@ class AiTopicPipeline:
             "selected_title": selected_title,
             "selected_title_ctr_score": selected_title_ctr,
             "stale_penalty_applied": False,
+            "ai_content_scores": compute_ai_content_scores(
+                slots=(preview.get("slot_result") or {}).get("slots") or {},
+                candidate_html=str(preview.get("_article_candidate_html") or ""),
+                content_type=ct,
+                geo_score=_geo_score,
+            ),
             "blocking_issues": list(preview.get("blocking_issues") or []),
             "reason": (
                 f"source={source_meta.get('source_type','unknown')} "
@@ -667,19 +884,33 @@ class AiTopicPipeline:
         labels: list,
         cand_meta: dict,
         run_path: Path,
+        content_type: str = "",
+        internal_links: list | None = None,
+        hashtags: list | None = None,
+        internal_link_pairs: list | None = None,
     ) -> tuple[str, bool]:
         """Blogger API에 발행 시도. (url, succeeded) 반환."""
         import json as _json
         try:
             from blogspot_automation.config import Settings
             from blogspot_automation.publishing.client import BloggerClient
+            from blogspot_automation.services.golden_article_preview_service import append_ai_footer_html
 
             settings = Settings.from_env()
             client = BloggerClient(settings)
             meta_description = str(cand_meta.get("candidate_meta_description") or title[:120])
+            # prepare가 internal-links/hashtag를 strip하므로 그 뒤에 다시 붙인다.
+            _publish_html = prepare_blogspot_html(candidate_html, strip_document=True)
+            _publish_html = append_ai_footer_html(
+                _publish_html,
+                internal_links=internal_links or [],
+                hashtags=hashtags or [],
+                content_type=content_type,
+                internal_link_pairs=internal_link_pairs or [],
+            )
             result = client.publish_post(
                 title=title,
-                article_html=prepare_blogspot_html(candidate_html, strip_document=True),
+                article_html=_publish_html,
                 labels=normalize_labels(labels or []),
                 meta_description=meta_description,
                 is_draft=False,
