@@ -588,30 +588,8 @@ class GoldenArticlePreviewService:
                     f'    </section>'
                 )
 
-        # use_cases (실전 활용 시나리오 — 이럴 때 이렇게)
-        use_cases = _list_slot(slots.get("use_cases"))
-        if use_cases:
-            cards = []
-            for item in use_cases:
-                if not isinstance(item, dict):
-                    continue
-                situ = str(item.get("상황", "")).strip()
-                howto = str(item.get("활용", "")).strip()
-                if not situ or not howto:
-                    continue
-                cards.append(
-                    f'      <div class="use-case-card">\n'
-                    f'        <p class="use-case-when">{escape(situ)}</p>\n'
-                    f'        <p class="use-case-how">{escape(howto)}</p>\n'
-                    f'      </div>'
-                )
-            if cards:
-                sections.append(
-                    f'    <section class="use-cases">\n'
-                    f'      <p class="section-label">💡 실전 활용 시나리오</p>\n'
-                    + "\n".join(cards) + "\n"
-                    f'    </section>'
-                )
+        # use_cases 섹션은 quick_decision_table(상황별 추천)과 중복되어 제거함(분량 축소).
+        # 활용 깊이는 real_criterion(따라 하는 순서)·prompt_block·faq가 담당한다.
 
         # actions
         actions = _list_slot(slots.get("actions"))
