@@ -27,6 +27,24 @@ _AI_AXES = {"ai_automation"}
 _NAVER_CONTENT_TYPE = "ai_work_tip"
 _NAVER_TOPIC_GROUP  = "ai_work"
 
+# 프롬프트 레시피형 주제 라우팅 키워드 (taxonomy ai_prompt 토픽그룹)
+_PROMPT_ROUTE_KEYWORDS: tuple[str, ...] = (
+    "프롬프트", "prompt", "지시문", "템플릿", "프롬프트 레시피",
+    "프롬프트 작성", "프롬프트 엔지니어링",
+)
+
+
+def _classify_ai_topic(topic: str) -> tuple[str, str]:
+    """AI 주제를 content_type/topic_group로 분류한다.
+
+    프롬프트 레시피형 신호가 있으면 ai_prompt_recipe로 라우팅하고,
+    그 외에는 기존 ai_work_tip/ai_work 기본값을 유지한다.
+    """
+    haystack = (topic or "").lower()
+    if any(kw.lower() in haystack for kw in _PROMPT_ROUTE_KEYWORDS):
+        return "ai_prompt_recipe", "ai_prompt"
+    return _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+
 # pattern_id별 16:9 커버 이미지 scene
 _AI_IMAGE_SCENES: dict[str, str] = {
     "ai_work_time_savings": (
@@ -271,7 +289,8 @@ class AiTopicPipeline:
         if self._force_naver_post:
             post = self._force_naver_post
             meta = _naver_post_to_source_meta(post)
-            return post, meta, post.title, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+            _ct, _tg = _classify_ai_topic(post.title)
+            return post, meta, post.title, _ct, _tg
         if self._force_topic:
             meta = {
                 "source_type": "forced_topic",
@@ -281,7 +300,8 @@ class AiTopicPipeline:
                 "source_published_at": "",
                 "already_rewritten": False,
             }
-            return None, meta, self._force_topic, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+            _ct, _tg = _classify_ai_topic(self._force_topic)
+            return None, meta, self._force_topic, _ct, _tg
 
         # 1순위: Naver Blog AI 포스트
         try:
@@ -292,7 +312,8 @@ class AiTopicPipeline:
 
         if post:
             meta = _naver_post_to_source_meta(post)
-            return post, meta, post.title, _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+            _ct, _tg = _classify_ai_topic(post.title)
+            return post, meta, post.title, _ct, _tg
 
         # Fallback: evergreen_topic_service
         logger.info("AiTopicPipeline: Naver 소스 없음 — evergreen fallback 사용")

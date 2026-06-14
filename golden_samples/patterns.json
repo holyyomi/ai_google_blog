@@ -727,6 +727,81 @@
       }
     },
     {
+      "pattern_id": "ai_prompt_recipe",
+      "title": "AI 프롬프트 레시피 — 복사해서 바로 쓰는 템플릿",
+      "content_type": "ai_prompt_recipe",
+      "topic_group": "ai_prompt",
+      "minimum_pattern_confidence": 80,
+      "match_keywords": [
+        "프롬프트",
+        "prompt",
+        "프롬프트 템플릿",
+        "프롬프트 작성",
+        "프롬프트 예시",
+        "프롬프트 레시피",
+        "프롬프트 엔지니어링",
+        "ChatGPT 프롬프트",
+        "GPT 프롬프트",
+        "지시문",
+        "프롬프트 모음",
+        "AI 명령어",
+        "프롬프트 작성법",
+        "프롬프트 패턴",
+        "역할 지정",
+        "프롬프트 양식",
+        "프롬프트 공식",
+        "프롬프트 활용",
+        "보고서 프롬프트",
+        "요약 프롬프트",
+        "이메일 프롬프트",
+        "프롬프트 꿀팁"
+      ],
+      "match_negative": [
+        "환급",
+        "지원금",
+        "세금",
+        "홈택스",
+        "OTT",
+        "드라마",
+        "넷플릭스",
+        "배달앱"
+      ],
+      "required_slots": {
+        "hook_opening": true,
+        "yomi_judgment": true,
+        "prompt_block": true,
+        "real_criterion": true,
+        "quick_decision_table": true,
+        "checklist": true,
+        "actions": true,
+        "faq": true,
+        "hashtags": true,
+        "internal_links": true
+      },
+      "quality_checks": {
+        "prompt_block_required": true,
+        "must_include_copyable_prompt": true,
+        "must_include_result_checklist": true,
+        "must_include_variation_examples": true,
+        "no_unverified_model_capability_claim": true
+      },
+      "banned_default_phrases": [
+        "이 프롬프트면 무조건 됩니다",
+        "완벽한 프롬프트입니다",
+        "프롬프트에 대해 알아보겠습니다",
+        "함께 알아볼게요",
+        "이번 포스팅에서는",
+        "정리해 보았습니다"
+      ],
+      "publish_policy": {
+        "pattern_match_confidence_gte": 80,
+        "slot_fill_rate_gte": 0.8,
+        "default_phrase_detected": false,
+        "risk_flags_empty": true,
+        "human_publish_required": true
+      }
+    },
+    {
       "pattern_id": "delivery_money_checklist",
       "title": "배달앱 결제금액 비교 체크리스트",
       "content_type": "money_checklist",

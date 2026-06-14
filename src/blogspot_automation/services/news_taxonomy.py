@@ -270,6 +270,11 @@ TOPIC_GROUP_KEYWORDS: dict[str, tuple[str, ...]] = {
     "ai_work": (
         "챗GPT", "ChatGPT", "생성형", "업무 자동화", "생산성", "AI 채용", "AI 해고", "저작권",
     ),
+    "ai_prompt": (
+        "프롬프트", "prompt", "프롬프트 템플릿", "프롬프트 작성", "프롬프트 예시",
+        "프롬프트 레시피", "프롬프트 엔지니어링", "지시문", "프롬프트 모음", "프롬프트 작성법",
+        "프롬프트 패턴", "프롬프트 양식", "프롬프트 공식", "프롬프트 꿀팁",
+    ),
     "trend_meme": (
         "밈", "틱톡", "인스타", "릴스", "오픈런", "품절", "인증샷", "유행", "신조어",
     ),
@@ -302,6 +307,7 @@ CONTENT_TYPE_BY_TOPIC_GROUP: dict[str, str] = {
     "refund_consumer": "consumer_warning",
     "privacy_security": "consumer_warning",
     "ai_work": "ai_work_tip",
+    "ai_prompt": "ai_prompt_recipe",
     "trend_meme": "trend_decode",
     "entertainment_sports": "viral_issue_decode",
     "ott_platform": "viral_issue_decode",
@@ -314,6 +320,7 @@ CONTENT_TYPE_BY_TOPIC_GROUP: dict[str, str] = {
 
 EDITORIAL_AXIS_BY_TOPIC_GROUP: dict[str, str] = {
     "ai_work": "AI 자동화",
+    "ai_prompt": "AI 자동화",
     "policy_benefit": "돈 되는 이슈",
     "delivery_money": "돈 되는 이슈",
     "refund_consumer": "생활 선택 기준",
@@ -328,6 +335,16 @@ EDITORIAL_AXIS_BY_TOPIC_GROUP: dict[str, str] = {
 
 EDITORIAL_AXIS_BY_CONTENT_TYPE: dict[str, str] = {
     "ai_work_tip": "AI 자동화",
+    # AI 블로그 전용 content_type (Phase B taxonomy 등록)
+    "ai_tool_review": "AI 자동화",
+    "ai_workflow_guide": "AI 자동화",
+    "ai_prompt_recipe": "AI 자동화",
+    "ai_model_update": "AI 자동화",
+    "ai_search_change": "AI 자동화",
+    "ai_blog_growth": "AI 자동화",
+    "ai_comparison": "AI 자동화",
+    "ai_risk_security": "AI 자동화",
+    "ai_beginner_guide": "AI 자동화",
     "policy_deadline": "돈 되는 이슈",
     "tax_refund": "돈 되는 이슈",
     "money_checklist": "돈 되는 이슈",
@@ -346,6 +363,16 @@ ARTICLE_TYPE_BY_CONTENT_TYPE: dict[str, str] = {
     "consumer_warning": "실수 방지형",
     "platform_change": "실수 방지형",
     "ai_work_tip": "방법론가이드형",
+    # AI 블로그 전용 content_type별 본문 구조 성격 (Phase B)
+    "ai_tool_review": "방법론가이드형",
+    "ai_workflow_guide": "방법론가이드형",
+    "ai_prompt_recipe": "레시피형",
+    "ai_model_update": "업데이트 해설형",
+    "ai_search_change": "이슈 해석형",
+    "ai_blog_growth": "방법론가이드형",
+    "ai_comparison": "비교선택형",
+    "ai_risk_security": "실수 방지형",
+    "ai_beginner_guide": "방법론가이드형",
     "trend_decode": "이슈 해석형",
     "viral_issue_decode": "viral_issue_decode형",
     "today_issue_explainer": "today_issue_explainer",

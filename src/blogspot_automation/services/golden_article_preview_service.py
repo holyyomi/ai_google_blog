@@ -26,6 +26,7 @@ _HOWTO_ELIGIBLE_PATTERNS: frozenset[str] = frozenset(
         "ai_work_time_savings",
         "ai_tool_comparison",
         "ai_automation_workflow",
+        "ai_prompt_recipe",
         "delivery_money_checklist",
     }
 )
@@ -136,6 +137,14 @@ _PREVIEW_CSS = """
   .check-needed-section h3 { font-size: 0.9rem; margin: 0 0 6px; color: #92400e; }
   .confirmed-section ul, .check-needed-section ul { margin: 0; padding-left: 16px; }
   .confirmed-section li, .check-needed-section li { margin-bottom: 4px; font-size: 0.87rem; }
+  .prompt-recipe-box { margin-bottom: 20px; }
+  .prompt-card { border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .prompt-card-label { margin: 0; padding: 8px 14px; background: #111827; color: #f9fafb; font-size: 0.82rem; font-weight: 700; }
+  .prompt-code { margin: 0; padding: 14px 16px; background: #0f172a; color: #e2e8f0; font-family: 'D2Coding','Consolas',monospace; font-size: 0.86rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+  .quality-checklist { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 14px 18px; margin-bottom: 20px; border-radius: 6px; }
+  .quality-checklist ul { margin: 0; padding-left: 0; list-style: none; }
+  .quality-checklist li { padding: 6px 0 6px 28px; position: relative; font-size: 0.9rem; }
+  .quality-checklist li:before { content: "☑"; position: absolute; left: 4px; color: #16a34a; font-weight: 800; }
 """
 
 
@@ -339,6 +348,31 @@ class GoldenArticlePreviewService:
                 f'    </section>'
             )
 
+        # prompt_block (AI 프롬프트 레시피 전용 — 복사 가능한 프롬프트 박스)
+        prompt_block = _list_slot(slots.get("prompt_block"))
+        if prompt_block:
+            cards = []
+            for item in prompt_block:
+                if not isinstance(item, dict):
+                    continue
+                label = escape(str(item.get("label", "프롬프트")))
+                prompt_text = escape(str(item.get("prompt", "")))
+                if not prompt_text.strip():
+                    continue
+                cards.append(
+                    f'      <div class="prompt-card">\n'
+                    f'        <p class="prompt-card-label">{label}</p>\n'
+                    f'        <pre class="prompt-code">{prompt_text}</pre>\n'
+                    f'      </div>'
+                )
+            if cards:
+                sections.append(
+                    f'    <section class="prompt-recipe-box">\n'
+                    f'      <p class="section-label">📝 복사해서 쓰는 프롬프트</p>\n'
+                    + "\n".join(cards) + "\n"
+                    f'    </section>'
+                )
+
         # misconceptions
         misconceptions = _list_slot(slots.get("misconceptions"))
         if misconceptions:
@@ -410,6 +444,22 @@ class GoldenArticlePreviewService:
                     f'    <section class="actions-box">\n'
                     f'      <p class="section-label">{escape(_section_label("actions", ai_family))}</p>\n'
                     f'      <ol>\n{items_html}\n      </ol>\n'
+                    f'    </section>'
+                )
+
+        # checklist (결과물 품질 체크리스트 — 체크박스형 리스트)
+        checklist = _list_slot(slots.get("checklist"))
+        if checklist:
+            items_html = "\n".join(
+                f'        <li>{escape(str(c))}</li>'
+                for c in checklist
+                if str(c).strip()
+            )
+            if items_html:
+                sections.append(
+                    f'    <section class="quality-checklist">\n'
+                    f'      <p class="section-label">✅ 결과물 품질 체크리스트</p>\n'
+                    f'      <ul>\n{items_html}\n      </ul>\n'
                     f'    </section>'
                 )
 
@@ -1176,6 +1226,12 @@ _PATTERN_CITATION_SUMMARIES: dict[str, str] = {
         "검수 루프 없이 자동화하면 오류 누적으로 수정 비용이 증가할 수 있다. "
         "자동화 도구 도입 전 파일럿 테스트로 실제 시간 절감 효과를 확인하는 것이 권장된다."
     ),
+    "ai_prompt_recipe": (
+        "좋은 프롬프트는 길이가 아니라 구조에서 나온다. 역할 지정, 작업 목적, 입력 자료, 출력 형식, 제약 조건 다섯 가지를 고정하면 결과가 안정된다. "
+        "매번 새로 쓰지 말고 잘 나온 프롬프트를 템플릿으로 저장해 값만 바꿔 재사용하는 것이 효율적이다. "
+        "출력 형식을 명시하고 '확실하지 않으면 추측하지 말 것'이라는 제약을 더하면 환각을 줄일 수 있다. "
+        "다만 프롬프트가 좋아져도 AI 출력은 초안이므로 핵심 사실은 결과물 품질 체크리스트로 직접 검수해야 한다."
+    ),
     "viral_ott_reaction_decode": (
         "반응이 갈리는 이슈는 확인된 사실, 이용자 기대, 커뮤니티 해석을 분리해서 봐야 한다. "
         "화제성이 높아도 공식 확인 범위와 추측성 반응은 같은 무게로 볼 수 없다. "
@@ -1323,6 +1379,7 @@ _PATTERN_DATE_DISCLAIMERS: dict[str, str] = {
     "ai_work_time_savings": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
     "ai_tool_comparison": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
     "ai_automation_workflow": "AI 도구 기능과 요금은 서비스 정책에 따라 달라질 수 있습니다.",
+    "ai_prompt_recipe": "AI 모델 동작과 출력은 버전·설정에 따라 달라질 수 있으므로 결과는 직접 검수하세요.",
     "delivery_money_checklist": "배달앱 배달비·쿠폰·최소주문금액 조건은 앱 정책에 따라 달라질 수 있습니다.",
     "platform_change_service_update": "플랫폼 서비스·약관·요금제는 운영사 정책에 따라 변경될 수 있습니다.",
     "consumer_warning_refund": "환불·소비자 보호 절차는 운영사 약관과 관련 법령에 따라 달라질 수 있습니다.",
@@ -1346,6 +1403,10 @@ _PATTERN_META_TEMPLATES: dict[str, str] = {
     "ai_automation_workflow": (
         "AI 자동화 워크플로우 구성 전 반복 업무 분류, 검수 루프 설계, 파일럿 테스트 방법을 "
         "단계별로 정리했습니다. 도구 선택보다 자동화 프로세스 정의가 먼저입니다."
+    ),
+    "ai_prompt_recipe": (
+        "복사해서 바로 쓰는 AI 프롬프트 템플릿과 보고서·요약 변형 예시, 결과물 품질 체크리스트를 "
+        "정리했습니다. 역할·목적·출력 형식·제약을 고정해 결과를 안정시키는 방법입니다."
     ),
     "viral_ott_reaction_decode": (
         "반응이 갈리는 이슈에서 확인된 사실, 이용자 영향, 커뮤니티 해석, 루머 구분 기준을 "

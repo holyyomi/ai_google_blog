@@ -99,5 +99,72 @@ class TestNewsFlowUnchanged(unittest.TestCase):
         self.assertEqual(leaked, [], f"AI 라벨이 뉴스 글에 누출: {leaked}")
 
 
+class TestAiPromptRecipeFlagship(unittest.TestCase):
+    """Phase B 플래그십: ai_prompt_recipe 패턴이 프롬프트 박스/체크리스트 구조를 갖는지 검증."""
+
+    @classmethod
+    def setUpClass(cls):
+        from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+        from blogspot_automation.services.slot_filler_service import SlotFillerService
+
+        topic = "보고서 초안용 ChatGPT 프롬프트 템플릿 만들기"
+        ps = GoldenPatternService()
+        cls.pm = ps.match_pattern(
+            topic=topic, content_type="ai_prompt_recipe", topic_group="ai_prompt"
+        )
+        svc = GoldenArticlePreviewService()
+        sf = SlotFillerService()
+        cls.sr = sf.fill_slots(pattern_id="ai_prompt_recipe", topic=topic)
+        cls.html = svc.render_article_candidate_html(
+            cls.pm, cls.sr, selected_title="복사해서 쓰는 보고서 초안 프롬프트 템플릿"
+        )
+
+    def test_pattern_matched_high_confidence(self):
+        self.assertEqual(self.pm.get("pattern_id"), "ai_prompt_recipe")
+        self.assertGreaterEqual(self.pm.get("confidence", 0), 80)
+
+    def test_prompt_block_rendered(self):
+        # CSS 규칙이 아닌 실제 섹션 마크업으로 확인
+        self.assertIn('class="prompt-recipe-box"', self.html)
+        self.assertIn('class="prompt-code"', self.html)
+        self.assertIn("복사해서 쓰는 프롬프트", self.html)
+        # 복사 가능한 실제 프롬프트 텍스트(대괄호 변수) 포함
+        self.assertIn("당신은 [", self.html)
+
+    def test_quality_checklist_rendered(self):
+        self.assertIn('class="quality-checklist"', self.html)
+        self.assertIn("결과물 품질 체크리스트", self.html)
+
+    def test_distinct_from_ai_work_structure(self):
+        # ai_work_time_savings에는 없는 프롬프트 박스가 prompt_recipe에는 있어야 함 (구조 차별화)
+        svc = GoldenArticlePreviewService()
+        work = svc.build_preview(
+            topic="직장인이 ChatGPT를 써도 시간이 안 줄어드는 이유",
+            content_type="ai_work_tip", topic_group="ai_work",
+        )
+        work_html = svc.render_article_candidate_html(
+            work["pattern_match"], work["slot_result"], selected_title="x",
+        )
+        self.assertNotIn('class="prompt-recipe-box"', work_html)
+
+    def test_no_news_residue(self):
+        leaked = [m for m in _NEWS_RESIDUE if m in self.html]
+        self.assertEqual(leaked, [], f"뉴스 잔재: {leaked}")
+
+
+class TestAiTopicRouting(unittest.TestCase):
+    """프롬프트형 주제가 ai_prompt_recipe로, 그 외는 ai_work_tip로 라우팅되는지."""
+
+    def test_prompt_topic_routes_to_recipe(self):
+        from blogspot_automation.pipelines.ai_pipeline import _classify_ai_topic
+        ct, tg = _classify_ai_topic("ChatGPT 프롬프트 템플릿 모음")
+        self.assertEqual((ct, tg), ("ai_prompt_recipe", "ai_prompt"))
+
+    def test_generic_ai_topic_routes_to_work_tip(self):
+        from blogspot_automation.pipelines.ai_pipeline import _classify_ai_topic
+        ct, tg = _classify_ai_topic("AI로 업무 시간 줄이는 방법")
+        self.assertEqual((ct, tg), ("ai_work_tip", "ai_work"))
+
+
 if __name__ == "__main__":
     unittest.main()

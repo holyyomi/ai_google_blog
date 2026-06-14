@@ -855,5 +855,43 @@
     "status": "published",
     "retry_attempt": 1,
     "max_publish_attempts": ""
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-06-14T10:46:31.631708",
+    "date": "2026-06-14",
+    "topic": "ChatGPT 업무 자동화로 보고서 초안 시간 줄이기",
+    "selected_title": "ChatGPT 업무 자동화로 보고서 초안, 시간 줄이려면 먼저 볼 3가지",
+    "golden_pattern_id": "ai_work_time_savings",
+    "content_type": "ai_work_tip",
+    "topic_group": "ai_work",
+    "evergreen_axis": "ai_automation",
+    "source_type": "forced_topic",
+    "source_url": "",
+    "source_title": "ChatGPT 업무 자동화로 보고서 초안 시간 줄이기",
+    "status": "dry_run_saved",
+    "publish_ready": false,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs\\news_20260614_104631"
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-06-14T11:10:49.339818",
+    "date": "2026-06-14",
+    "topic": "보고서 초안용 ChatGPT 프롬프트 템플릿 만들기",
+    "selected_title": "보고서 초안용 ChatGPT 프롬프트 템플릿, 먼저 확인할 3가지",
+    "golden_pattern_id": "ai_prompt_recipe",
+    "content_type": "ai_prompt_recipe",
+    "topic_group": "ai_prompt",
+    "evergreen_axis": "ai_automation",
+    "source_type": "forced_topic",
+    "source_url": "",
+    "source_title": "보고서 초안용 ChatGPT 프롬프트 템플릿 만들기",
+    "status": "dry_run_saved",
+    "publish_ready": true,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs\\news_20260614_111049"
   }
 ]
