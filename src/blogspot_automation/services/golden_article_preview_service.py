@@ -215,6 +215,10 @@ _PREVIEW_CSS = """
   .verdict-box { background: #f0f7ff; border: 2px solid #2563eb; padding: 16px 20px; margin-bottom: 20px; border-radius: 8px; }
   .verdict-box p { margin: 0 0 6px; font-size: 0.92rem; }
   .verdict-rating { color: #f59e0b; font-size: 1.1rem; font-weight: 800; }
+  .use-cases { margin-bottom: 20px; }
+  .use-case-card { border: 1px solid #e5e7eb; border-left: 4px solid #6366f1; border-radius: 0 8px 8px 0; padding: 12px 16px; margin-bottom: 10px; background: #fafaff; }
+  .use-case-when { margin: 0 0 4px; font-weight: 700; color: #312e81; font-size: 0.9rem; }
+  .use-case-how { margin: 0; font-size: 0.88rem; color: #374151; }
 """
 
 
@@ -557,6 +561,31 @@ class GoldenArticlePreviewService:
                     f'        <thead><tr><th>내 상황</th><th>{_qdt_th_right}</th></tr></thead>\n'
                     f'        <tbody>\n{rows}\n        </tbody>\n'
                     f'      </table>\n'
+                    f'    </section>'
+                )
+
+        # use_cases (실전 활용 시나리오 — 이럴 때 이렇게)
+        use_cases = _list_slot(slots.get("use_cases"))
+        if use_cases:
+            cards = []
+            for item in use_cases:
+                if not isinstance(item, dict):
+                    continue
+                situ = str(item.get("상황", "")).strip()
+                howto = str(item.get("활용", "")).strip()
+                if not situ or not howto:
+                    continue
+                cards.append(
+                    f'      <div class="use-case-card">\n'
+                    f'        <p class="use-case-when">{escape(situ)}</p>\n'
+                    f'        <p class="use-case-how">{escape(howto)}</p>\n'
+                    f'      </div>'
+                )
+            if cards:
+                sections.append(
+                    f'    <section class="use-cases">\n'
+                    f'      <p class="section-label">💡 실전 활용 시나리오</p>\n'
+                    + "\n".join(cards) + "\n"
                     f'    </section>'
                 )
 
@@ -948,11 +977,8 @@ class GoldenArticlePreviewService:
                     theme_class=_pick_ai_theme(topic_str, _pattern_id),
                 )
 
-        _byline_block = _author_byline_html(today_str=today_str, content_type=_content_type) if _ai_family else ""
-
         _after_h1 = (
             _visual_block
-            + _byline_block
             + ai_overview_block
             + ai_citation_block
             + updated_date_block
@@ -1336,20 +1362,6 @@ def _inject_toc_html(html: str) -> str:
         return new_html[:m_first.start()] + toc + "\n" + new_html[m_first.start():]
     # 폴백: PAA 블록 뒤
     return re.sub(r'(</section>)(\s*<section class=")', r'\1' + toc + r'\2', new_html, count=1)
-
-
-def _author_byline_html(*, today_str: str = "", content_type: str = "") -> str:
-    """E-E-A-T 작성자 바이라인 (Person 마이크로데이터). AI 글 상단 신뢰 신호."""
-    author = os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI")
-    label, _emoji = _AI_HERO_META.get(content_type, ("AI 인사이트", "🤖"))
-    date_part = f' · 최종 업데이트 {escape(today_str)}' if today_str else ""
-    return (
-        '\n  <div class="ai-byline" itemscope itemtype="https://schema.org/Person">\n'
-        f'    <span class="ai-byline-name" itemprop="name">✍️ {escape(author)}</span>\n'
-        f'    <span class="ai-byline-role" itemprop="description">{escape(label)} 정리</span>\n'
-        f'    <span class="ai-byline-date">{date_part}</span>\n'
-        '  </div>'
-    )
 
 
 def _hero_banner_html(*, content_type: str = "", topic: str = "", theme_class: str = "") -> str:
