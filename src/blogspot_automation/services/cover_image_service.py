@@ -38,11 +38,16 @@ _IMGBB_ENDPOINT = "https://api.imgbb.com/1/upload"
 # 부정 지시만으론 부족 → 글자가 그려질 소재(간판/라벨/문서) 자체를 배제하고
 # "wordless/textless"를 긍정 서술로 반복한다.
 _STYLE_SUFFIX = (
-    "Minimal flat editorial illustration, modern soft color palette, "
-    "clean geometric shapes, subtle gradient background, 16:9 wide composition. "
+    "Minimal abstract flat vector illustration, modern soft color palette, "
+    "clean simple geometric shapes only, subtle gradient background, 16:9 wide composition, "
+    "generous empty margins, nothing important near the bottom edge. "
     "Completely wordless and textless artwork: no text, no letters, no numbers, "
     "no signs, no labels, no captions, no typography, no writing of any kind, "
-    "no watermark, no logos, no realistic human faces, no real person likeness."
+    "no watermark, no logos. "
+    # 글자가 그려지기 쉬운 소재 자체를 배제 (화면/문서/키보드/책/간판 등)
+    "Do not draw screens, monitors, phones with UI, documents, papers, books, "
+    "keyboards, charts with axis labels, or any object that would contain readable text. "
+    "No realistic human faces, no real person likeness."
 )
 
 

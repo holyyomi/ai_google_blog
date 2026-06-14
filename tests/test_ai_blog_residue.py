@@ -471,6 +471,30 @@ class TestAiInternalLinks(unittest.TestCase):
         self.assertIn("/search/label/", html)
 
 
+class TestLivePostFixes(unittest.TestCase):
+    """라이브 발행에서 발견된 문제 회귀 방지: CSS 글리프·프롬프트 가독성."""
+
+    @classmethod
+    def setUpClass(cls):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(topic="보고서 프롬프트 템플릿", content_type="ai_prompt_recipe", topic_group="ai_prompt")
+        cls.html = svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title="프롬프트 모음")
+
+    def test_no_raw_html_entity_in_css_content(self):
+        # CSS content에 HTML 엔티티(&#9654; 등)가 들어가면 글자 그대로 노출됨 → 금지
+        self.assertNotIn("&#9654", self.html)
+        self.assertNotIn("&#10003", self.html)
+
+    def test_css_uses_unicode_escapes(self):
+        # 체크/화살표 글리프는 CSS 유니코드 이스케이프로(발행 후에도 안전)
+        self.assertIn(r'content:"\2713"', self.html)
+        self.assertIn(r'content:"\25B6\00A0"', self.html)
+
+    def test_prompt_code_readable_light_scheme(self):
+        # 프롬프트 박스는 밝은 배경+어두운 글씨 + !important (테마 덮어쓰기 방어)
+        self.assertIn("background:#f1f5f9!important;color:#0f172a!important", self.html)
+
+
 class TestAiToc(unittest.TestCase):
     """목차(TOC) 출력 — AI 글에만."""
 
