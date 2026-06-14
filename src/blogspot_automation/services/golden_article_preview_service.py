@@ -248,8 +248,13 @@ class GoldenArticlePreviewService:
         content_type: str = "",
         topic_group: str = "",
         candidate_raw: dict | None = None,
+        forced_pattern_id: str = "",
     ) -> dict[str, Any]:
         """topic으로 패턴 매칭 → 슬롯 채우기 → HTML 렌더링 → 검증까지 한 번에 수행.
+
+        forced_pattern_id가 주어지면 키워드 매칭을 건너뛰고 해당 패턴으로 빌드한다.
+        (AI 파이프라인이 분류기로 패턴을 이미 확정한 경우 — 도구명 등으로 키워드
+        매칭이 약해도 발행이 막히지 않게 한다.)
 
         Returns:
             matched, pattern_match, slot_result, preview_html,
@@ -259,12 +264,28 @@ class GoldenArticlePreviewService:
         blocking_issues: list[str] = []
         warnings: list[str] = []
 
-        pattern_match = self._ps.match_pattern(
-            topic=topic,
-            summary=summary,
-            content_type=content_type,
-            topic_group=topic_group,
-        )
+        if forced_pattern_id and self._ps.get_pattern(forced_pattern_id):
+            _p = self._ps.get_pattern(forced_pattern_id) or {}
+            pattern_match = {
+                "matched": True,
+                "near_match": False,
+                "pattern_id": forced_pattern_id,
+                "pattern_title": _p.get("title", ""),
+                "confidence": 80,
+                "content_type": _p.get("content_type", content_type),
+                "topic_group": _p.get("topic_group", topic_group),
+                "content_type_match": True,
+                "topic_group_match": True,
+                "forced": True,
+            }
+            warnings.append("forced_pattern_id")
+        else:
+            pattern_match = self._ps.match_pattern(
+                topic=topic,
+                summary=summary,
+                content_type=content_type,
+                topic_group=topic_group,
+            )
 
         if not pattern_match["matched"]:
             if pattern_match.get("near_match"):
