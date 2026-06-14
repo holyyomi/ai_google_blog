@@ -427,6 +427,9 @@ class GoldenArticlePreviewService:
         # yomi_judgment
         yomi = _str_slot(slots.get("yomi_judgment"))
         if yomi:
+            if ai_family:
+                # AI 글에서는 내부 마커 '요미 판단:' 접두어를 노출하지 않는다
+                yomi = re.sub(r'^\s*요미\s*(?:의)?\s*판단\s*[:：]\s*', '', yomi)
             sections.append(
                 f'    <section class="yomi-judgment-box">\n'
                 f'      <p class="section-label">{escape(_section_label("yomi_judgment", ai_family))}</p>\n'
