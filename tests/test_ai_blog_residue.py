@@ -400,6 +400,33 @@ class TestAiSlotEnricher(unittest.TestCase):
         out = enrich_slots_with_llm(slots=slots, topic="x", content_type="ai_tool_review", llm_service=_Bad())
         self.assertEqual(out["hook_opening"], "원본훅")  # 폴백
 
+    def test_llm_title_adopted_and_filtered(self):
+        from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+        # 정형구 제목은 거부, 자연스러운 제목은 채택
+        good = {"hook_opening": "x"*30, "yomi_judgment": "y"*30, "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
+                "title": "미드저니 무료 대안, 실무에서 쓸 만한 3곳"}
+        out = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
+                                    topic="t", content_type="ai_tool_review", llm_service=self._fake(good))
+        self.assertEqual(out.get("_llm_title"), "미드저니 무료 대안, 실무에서 쓸 만한 3곳")
+        bad = dict(good, title="AI 이미지 도구, 쓰기 전 먼저 볼 3가지")
+        out2 = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
+                                     topic="t", content_type="ai_tool_review", llm_service=self._fake(bad))
+        self.assertNotIn("_llm_title", out2)  # 정형구 제목 거부
+
+    def test_prompt_block_replaced_only_when_present(self):
+        from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+        payload = {"hook_opening": "x"*30, "yomi_judgment": "y"*30,
+                   "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
+                   "prompt_block": [{"label": "썸네일", "prompt": "flat illustration -> 16:9"}, {"label": "컨셉", "prompt": "product art"}]}
+        # 템플릿에 prompt_block 있으면 교체
+        out = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}], "prompt_block": [{"label": "old", "prompt": "old"}]},
+                                    topic="t", content_type="ai_prompt_recipe", llm_service=self._fake(payload))
+        self.assertEqual(out["prompt_block"][0]["label"], "썸네일")
+        # 템플릿에 prompt_block 없으면 추가하지 않음
+        out2 = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
+                                     topic="t", content_type="ai_tool_review", llm_service=self._fake(payload))
+        self.assertNotIn("prompt_block", out2)
+
     def test_disabled_via_env(self):
         import os
         from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
