@@ -252,6 +252,11 @@ class AiTopicPipeline:
                 title=selected_title, topic=topic, content_type=ct,
             )
 
+            # LLM 주제 특화 본문 보강 (실패 시 템플릿 그대로 — 발행 안전)
+            self._enrich_preview_slots(
+                preview=preview, topic=topic, content_type=ct, selected_title=selected_title,
+            )
+
             _can_gen, candidate_html = self._render_candidate(
                 preview=preview, selected_title=selected_title,
                 cover_image_url=cover_image_url,
@@ -567,6 +572,28 @@ class AiTopicPipeline:
                 logger.warning("render_article_candidate_html failed: %s", e)
                 _can_gen = False
         return _can_gen, candidate_html
+
+    def _enrich_preview_slots(
+        self, *, preview: dict, topic: str, content_type: str, selected_title: str
+    ) -> None:
+        """preview의 slot_result.slots를 LLM 주제 특화 본문으로 교체(제자리 수정).
+
+        실패/비활성 시 원본 유지 — 발행은 항상 진행 가능.
+        """
+        try:
+            sr = preview.get("slot_result") or {}
+            slots = sr.get("slots") or {}
+            if not slots:
+                return
+            from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+            enriched = enrich_slots_with_llm(
+                slots=slots, topic=topic, content_type=content_type,
+                selected_title=selected_title,
+            )
+            sr["slots"] = enriched
+            preview["slot_result"] = sr
+        except Exception as exc:
+            logger.warning("AiTopicPipeline: slot enrich 실패(템플릿 폴백): %s", exc)
 
     def _build_internal_link_pairs(
         self, *, title: str, topic: str, content_type: str

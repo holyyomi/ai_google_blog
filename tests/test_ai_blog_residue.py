@@ -364,6 +364,54 @@ class TestAiStructuredData(unittest.TestCase):
             self.assertIn(t, html, f"누락: {t}")
 
 
+class TestAiSlotEnricher(unittest.TestCase):
+    """LLM 본문 보강: 성공 시 주제 특화 교체, 실패 시 템플릿 폴백."""
+
+    def _fake(self, payload):
+        import json
+        class _F:
+            def call_with_fallback(self, user_prompt, system_prompt=None, min_chars=200, validator=None):
+                out = json.dumps(payload, ensure_ascii=False)
+                if validator:
+                    validator(out)
+                return out
+        return _F()
+
+    def test_enrich_replaces_slots(self):
+        from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+        payload = {
+            "hook_opening": "Perplexity는 출처를 함께 보여주는 검색형 AI입니다. 사실 조사에 강합니다. 무료는 제한이 있습니다. 리서치에 적합합니다.",
+            "yomi_judgment": "검색·리서치에 최적화된 도구입니다. 무료로 시작해 한계에서 Pro를 고려하세요. 창작보다 조사에 강합니다.",
+            "faq": [{"Q": "무료로 되나요?", "A": "기본 검색은 무료로 충분합니다. 고급 기능은 제한이 있습니다."},
+                    {"Q": "ChatGPT와 차이는?", "A": "출처를 제시하는 검색형입니다."},
+                    {"Q": "출처는 정확한가요?", "A": "유용하지만 직접 확인이 필요합니다."}],
+        }
+        slots = {"hook_opening": "원본", "yomi_judgment": "원본", "faq": [{"Q": "a", "A": "b"}]}
+        out = enrich_slots_with_llm(slots=slots, topic="Perplexity 후기", content_type="ai_tool_review", llm_service=self._fake(payload))
+        self.assertIn("Perplexity", out["hook_opening"])
+        self.assertEqual(len(out["faq"]), 3)
+
+    def test_enrich_falls_back_on_garbage(self):
+        from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+        class _Bad:
+            def call_with_fallback(self, *a, **k):
+                return "not json at all"
+        slots = {"hook_opening": "원본훅", "yomi_judgment": "원본결론", "faq": [{"Q": "a", "A": "b"}]}
+        out = enrich_slots_with_llm(slots=slots, topic="x", content_type="ai_tool_review", llm_service=_Bad())
+        self.assertEqual(out["hook_opening"], "원본훅")  # 폴백
+
+    def test_disabled_via_env(self):
+        import os
+        from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+        os.environ["ENABLE_AI_LLM_ENRICH"] = "false"
+        try:
+            slots = {"hook_opening": "원본훅", "faq": []}
+            out = enrich_slots_with_llm(slots=slots, topic="x", content_type="ai_tool_review", llm_service=self._fake({}))
+            self.assertEqual(out["hook_opening"], "원본훅")
+        finally:
+            del os.environ["ENABLE_AI_LLM_ENRICH"]
+
+
 class TestAiQualityGate(unittest.TestCase):
     """soft 품질 게이트: 정상 글은 통과(매일 발행 안전), 깨진 글만 하드 차단."""
 
