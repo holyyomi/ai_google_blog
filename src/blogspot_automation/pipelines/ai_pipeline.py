@@ -304,6 +304,14 @@ class AiTopicPipeline:
             _meta_valid = bool(_cand_meta.get("candidate_meta_description_valid"))
             _cit_valid  = bool(_cand_meta.get("geo_ai_citation_summary_valid"))
 
+            # soft 품질 게이트: hard_block만 발행 중지, soft_warning은 로그/기록만
+            from blogspot_automation.services.ai_quality_gate import evaluate_ai_publish_quality
+            _quality = evaluate_ai_publish_quality(candidate_html, content_type=ct)
+            if _quality["soft_warnings"]:
+                logger.info("AiTopicPipeline: quality soft_warnings=%s", _quality["soft_warnings"])
+            if _quality["hard_blocks"]:
+                logger.warning("AiTopicPipeline: quality hard_blocks=%s", _quality["hard_blocks"])
+
             # 실제 발행 시도 (auto_publish + 품질 조건)
             publish_attempted = False
             publish_succeeded = False
@@ -322,6 +330,8 @@ class AiTopicPipeline:
                 skip_reason = "candidate_meta_description_valid=false"
             elif not _cit_valid:
                 skip_reason = "geo_ai_citation_summary_valid=false"
+            elif not _quality["passed"]:
+                skip_reason = "quality_hard_block:" + ",".join(_quality["hard_blocks"])
             else:
                 publish_attempted = True
                 _slots_for_footer = (preview.get("slot_result") or {}).get("slots") or {}

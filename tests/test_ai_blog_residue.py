@@ -364,6 +364,42 @@ class TestAiStructuredData(unittest.TestCase):
             self.assertIn(t, html, f"누락: {t}")
 
 
+class TestAiQualityGate(unittest.TestCase):
+    """soft 품질 게이트: 정상 글은 통과(매일 발행 안전), 깨진 글만 하드 차단."""
+
+    def test_all_patterns_pass_gate(self):
+        from blogspot_automation.services.ai_quality_gate import evaluate_ai_publish_quality
+        svc = GoldenArticlePreviewService()
+        cases = [
+            ("직장인 ChatGPT 업무", "ai_work_tip", "ai_work"),
+            ("프롬프트 템플릿", "ai_prompt_recipe", "ai_prompt"),
+            ("Perplexity 후기", "ai_tool_review", "ai_tool"),
+            ("GPT-5 업데이트", "ai_model_update", "ai_model"),
+            ("AI 검색 AEO", "ai_search_change", "ai_search"),
+            ("AI 블로그 수익화", "ai_blog_growth", "ai_blog"),
+            ("ChatGPT vs Claude", "ai_comparison", "ai_compare"),
+            ("AI 보안 환각", "ai_risk_security", "ai_risk"),
+            ("AI 입문", "ai_beginner_guide", "ai_beginner"),
+        ]
+        for topic, ct, tg in cases:
+            with self.subTest(ct=ct):
+                pv = svc.build_preview(topic=topic, content_type=ct, topic_group=tg)
+                h = svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title=topic)
+                q = evaluate_ai_publish_quality(h, content_type=ct)
+                self.assertTrue(q["passed"], f"{ct} 발행 차단됨: {q['hard_blocks']}")
+
+    def test_broken_html_hard_blocked(self):
+        from blogspot_automation.services.ai_quality_gate import evaluate_ai_publish_quality
+        self.assertFalse(evaluate_ai_publish_quality("<html><body><p>짧음</p></body></html>")["passed"])
+
+    def test_banned_phrase_hard_blocked(self):
+        from blogspot_automation.services.ai_quality_gate import evaluate_ai_publish_quality
+        bad = '<h1>x</h1><section id="AI_CITATION_SUMMARY"><p>' + ("내용 " * 400) + ' 월 1000만원 보장</p></section>'
+        q = evaluate_ai_publish_quality(bad)
+        self.assertFalse(q["passed"])
+        self.assertTrue(any("banned_phrase" in b for b in q["hard_blocks"]))
+
+
 class TestAiInternalLinks(unittest.TestCase):
     """발행 이력 기반 실제 내부링크 우선, 없으면 라벨 링크 폴백."""
 

@@ -1294,11 +1294,26 @@ _HEADING_EMOJI_MAP: dict[str, str] = {
 }
 
 
+_AI_LABEL_POOL: tuple[str, ...] = (
+    "AI활용", "AI도구", "프롬프트", "AI비교", "AI입문", "AI모델", "AI검색", "AI보안", "AI블로그",
+)
+
+
 def ai_internal_link_pairs(internal_links: list, *, content_type: str = "") -> list[tuple[str, str]]:
-    """internal_links 슬롯 → (앵커, 라벨검색 URL) 튜플 목록. 내 블로그 라벨 페이지로 연결."""
+    """internal_links 슬롯 → (앵커, 라벨검색 URL) 튜플 목록. 내 블로그 라벨 페이지로 연결.
+
+    같은 content_type이 반복돼 URL이 겹치면 다른 카테고리 라벨로 회전시켜
+    서로 다른 내부 페이지로 연결되게 한다(최소 2개 이상 확보).
+    """
     from urllib.parse import quote as _quote
     pairs: list[tuple[str, str]] = []
     base = BLOGSPOT_HOME_URL.rstrip("/")
+    used: set[str] = set()
+    pool_i = 0
+
+    def _url(label: str) -> str:
+        return f"{base}/search/label/{_quote(label)}"
+
     for item in internal_links or []:
         if not isinstance(item, dict):
             continue
@@ -1307,7 +1322,17 @@ def ai_internal_link_pairs(internal_links: list, *, content_type: str = "") -> l
             continue
         lct = str(item.get("content_type", "")).strip() or content_type
         label = _AI_LABEL_FOR_CT.get(lct, "AI활용")
-        pairs.append((subject, f"{base}/search/label/{_quote(label)}"))
+        url = _url(label)
+        if url in used:  # 라벨 충돌 → 다른 카테고리로 회전
+            while pool_i < len(_AI_LABEL_POOL) and _url(_AI_LABEL_POOL[pool_i]) in used:
+                pool_i += 1
+            if pool_i < len(_AI_LABEL_POOL):
+                url = _url(_AI_LABEL_POOL[pool_i])
+                pool_i += 1
+        if url in used:
+            continue
+        used.add(url)
+        pairs.append((subject, url))
     return pairs
 
 
