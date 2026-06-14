@@ -948,8 +948,11 @@ class GoldenArticlePreviewService:
                     theme_class=_pick_ai_theme(topic_str, _pattern_id),
                 )
 
+        _byline_block = _author_byline_html(today_str=today_str, content_type=_content_type) if _ai_family else ""
+
         _after_h1 = (
             _visual_block
+            + _byline_block
             + ai_overview_block
             + ai_citation_block
             + updated_date_block
@@ -1206,6 +1209,8 @@ class GoldenArticlePreviewService:
             )
 
         clean = _decorate_section_headings(clean)
+        if _ai_family:
+            clean = _inject_toc_html(clean)
 
         clean = prepare_blogspot_html(clean)
         # 내부링크 + 해시태그는 prepare의 strip 이후에 붙여야 살아남는다 (AI 글만)
@@ -1295,6 +1300,56 @@ def append_ai_footer_html(
     if tags:
         out = append_hashtags_block(out, hashtags=tags)
     return out
+
+
+def _inject_toc_html(html: str) -> str:
+    """본문 콘텐츠 섹션(section-label 보유)에 id를 부여하고 목차(TOC)를 삽입한다.
+    AEO/가독성 향상. 섹션이 4개 미만이면 생략."""
+    pat = re.compile(
+        r'<section class="(?P<cls>[^"]*)">\s*<p class="section-label">(?P<label>[^<]*)</p>'
+    )
+    entries: list[tuple[str, str]] = []
+    counter = {"i": 0}
+
+    def _repl(m: "re.Match[str]") -> str:
+        counter["i"] += 1
+        anchor = f"sec-{counter['i']}"
+        cls = m.group("cls")
+        label = m.group("label").strip()
+        clean_label = re.sub(r'^[^가-힣A-Za-z0-9]+', '', label).strip() or label
+        entries.append((anchor, clean_label))
+        return f'<section id="{anchor}" class="{cls}">\n      <p class="section-label">{m.group("label")}</p>'
+
+    new_html = pat.sub(_repl, html)
+    if len(entries) < 4:
+        return html
+    items = "".join(f'<li><a href="#{a}">{escape(lbl)}</a></li>' for a, lbl in entries)
+    toc = (
+        '\n  <nav class="ai-toc" aria-label="목차">\n'
+        '    <p class="ai-toc-title">목차</p>\n'
+        f'    <ol>{items}</ol>\n'
+        '  </nav>'
+    )
+    # 본문 첫 콘텐츠 섹션(리드/훅) 앞에 삽입
+    m_first = re.search(r'<section class="preview-hook">', new_html)
+    if m_first:
+        return new_html[:m_first.start()] + toc + "\n" + new_html[m_first.start():]
+    # 폴백: PAA 블록 뒤
+    return re.sub(r'(</section>)(\s*<section class=")', r'\1' + toc + r'\2', new_html, count=1)
+
+
+def _author_byline_html(*, today_str: str = "", content_type: str = "") -> str:
+    """E-E-A-T 작성자 바이라인 (Person 마이크로데이터). AI 글 상단 신뢰 신호."""
+    author = os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI")
+    label, _emoji = _AI_HERO_META.get(content_type, ("AI 인사이트", "🤖"))
+    date_part = f' · 최종 업데이트 {escape(today_str)}' if today_str else ""
+    return (
+        '\n  <div class="ai-byline" itemscope itemtype="https://schema.org/Person">\n'
+        f'    <span class="ai-byline-name" itemprop="name">✍️ {escape(author)}</span>\n'
+        f'    <span class="ai-byline-role" itemprop="description">{escape(label)} 정리</span>\n'
+        f'    <span class="ai-byline-date">{date_part}</span>\n'
+        '  </div>'
+    )
 
 
 def _hero_banner_html(*, content_type: str = "", topic: str = "", theme_class: str = "") -> str:

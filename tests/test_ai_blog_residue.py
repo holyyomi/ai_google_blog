@@ -364,6 +364,33 @@ class TestAiStructuredData(unittest.TestCase):
             self.assertIn(t, html, f"누락: {t}")
 
 
+class TestAiBylineAndToc(unittest.TestCase):
+    """E-E-A-T 작성자 바이라인 + 목차(TOC) 출력."""
+
+    @classmethod
+    def setUpClass(cls):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(topic="Perplexity AI 사용 후기와 무료 한계", content_type="ai_tool_review", topic_group="ai_tool")
+        cls.html = svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title="Perplexity 후기")
+
+    def test_byline_present(self):
+        self.assertIn('class="ai-byline"', self.html)
+        self.assertIn("schema.org/Person", self.html)
+
+    def test_toc_present_with_anchors(self):
+        self.assertIn('class="ai-toc"', self.html)
+        import re
+        anchors = re.findall(r'id="sec-\d+"', self.html)
+        self.assertGreaterEqual(len(anchors), 4, "TOC 앵커가 충분치 않음")
+
+    def test_news_post_no_byline_toc(self):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(topic="홈택스 종합소득세 환급금 조회 방법", content_type="tax_refund", topic_group="policy_benefit")
+        html = svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title="홈택스 환급금")
+        self.assertNotIn('class="ai-byline"', html)
+        self.assertNotIn('class="ai-toc"', html)
+
+
 class TestAiContentScoring(unittest.TestCase):
     """Phase D: AI 콘텐츠 점수 루브릭이 신호에 따라 합리적으로 산출되는지."""
 
