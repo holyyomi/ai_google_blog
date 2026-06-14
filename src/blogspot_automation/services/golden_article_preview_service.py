@@ -1085,14 +1085,43 @@ class GoldenArticlePreviewService:
             )
             clean = clean.replace('</head>', faq_script + '</head>', 1)
 
+        # --- BreadcrumbList JSON-LD (홈 → 카테고리 → 글) ---
+        if _ai_family:
+            from urllib.parse import quote as _quote_bc
+            _bc_label = _AI_LABEL_FOR_CT.get(_content_type, "AI활용")
+            _home = BLOGSPOT_HOME_URL.rstrip("/")
+            breadcrumb_ld = {
+                "@context": "https://schema.org",
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "홈", "item": _home},
+                    {
+                        "@type": "ListItem", "position": 2, "name": _bc_label,
+                        "item": f"{_home}/search/label/{_quote_bc(_bc_label)}",
+                    },
+                    {"@type": "ListItem", "position": 3, "name": st or topic_str},
+                ],
+            }
+            bc_script = (
+                f'  <script type="application/ld+json">'
+                f'{_json.dumps(breadcrumb_ld, ensure_ascii=False)}'
+                f'</script>\n'
+            )
+            clean = clean.replace('</head>', bc_script + '</head>', 1)
+
         if _pattern_id in _HOWTO_ELIGIBLE_PATTERNS:
             howto_steps: list[dict[str, Any]] = []
             for idx, action in enumerate((actions_list or [])[:5]):
                 if isinstance(action, dict):
-                    name = str(action.get("title") or action.get("step") or "").strip()
+                    # 슬롯 빌더는 행동/설명 키를 쓴다 (title/description 아님)
+                    name = str(
+                        action.get("행동") or action.get("title") or action.get("step") or ""
+                    ).strip()
                     text = str(
-                        action.get("description")
+                        action.get("설명")
+                        or action.get("description")
                         or action.get("desc")
+                        or action.get("행동")
                         or action.get("title")
                         or ""
                     ).strip()

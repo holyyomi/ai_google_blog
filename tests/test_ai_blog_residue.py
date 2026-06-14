@@ -340,6 +340,30 @@ class TestAiFooterAndBadge(unittest.TestCase):
         self.assertIn("당신은", self.html)
 
 
+class TestAiStructuredData(unittest.TestCase):
+    """JSON-LD: HowTo(행동/설명 키 인식) + BreadcrumbList 출력."""
+
+    def _html(self, topic, ct, tg):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(topic=topic, content_type=ct, topic_group=tg)
+        return svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title=topic)
+
+    def test_howto_emitted_for_eligible(self):
+        html = self._html("보고서 초안용 ChatGPT 프롬프트 템플릿", "ai_prompt_recipe", "ai_prompt")
+        self.assertIn('"HowTo"', html)
+        self.assertIn('"HowToStep"', html)
+
+    def test_breadcrumb_emitted(self):
+        html = self._html("Perplexity AI 사용 후기", "ai_tool_review", "ai_tool")
+        self.assertIn('"BreadcrumbList"', html)
+        self.assertIn('"ListItem"', html)
+
+    def test_tool_review_full_schema_stack(self):
+        html = self._html("Perplexity AI 사용 후기", "ai_tool_review", "ai_tool")
+        for t in ('"BlogPosting"', '"FAQPage"', '"Review"', "SoftwareApplication", '"BreadcrumbList"'):
+            self.assertIn(t, html, f"누락: {t}")
+
+
 class TestAiContentScoring(unittest.TestCase):
     """Phase D: AI 콘텐츠 점수 루브릭이 신호에 따라 합리적으로 산출되는지."""
 
