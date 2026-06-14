@@ -525,15 +525,25 @@ class AiTopicPipeline:
         summary: str,
         raw_candidate: dict,
     ) -> tuple[dict | None, dict, str]:
-        """golden preview 빌드 + 패턴 매칭 결과 반환."""
+        """golden preview 빌드 + 패턴 매칭 결과 반환.
+
+        키워드 매칭이 실패해도, 분류기(_classify_ai_topic)가 정한 content_type이
+        패턴과 1:1 매핑되면 그 패턴으로 강제 빌드한다 (도구명 등으로 매칭이 약한 AI
+        주제가 발행에서 탈락하지 않도록).
+        """
         pm_result = self._ps.match_pattern(
             topic=topic, content_type=ct, topic_group=tg
         )
+        forced_pattern_id = ""
         if not (pm_result.get("matched") or pm_result.get("near_match")):
-            logger.warning("AiTopicPipeline: 패턴 매칭 실패 — topic=%s", topic[:40])
-            return None, pm_result, ""
-
-        pattern_id = str(pm_result.get("pattern_id") or "")
+            # 분류기 content_type/topic_group으로 패턴 추천 → 강제 폴백
+            forced_pattern_id = self._ps.suggest_pattern_id_by_hint(
+                topic, content_type=ct, topic_group=tg
+            ) or ""
+            if not forced_pattern_id:
+                logger.warning("AiTopicPipeline: 패턴 매칭 실패 — topic=%s", topic[:40])
+                return None, pm_result, ""
+            logger.info("AiTopicPipeline: 키워드 매칭 약함 → 분류 패턴 강제 적용 (%s)", forced_pattern_id)
 
         preview = self.golden_preview_service.build_preview(
             topic=topic,
@@ -541,7 +551,11 @@ class AiTopicPipeline:
             topic_group=tg,
             summary=summary,
             candidate_raw=raw_candidate,
+            forced_pattern_id=forced_pattern_id,
         )
+        if forced_pattern_id:
+            pm_result = preview.get("pattern_match") or pm_result
+        pattern_id = str(pm_result.get("pattern_id") or forced_pattern_id)
         preview["_editorial_scores"] = {
             "traffic_potential_score": 24,
             "usefulness_score": 30,

@@ -522,6 +522,21 @@ class TestLivePostFixes(unittest.TestCase):
         self.assertIn("background:#f1f5f9!important;color:#0f172a!important", self.html)
 
 
+class TestForcedPatternFallback(unittest.TestCase):
+    """키워드 매칭이 약한 AI 주제도 분류 패턴으로 강제 빌드되어 발행 가능해야 함."""
+
+    def test_forced_pattern_builds_when_keywords_weak(self):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(
+            topic="낯선이름툴 사용기",  # 키워드 매칭 안 되는 주제
+            content_type="ai_work_tip", topic_group="ai_work",
+            forced_pattern_id="ai_work_time_savings",
+        )
+        self.assertTrue(pv.get("matched"))
+        self.assertEqual(pv["pattern_match"]["pattern_id"], "ai_work_time_savings")
+        self.assertGreaterEqual(pv.get("slot_fill_rate", 0), 0.8)
+
+
 class TestAiToc(unittest.TestCase):
     """목차(TOC) 출력 — AI 글에만."""
 
