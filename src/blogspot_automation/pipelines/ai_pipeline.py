@@ -244,8 +244,13 @@ class AiTopicPipeline:
                 raw_candidate=raw_candidate,
             )
 
+            cover_image_url = self._resolve_cover_image_url(
+                title=selected_title, topic=topic, content_type=ct, topic_group=tg,
+            )
+
             _can_gen, candidate_html = self._render_candidate(
-                preview=preview, selected_title=selected_title
+                preview=preview, selected_title=selected_title,
+                cover_image_url=cover_image_url,
             )
 
             blogspot_labels, hashtags = self._build_labels(
@@ -314,12 +319,16 @@ class AiTopicPipeline:
                 skip_reason = "geo_ai_citation_summary_valid=false"
             else:
                 publish_attempted = True
+                _slots_for_footer = (preview.get("slot_result") or {}).get("slots") or {}
                 blogger_url, publish_succeeded = self._attempt_blogger_publish(
                     title=selected_title,
                     candidate_html=candidate_html,
                     labels=blogspot_labels,
                     cand_meta=_cand_meta,
                     run_path=run_path,
+                    content_type=ct,
+                    internal_links=_slots_for_footer.get("internal_links") or [],
+                    hashtags=_slots_for_footer.get("hashtags") or hashtags,
                 )
 
             if naver_post and not self.dry_run and publish_succeeded:
@@ -524,7 +533,7 @@ class AiTopicPipeline:
         return tr, selected_title, ctr
 
     def _render_candidate(
-        self, *, preview: dict, selected_title: str
+        self, *, preview: dict, selected_title: str, cover_image_url: str = ""
     ) -> tuple[bool, str]:
         pm = preview.get("pattern_match") or {}
         sr = preview.get("slot_result") or {}
@@ -533,12 +542,36 @@ class AiTopicPipeline:
         if _can_gen and pm:
             try:
                 candidate_html = self.golden_preview_service.render_article_candidate_html(
-                    pm, sr, selected_title=selected_title
+                    pm, sr, selected_title=selected_title,
+                    cover_image_url=cover_image_url,
                 )
             except Exception as e:
                 logger.warning("render_article_candidate_html failed: %s", e)
                 _can_gen = False
         return _can_gen, candidate_html
+
+    def _resolve_cover_image_url(
+        self, *, title: str, topic: str, content_type: str, topic_group: str
+    ) -> str:
+        """이미지 생성/업로드가 활성화된 경우 CoverImageService로 ImgBB 영구 URL을 만든다.
+
+        생성/업로드 비활성이거나 키가 없으면 ""(비치명) — 렌더러가 CSS 히어로로 폴백.
+        """
+        if self.disable_image_generation or self.disable_image_upload:
+            return ""
+        try:
+            from blogspot_automation.services.cover_image_service import CoverImageService
+            svc = CoverImageService()
+            if not svc.enabled():
+                logger.info("CoverImageService disabled (키 누락) → 이미지 없이 진행")
+                return ""
+            url = svc.build_cover_image_url(title=title or topic, topic=topic)
+            if url:
+                logger.info("AiTopicPipeline: cover image ready → %s", url)
+            return url or ""
+        except Exception as exc:
+            logger.warning("cover image 생성 실패(비치명): %s", exc)
+            return ""
 
     def _build_labels(
         self, *, pattern_id: str, ct: str, tg: str, topic: str, selected_title: str
@@ -784,19 +817,31 @@ class AiTopicPipeline:
         labels: list,
         cand_meta: dict,
         run_path: Path,
+        content_type: str = "",
+        internal_links: list | None = None,
+        hashtags: list | None = None,
     ) -> tuple[str, bool]:
         """Blogger API에 발행 시도. (url, succeeded) 반환."""
         import json as _json
         try:
             from blogspot_automation.config import Settings
             from blogspot_automation.publishing.client import BloggerClient
+            from blogspot_automation.services.golden_article_preview_service import append_ai_footer_html
 
             settings = Settings.from_env()
             client = BloggerClient(settings)
             meta_description = str(cand_meta.get("candidate_meta_description") or title[:120])
+            # prepare가 internal-links/hashtag를 strip하므로 그 뒤에 다시 붙인다.
+            _publish_html = prepare_blogspot_html(candidate_html, strip_document=True)
+            _publish_html = append_ai_footer_html(
+                _publish_html,
+                internal_links=internal_links or [],
+                hashtags=hashtags or [],
+                content_type=content_type,
+            )
             result = client.publish_post(
                 title=title,
-                article_html=prepare_blogspot_html(candidate_html, strip_document=True),
+                article_html=_publish_html,
                 labels=normalize_labels(labels or []),
                 meta_description=meta_description,
                 is_draft=False,

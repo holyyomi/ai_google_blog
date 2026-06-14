@@ -135,17 +135,17 @@ class TestAiPromptRecipeFlagship(unittest.TestCase):
         self.assertIn('class="quality-checklist"', self.html)
         self.assertIn("결과물 품질 체크리스트", self.html)
 
-    def test_distinct_from_ai_work_structure(self):
-        # ai_work_time_savings에는 없는 프롬프트 박스가 prompt_recipe에는 있어야 함 (구조 차별화)
+    def test_distinct_from_other_structure(self):
+        # 프롬프트 박스가 없는 타입(ai_model_update)과 구조가 다른지 확인 (차별화)
         svc = GoldenArticlePreviewService()
-        work = svc.build_preview(
-            topic="직장인이 ChatGPT를 써도 시간이 안 줄어드는 이유",
-            content_type="ai_work_tip", topic_group="ai_work",
+        other = svc.build_preview(
+            topic="GPT-5 새 모델 업데이트 무엇이 바뀌었나",
+            content_type="ai_model_update", topic_group="ai_model",
         )
-        work_html = svc.render_article_candidate_html(
-            work["pattern_match"], work["slot_result"], selected_title="x",
+        other_html = svc.render_article_candidate_html(
+            other["pattern_match"], other["slot_result"], selected_title="x",
         )
-        self.assertNotIn('class="prompt-recipe-box"', work_html)
+        self.assertNotIn('class="prompt-recipe-box"', other_html)
 
     def test_no_news_residue(self):
         leaked = [m for m in _NEWS_RESIDUE if m in self.html]
@@ -304,6 +304,40 @@ class TestAiVisualUpgrade(unittest.TestCase):
         self.assertIn("활용법", html)
         # 일반 AI 프레이밍은 쓰지 않음
         self.assertNotIn("이 글이 도움이 되는 사람", html)
+
+
+class TestAiFooterAndBadge(unittest.TestCase):
+    """해시태그·내부링크 푸터, 'AI' 배지 제거, 실전 프롬프트 검증."""
+
+    @classmethod
+    def setUpClass(cls):
+        svc = GoldenArticlePreviewService()
+        pv = svc.build_preview(
+            topic="직장인이 ChatGPT로 업무 시간 줄이는 방법",
+            content_type="ai_work_tip", topic_group="ai_work",
+        )
+        cls.html = svc.render_article_candidate_html(
+            pv["pattern_match"], pv["slot_result"], selected_title="ChatGPT 업무 활용법",
+        )
+
+    def test_internal_links_present(self):
+        self.assertIn("yomi-internal-links", self.html)
+        self.assertIn("/search/label/", self.html)
+
+    def test_hashtags_present(self):
+        self.assertTrue(
+            "yomi-hashtags" in self.html or "hashtag" in self.html.lower(),
+            "해시태그 푸터 없음",
+        )
+        self.assertRegex(self.html, r"#[가-힣A-Za-z0-9]")
+
+    def test_no_ai_badge_in_stylesheet(self):
+        from blogspot_automation.services.seo_policy import YOMI_CLEAN_ARTICLE_STYLE
+        self.assertNotIn('content:"AI"', YOMI_CLEAN_ARTICLE_STYLE)
+
+    def test_work_tip_has_ready_prompts(self):
+        self.assertIn('class="prompt-recipe-box"', self.html)
+        self.assertIn("당신은", self.html)
 
 
 class TestAiContentScoring(unittest.TestCase):

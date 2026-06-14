@@ -11,7 +11,12 @@ from blogspot_automation.services.official_sources import (
     get_official_sources_for_pattern,
     render_official_sources_html,
 )
-from blogspot_automation.services.seo_policy import BLOGSPOT_HOME_URL, prepare_blogspot_html
+from blogspot_automation.services.seo_policy import (
+    BLOGSPOT_HOME_URL,
+    append_hashtags_block,
+    append_internal_links_block,
+    prepare_blogspot_html,
+)
 from blogspot_automation.services.slot_filler_service import SlotFillerService
 
 logger = logging.getLogger(__name__)
@@ -70,6 +75,20 @@ def _pick_ai_theme(topic: str, pattern_id: str = "") -> str:
     seed = f"{topic}|{pattern_id}".encode("utf-8", errors="ignore")
     idx = int(_hl.sha1(seed).hexdigest(), 16) % len(_AI_THEMES)
     return _AI_THEMES[idx]
+
+
+# content_type → 블로그스팟 라벨(내부링크 검색 페이지용 한국어 라벨)
+_AI_LABEL_FOR_CT: dict[str, str] = {
+    "ai_work_tip": "AI활용",
+    "ai_prompt_recipe": "프롬프트",
+    "ai_tool_review": "AI도구",
+    "ai_model_update": "AI모델",
+    "ai_search_change": "AI검색",
+    "ai_blog_growth": "AI블로그",
+    "ai_comparison": "AI비교",
+    "ai_risk_security": "AI보안",
+    "ai_beginner_guide": "AI입문",
+}
 
 
 # content_type → 본문 상단 히어로 배너용 (카테고리 라벨, 이모지)
@@ -665,6 +684,7 @@ class GoldenArticlePreviewService:
         pattern_match: dict,
         slot_result: dict,
         selected_title: str = "",
+        cover_image_url: str = "",
     ) -> str:
         """발행 후보용 클린 HTML을 반환한다.
 
@@ -904,14 +924,16 @@ class GoldenArticlePreviewService:
         # 히어로 시각 요소: 공개 이미지 URL이 있으면 실제 커버 사진, 없으면 CSS 히어로 배너.
         _visual_block = ""
         if _ai_family:
-            try:
-                from blogspot_automation.services.cover_image_policy import cover_image_url_from_env
-                _cover_url = cover_image_url_from_env(
-                    content_type=_content_type,
-                    topic_group=str((_p_data or {}).get("topic_group") or ""),
-                )
-            except Exception:
-                _cover_url = ""
+            _cover_url = (cover_image_url or "").strip()
+            if not _cover_url:
+                try:
+                    from blogspot_automation.services.cover_image_policy import cover_image_url_from_env
+                    _cover_url = cover_image_url_from_env(
+                        content_type=_content_type,
+                        topic_group=str((_p_data or {}).get("topic_group") or ""),
+                    )
+                except Exception:
+                    _cover_url = ""
             _visual_title = (selected_title or "").strip() or topic_str
             if _cover_url:
                 _alt = escape(f"{_visual_title} 대표 이미지", quote=True)
@@ -1156,7 +1178,16 @@ class GoldenArticlePreviewService:
 
         clean = _decorate_section_headings(clean)
 
-        return prepare_blogspot_html(clean)
+        clean = prepare_blogspot_html(clean)
+        # 내부링크 + 해시태그는 prepare의 strip 이후에 붙여야 살아남는다 (AI 글만)
+        if _ai_family:
+            clean = append_ai_footer_html(
+                clean,
+                internal_links=_list_slot(slots.get("internal_links")),
+                hashtags=_list_slot(slots.get("hashtags")),
+                content_type=_content_type,
+            )
+        return clean
 
     @staticmethod
     def validate_preview_html(html: str) -> dict[str, Any]:
@@ -1196,6 +1227,45 @@ _HEADING_EMOJI_MAP: dict[str, str] = {
     "검증된 점과 직접 확인할 점": "🔍",
     "자주 묻는 질문": "❓",
 }
+
+
+def ai_internal_link_pairs(internal_links: list, *, content_type: str = "") -> list[tuple[str, str]]:
+    """internal_links 슬롯 → (앵커, 라벨검색 URL) 튜플 목록. 내 블로그 라벨 페이지로 연결."""
+    from urllib.parse import quote as _quote
+    pairs: list[tuple[str, str]] = []
+    base = BLOGSPOT_HOME_URL.rstrip("/")
+    for item in internal_links or []:
+        if not isinstance(item, dict):
+            continue
+        subject = str(item.get("주제", "")).strip()
+        if not subject:
+            continue
+        lct = str(item.get("content_type", "")).strip() or content_type
+        label = _AI_LABEL_FOR_CT.get(lct, "AI활용")
+        pairs.append((subject, f"{base}/search/label/{_quote(label)}"))
+    return pairs
+
+
+def append_ai_footer_html(
+    html: str,
+    *,
+    internal_links: list | None = None,
+    hashtags: list | None = None,
+    content_type: str = "",
+) -> str:
+    """발행 직전(마지막 strip 이후) HTML에 내부링크 + 해시태그 푸터를 붙인다.
+
+    prepare_blogspot_html이 internal-links/hashtag 섹션을 strip하므로, 반드시
+    최종 단계에서 호출해야 살아남는다 (뉴스 발행 서비스와 동일한 패턴).
+    """
+    out = html or ""
+    pairs = ai_internal_link_pairs(internal_links or [], content_type=content_type)
+    if pairs:
+        out = append_internal_links_block(out, links=pairs)
+    tags = [str(t) for t in (hashtags or []) if str(t).strip()]
+    if tags:
+        out = append_hashtags_block(out, hashtags=tags)
+    return out
 
 
 def _hero_banner_html(*, content_type: str = "", topic: str = "", theme_class: str = "") -> str:

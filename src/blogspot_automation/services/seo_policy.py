@@ -37,7 +37,7 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .yomi-clean-post a{color:#0f766e;text-decoration:none;border-bottom:1px solid rgba(15,118,110,.28)}
 .yomi-clean-post a:hover{border-bottom-color:#0f766e}
 .section-label,.yomi-kicker{display:inline-flex;align-items:center;gap:7px;margin:0 0 12px;padding:5px 11px;border:1px solid #c8f1e8;background:#f3fffb;color:#0f766e;font-size:.79rem;font-weight:850;line-height:1.35;border-radius:999px;letter-spacing:0}
-.section-label:before,.yomi-kicker:before{content:"AI";display:inline-flex;align-items:center;justify-content:center;width:22px;height:18px;border-radius:5px;background:#111827;color:#f8fafc;font-size:.62rem;font-weight:900;flex:none}
+.section-label:before,.yomi-kicker:before{content:none;display:none}
 .yomi-lede,.preview-hook,.hero-summary-box{margin:0 0 26px;padding:19px 21px;border:1px solid #bcebe1;border-left:6px solid #00a3a3;background:#f4fffc;border-radius:8px;box-shadow:0 10px 24px rgba(15,23,42,.06)}
 .yomi-lede p,.preview-hook p,.hero-summary-box p{font-size:1.04em;color:#123a3a}
 .yomi-lede p:last-child,.preview-hook p:last-child,.hero-summary-box p:last-child{margin-bottom:0}
