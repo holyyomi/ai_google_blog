@@ -30,6 +30,44 @@ _HOWTO_ELIGIBLE_PATTERNS: frozenset[str] = frozenset(
     }
 )
 
+# AI 블로그 전용 content_type 집합 (Phase A~B). 이 집합이거나 pattern_id가 "ai_"로
+# 시작하면 뉴스 이슈형 대신 AI 가이드형 섹션 라벨/프레이밍을 사용한다.
+_AI_CONTENT_TYPES: frozenset[str] = frozenset(
+    {
+        "ai_work_tip",
+        "ai_tool_review",
+        "ai_workflow_guide",
+        "ai_prompt_recipe",
+        "ai_model_update",
+        "ai_search_change",
+        "ai_blog_growth",
+        "ai_comparison",
+        "ai_risk_security",
+        "ai_beginner_guide",
+    }
+)
+
+
+def _is_ai_family(pattern_id: str = "", content_type: str = "") -> bool:
+    """AI 블로그 패밀리 여부 판별. CSS 클래스/섹션 ID는 동일하게 유지하되,
+    사람이 보는 섹션 제목·프레이밍만 AI 가이드형으로 바꾸기 위한 분기."""
+    return str(pattern_id or "").startswith("ai_") or str(content_type or "") in _AI_CONTENT_TYPES
+
+
+# 섹션 라벨: (slot_key) -> {"ai": ..., "news": ...}
+# 클래스명은 바꾸지 않으므로 게이트(geo_score)에 영향 없음 — 표시 텍스트만 분기.
+def _section_label(slot_key: str, ai: bool) -> str:
+    _LABELS: dict[str, tuple[str, str]] = {
+        # slot_key: (ai_label, news_label)
+        "yomi_judgment": ("결론부터 말하면", "핵심 관점"),
+        "real_criterion": ("📋 따라 하는 순서", "공식 기준 / 단계별 확인"),
+        "actions": ("✅ 지금 바로 해보기", "바로 할 행동"),
+    }
+    pair = _LABELS.get(slot_key)
+    if not pair:
+        return ""
+    return pair[0] if ai else pair[1]
+
 _BANNED_DEFAULT_PHRASES: tuple[str, ...] = (
     "이 이슈는 나와 직접 관련이 없다",
     "정보가 너무 많음",
@@ -274,6 +312,12 @@ class GoldenArticlePreviewService:
         fill_rate = float(slot_result.get("slot_fill_rate", 0.0))
         slots: dict[str, Any] = slot_result.get("slots", {})
 
+        # AI 패밀리 판별 (라벨/프레이밍만 분기, 클래스명은 동일 유지)
+        _pid_raw = str(pattern_match.get("pattern_id", ""))
+        _p_data_rh = self._ps.get_pattern(_pid_raw) if _pid_raw else {}
+        _ct_rh = str((_p_data_rh or {}).get("content_type") or "")
+        ai_family = _is_ai_family(_pid_raw, _ct_rh)
+
         sections: list[str] = []
 
         # hook_opening
@@ -290,7 +334,7 @@ class GoldenArticlePreviewService:
         if yomi:
             sections.append(
                 f'    <section class="yomi-judgment-box">\n'
-                f'      <p class="section-label">핵심 관점</p>\n'
+                f'      <p class="section-label">{escape(_section_label("yomi_judgment", ai_family))}</p>\n'
                 f'      <p>{escape(yomi)}</p>\n'
                 f'    </section>'
             )
@@ -305,11 +349,14 @@ class GoldenArticlePreviewService:
                 if isinstance(item, dict)
             )
             if rows:
+                _mis_label = "🤔 자주 하는 오해와 실제" if ai_family else "🔁 흔한 착각 vs 실제 기준"
+                _mis_th_left = "자주 하는 오해" if ai_family else "흔한 착각"
+                _mis_th_right = "실제" if ai_family else "실제 기준"
                 sections.append(
                     f'    <section class="misconception-box">\n'
-                    f'      <p class="section-label">🔁 흔한 착각 vs 실제 기준</p>\n'
+                    f'      <p class="section-label">{_mis_label}</p>\n'
                     f'      <table>\n'
-                    f'        <thead><tr><th>흔한 착각</th><th>실제 기준</th></tr></thead>\n'
+                    f'        <thead><tr><th>{_mis_th_left}</th><th>{_mis_th_right}</th></tr></thead>\n'
                     f'        <tbody>\n{rows}\n        </tbody>\n'
                     f'      </table>\n'
                     f'    </section>'
@@ -320,7 +367,7 @@ class GoldenArticlePreviewService:
         if real:
             sections.append(
                 f'    <section class="real-criterion">\n'
-                f'      <p class="section-label">공식 기준 / 단계별 확인</p>\n'
+                f'      <p class="section-label">{escape(_section_label("real_criterion", ai_family))}</p>\n'
                 f'      <p>{escape(real)}</p>\n'
                 f'    </section>'
             )
@@ -337,11 +384,13 @@ class GoldenArticlePreviewService:
                 if isinstance(item, dict)
             )
             if rows:
+                _qdt_label = "🧭 상황별 추천" if ai_family else "⚡ 30초 판단표"
+                _qdt_th_right = "추천 방법" if ai_family else "먼저 할 것"
                 sections.append(
                     f'    <section class="quick-decision-table">\n'
-                    f'      <p class="section-label">⚡ 30초 판단표</p>\n'
+                    f'      <p class="section-label">{_qdt_label}</p>\n'
                     f'      <table>\n'
-                    f'        <thead><tr><th>내 상황</th><th>먼저 할 것</th></tr></thead>\n'
+                    f'        <thead><tr><th>내 상황</th><th>{_qdt_th_right}</th></tr></thead>\n'
                     f'        <tbody>\n{rows}\n        </tbody>\n'
                     f'      </table>\n'
                     f'    </section>'
@@ -359,7 +408,7 @@ class GoldenArticlePreviewService:
             if items_html:
                 sections.append(
                     f'    <section class="actions-box">\n'
-                    f'      <p class="section-label">바로 할 행동</p>\n'
+                    f'      <p class="section-label">{escape(_section_label("actions", ai_family))}</p>\n'
                     f'      <ol>\n{items_html}\n      </ol>\n'
                     f'    </section>'
                 )
@@ -447,6 +496,7 @@ class GoldenArticlePreviewService:
         # pattern 실제 content_type 조회 (bonus 전달용 인자와 구분)
         _p_data = self._ps.get_pattern(_pattern_id) if _pattern_id else {}
         _content_type = str((_p_data or {}).get("content_type") or "")
+        _ai_family = _is_ai_family(_pattern_id, _content_type)
 
         # --- meta description 생성 (80~160자, 구조적) ---
         candidate_meta_description = _build_meta_description(
@@ -521,19 +571,22 @@ class GoldenArticlePreviewService:
             _ia = []
             _trust_text = "이 글은 공개 정보를 바탕으로 정리했습니다. 최신 정보를 직접 확인하세요."
 
+        _overview_heading = "30초 요약" if _ai_family else "먼저 볼 핵심"
         ai_overview_block = (
             '\n  <section id="AI_OVERVIEW_TARGET_ANSWER" class="ai-overview-box">\n'
-            '    <h2>먼저 볼 핵심</h2>\n'
+            f'    <h2>{escape(_overview_heading)}</h2>\n'
             f'    <p>{_emphasize_first_sentence(escape(_sge_overview_text))}</p>\n'
             '  </section>'
         ) if _sge_overview_text else ""
 
         if topic_str and topic_str not in str(_ic or ""):
-            _ic = f"{topic_str} 관련 이슈입니다. {_ic}"
+            _ic_prefix = f"{topic_str} 핵심 정리입니다." if _ai_family else f"{topic_str} 관련 이슈입니다."
+            _ic = f"{_ic_prefix} {_ic}"
 
+        _context_heading = "이 글이 도움이 되는 사람" if _ai_family else "왜 지금 봐야 하나"
         issue_context_block = (
             '\n  <section id="ISSUE_CONTEXT_BLOCK" class="issue-context-box">\n'
-            '    <h2>왜 지금 봐야 하나</h2>\n'
+            f'    <h2>{escape(_context_heading)}</h2>\n'
             f'    <p>{escape(_ic)}</p>\n'
             '  </section>'
         )
@@ -594,11 +647,13 @@ class GoldenArticlePreviewService:
             _chk_items = "\n".join(
                 f'        <li>{escape(str(c))}</li>' for c in _sge_check_needed
             )
+            _cvck_heading = "검증된 점과 직접 확인할 점" if _ai_family else "확인된 내용과 직접 확인할 내용"
+            _confirmed_subheading = "✓ 검증된 사실" if _ai_family else "✓ 확인된 내용"
             _cvck_html = (
                 '\n  <section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">\n'
-                '    <h2>확인된 내용과 직접 확인할 내용</h2>\n'
+                f'    <h2>{escape(_cvck_heading)}</h2>\n'
                 '    <div class="confirmed-section">\n'
-                '      <h3>✓ 확인된 내용</h3>\n'
+                f'      <h3>{escape(_confirmed_subheading)}</h3>\n'
                 f'      <ul>\n{_conf_items}\n      </ul>\n'
                 '    </div>\n'
                 '    <div class="check-needed-section">\n'
@@ -841,10 +896,17 @@ _HEADING_EMOJI_MAP: dict[str, str] = {
     "오늘의 핵심": "🔥",
     "AI 인용 요약": "🤖",
     "오늘 업데이트": "📅",
+    # AI 가이드형 섹션 제목
+    "30초 요약": "⚡",
+    "이 글이 도움이 되는 사람": "🎯",
+    "검증된 점과 직접 확인할 점": "🔍",
+    "자주 묻는 질문": "❓",
 }
 
 
 def _faq_heading_for_pattern(*, pattern_id: str = "", content_type: str = "") -> str:
+    if _is_ai_family(pattern_id, content_type):
+        return "자주 묻는 질문"
     if pattern_id == "consumer_warning_refund" or content_type == "consumer_warning":
         return "피해 대응 전 많이 묻는 질문"
     if pattern_id in {"policy_deadline_support", "tax_refund_hometax_check"} or content_type in {
@@ -1011,17 +1073,18 @@ def _validate_preview_html_impl(html: str) -> dict[str, Any]:
     if "<h1" not in html.lower():
         issues.append("missing_h1")
 
-    required_markers = {
-        "핵심 관점": "missing_yomi_judgment",
-        "흔한 착각": "missing_misconception",
-        "30초 판단표": "missing_quick_decision_table",
-        "빠른 확인 답변": "missing_faq",
-        "피해 대응 전 많이 묻는 질문": "missing_faq",
-        "신청 전 확인 질문": "missing_faq",
-        "많이 묻는 질문": "missing_faq",
+    # 뉴스/AI 양쪽 라벨 또는 CSS 클래스 중 하나라도 있으면 통과 (클래스는 게이트 기준)
+    required_markers: dict[str, tuple[str, ...]] = {
+        "missing_yomi_judgment": ("핵심 관점", "결론부터 말하면", 'class="yomi-judgment-box"'),
+        "missing_misconception": ("흔한 착각", "자주 하는 오해", 'class="misconception-box"'),
+        "missing_quick_decision_table": ("30초 판단표", "상황별 추천", 'class="quick-decision-table"'),
+        "missing_faq": (
+            "빠른 확인 답변", "자주 묻는 질문", "피해 대응 전 많이 묻는 질문",
+            "신청 전 확인 질문", "많이 묻는 질문", 'class="faq',
+        ),
     }
-    for marker, issue_key in required_markers.items():
-        if marker not in html:
+    for issue_key, markers in required_markers.items():
+        if not any(marker in html for marker in markers):
             warnings.append(issue_key)
 
     return {

@@ -19,14 +19,21 @@ _BANNED_PHRASES = [
     "지금 행동이 필요한지 모름",
 ]
 
-_REQUIRED_MARKERS = [
+# 뉴스 패턴 라벨 / AI 패턴 라벨 (Phase A: AI는 가이드형 라벨로 분기)
+_REQUIRED_MARKERS_NEWS = [
     "핵심 관점",
     "흔한 착각",
     "30초 판단표",
     "바로 할 행동",
 ]
+_REQUIRED_MARKERS_AI = [
+    "결론부터 말하면",
+    "자주 하는 오해와 실제",
+    "상황별 추천",
+    "지금 바로 해보기",
+]
 
-_FAQ_MARKERS = ["빠른 확인 답변", "피해 대응 전 많이 묻는 질문", "신청 전 확인 질문", "많이 묻는 질문"]
+_FAQ_MARKERS = ["빠른 확인 답변", "자주 묻는 질문", "피해 대응 전 많이 묻는 질문", "신청 전 확인 질문", "많이 묻는 질문"]
 
 _THREE_PATTERNS = [
     ("세금 환급금 조회 전 홈택스에서 먼저 볼 3가지", "tax_refund_hometax_check"),
@@ -132,11 +139,16 @@ class TestGoldenArticlePreviewService(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_required_markers_in_preview_html(self) -> None:
-        for topic, _ in _THREE_PATTERNS:
+        for topic, pattern_id in _THREE_PATTERNS:
             with self.subTest(topic=topic):
                 result = self.svc.build_preview(topic=topic)
                 html = result["preview_html"]
-                for marker in _REQUIRED_MARKERS:
+                markers = (
+                    _REQUIRED_MARKERS_AI
+                    if str(pattern_id).startswith("ai_")
+                    else _REQUIRED_MARKERS_NEWS
+                )
+                for marker in markers:
                     self.assertIn(
                         marker, html,
                         f"[{topic}] required marker missing: '{marker}'",
