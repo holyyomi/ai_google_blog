@@ -4105,5 +4105,24 @@
     "status": "skipped_after_retry_limit",
     "retry_attempt": "",
     "max_publish_attempts": 12
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-06-15T01:25:11.105999",
+    "date": "2026-06-15",
+    "topic": "엑셀 업무가 앱이 되는 순간, ChatGPT Sites",
+    "selected_title": "ChatGPT Sites: 엑셀 데이터를 앱으로 만드는 3단계",
+    "golden_pattern_id": "ai_work_time_savings",
+    "content_type": "ai_work_tip",
+    "topic_group": "ai_work",
+    "evergreen_axis": "ai_automation",
+    "source_type": "naver_blog",
+    "source_url": "https://blog.naver.com/holyyomi/224310574103?fromRss=true&trackingCode=rss",
+    "source_title": "엑셀 업무가 앱이 되는 순간, ChatGPT Sites",
+    "status": "held_for_review",
+    "publish_ready": false,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs/news_20260615_012511"
   }
 ]
