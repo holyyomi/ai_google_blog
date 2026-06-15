@@ -5424,5 +5424,24 @@
     "status": "skipped_after_retry_limit",
     "retry_attempt": "",
     "max_publish_attempts": 12
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-06-15T23:52:05.660996",
+    "date": "2026-06-15",
+    "topic": "AI 워터마크와 Content Credentials 차이",
+    "selected_title": "AI 워터마크와 Content Credentials: 혼동 방지와 선택 기준",
+    "golden_pattern_id": "ai_comparison",
+    "content_type": "ai_comparison",
+    "topic_group": "ai_compare",
+    "evergreen_axis": "ai_automation",
+    "source_type": "naver_blog",
+    "source_url": "https://blog.naver.com/holyyomi/224310601249?fromRss=true&trackingCode=rss",
+    "source_title": "AI 워터마크와 Content Credentials 차이",
+    "status": "held_for_review",
+    "publish_ready": true,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs/news_20260615_235205"
   }
 ]
