@@ -943,6 +943,15 @@ class AiTopicPipeline:
             blogger_url = str(result.get("url") or "")
             logger.info("AiTopicPipeline: Blogger publish succeeded → %s", blogger_url)
 
+            # 색인 즉시 요청 (Bing·Naver IndexNow) — 신규 글 색인 가속, 비치명
+            if blogger_url:
+                try:
+                    from blogspot_automation.services.indexnow_client import submit_urls
+                    _idx = submit_urls([blogger_url])
+                    logger.info("AiTopicPipeline: indexnow ping → %s", _idx.get("status"))
+                except Exception as _ie:
+                    logger.warning("AiTopicPipeline: indexnow ping 실패(비치명): %s", _ie)
+
             # run_meta 업데이트
             run_meta_path = run_path / "run_meta.json"
             if run_meta_path.exists():
