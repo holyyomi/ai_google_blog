@@ -73,6 +73,9 @@ jobs:
           # 네이버 소스(1순위) — 없으면 에버그린 폴백
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          # 색인 즉시 요청 (Bing·Naver IndexNow) — 키 없으면 안전하게 skip
+          NAVER_INDEXNOW_KEY: ${{ secrets.NAVER_INDEXNOW_KEY }}
+          NAVER_INDEXNOW_KEY_LOCATION: ${{ secrets.NAVER_INDEXNOW_KEY_LOCATION }}
           # Blogger 발행 (publish 모드에서만 실제 사용)
           BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
           BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
