@@ -290,8 +290,24 @@ class TestAiBlogYml(unittest.TestCase):
         content = self._yml_content()
         if not content:
             self.skipTest("ai_blog.yml not found")
-        # 1단계는 기본 dry_run (실수로 실제 발행되지 않도록)
+        # 수동(dispatch) 기본은 dry_run (실수로 실제 발행되지 않도록)
         self.assertIn("default: 'dry_run'", content)
+
+    def test_schedule_publishes_daily(self):
+        content = self._yml_content()
+        if not content:
+            self.skipTest("ai_blog.yml not found")
+        # 매일 아침 자동 발행 cron + schedule이면 publish(dry_run=false)
+        self.assertIn("cron:", content)
+        self.assertIn("github.event_name == 'schedule' && 'false'", content)  # DRY_RUN
+
+    def test_persists_dedup_state(self):
+        content = self._yml_content()
+        if not content:
+            self.skipTest("ai_blog.yml not found")
+        # 중복 방지 상태를 저장소에 커밋해야 매일 다른 주제가 나옴
+        self.assertIn("naver_ai_rewritten.json", content)
+        self.assertIn("git push", content)
 
     def test_llm_and_image_keys_injected(self):
         content = self._yml_content()
