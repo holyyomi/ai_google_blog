@@ -7393,5 +7393,24 @@
     "status": "skipped_after_retry_limit",
     "retry_attempt": "",
     "max_publish_attempts": 12
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-06-16T23:28:31.092336",
+    "date": "2026-06-16",
+    "topic": "AI 쇼핑, 없는 상품까지 보여준다",
+    "selected_title": "AI 쇼핑몰 검색, '없는 상품'으로 경쟁 우위 확보 기준",
+    "golden_pattern_id": "ai_work_time_savings",
+    "content_type": "ai_work_tip",
+    "topic_group": "ai_work",
+    "evergreen_axis": "ai_automation",
+    "source_type": "naver_blog",
+    "source_url": "https://blog.naver.com/holyyomi/224310627414?fromRss=true&trackingCode=rss",
+    "source_title": "AI 쇼핑, 없는 상품까지 보여준다",
+    "status": "held_for_review",
+    "publish_ready": false,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs/news_20260616_232831"
   }
 ]
