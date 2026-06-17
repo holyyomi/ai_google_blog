@@ -9362,5 +9362,24 @@
     "status": "skipped_after_retry_limit",
     "retry_attempt": "",
     "max_publish_attempts": 12
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-06-17T23:44:29.340548",
+    "date": "2026-06-17",
+    "topic": "AI 공부 노트북 뭐 살까? 100·200·300만원대 끝장 비교 (+제 고민 좀 들어주세요)",
+    "selected_title": "AI 공부 노트북, 100·200·300만원대 핵심 선택 기준",
+    "golden_pattern_id": "ai_comparison",
+    "content_type": "ai_comparison",
+    "topic_group": "ai_compare",
+    "evergreen_axis": "ai_automation",
+    "source_type": "naver_blog",
+    "source_url": "https://blog.naver.com/holyyomi/224318893783?fromRss=true&trackingCode=rss",
+    "source_title": "AI 공부 노트북 뭐 살까? 100·200·300만원대 끝장 비교 (+제 고민 좀 들어주세요)",
+    "status": "held_for_review",
+    "publish_ready": true,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs/news_20260617_234429"
   }
 ]
