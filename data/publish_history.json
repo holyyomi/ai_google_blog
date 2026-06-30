@@ -1,75 +1,5 @@
 [
   {
-    "run_at": "2026-06-26T04:46:45+00:00",
-    "date": "2026-06-26",
-    "title": "무료 AI 도구 업무 활용 전 확인할 한계 써도 일이 줄지 않는 이유",
-    "selected_topic": "무료 AI 도구 업무 활용 전 확인할 한계",
-    "search_demand_topic": "무료 AI 도구 업무 활용 전 확인할 한계",
-    "topic_group": "ai_work",
-    "content_type": "ai_work_tip",
-    "url": "",
-    "post_id": "",
-    "internal_link_targets": [],
-    "source_type": "evergreen_fallback",
-    "evergreen_axis": "ai_automation",
-    "fallback_reason": "no_golden_publish_candidate_used_evergreen",
-    "published": false,
-    "dry_run": false,
-    "quality_passed": false,
-    "reader_value_score": 92,
-    "article_focus_score": 100,
-    "ai_recommender_score": 100,
-    "shareability_score": 98,
-    "policy_specificity_score": 0,
-    "recommendation_policy_passed": true,
-    "recommendation_policy_signals": [
-      "table",
-      "faq",
-      "checklist",
-      "example",
-      "official_check",
-      "risk_or_mistake",
-      "updated_date"
-    ],
-    "publish_preview_score": 79,
-    "publish_preview_status": "fail",
-    "quality_blocking_issues": [
-      "intent_qa_count_below_3"
-    ],
-    "quality_warnings": [
-      "evergreen_today_relevance_below_7:5",
-      "ai_evergreen_issue_specificity_below_6:2"
-    ],
-    "auto_publish_allowed": false,
-    "auto_publish_blocking_reasons": [],
-    "post_publish_audit_passed": null,
-    "post_publish_audit_issues": [],
-    "topic_engine_score": 84,
-    "topic_candidate_grade": "A",
-    "content_candidate_grade": "A",
-    "final_editorial_score": 90,
-    "golden_pattern_id": "ai_work_time_savings",
-    "golden_pattern_confidence": 100,
-    "golden_slot_fill_rate": 1.0,
-    "why_topic_selected": "topic_engine_score=84 + golden_matched=True + grade=A",
-    "why_topic_held": "",
-    "learning_signals": [
-      "not_published:blocked_by_quality_gate",
-      "quality_gate_failed",
-      "quality_issue:intent_qa_count_below_3"
-    ],
-    "hashtags": [
-      "#AI활용",
-      "#업무자동화",
-      "#생산성",
-      "#AI도구"
-    ],
-    "artifact_dir": "runs/news_20260626_044645",
-    "status": "blocked_by_quality_gate",
-    "retry_attempt": 1,
-    "max_publish_attempts": ""
-  },
-  {
     "run_at": "2026-06-26T04:47:05+00:00",
     "date": "2026-06-26",
     "title": "",
@@ -12539,5 +12469,24 @@
     "status": "skipped_after_retry_limit",
     "retry_attempt": "",
     "max_publish_attempts": 12
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-06-30T23:18:56.404965",
+    "date": "2026-06-30",
+    "topic": "회의록 정리에 30분 쓰던 사람, 닥스 라이브 쓰고 5분으로 줄인 이유",
+    "selected_title": "회의록 정리에 30분 쓰던 사람, 닥스 전에 정해야 할 업무 기준",
+    "golden_pattern_id": "ai_work_time_savings",
+    "content_type": "ai_work_tip",
+    "topic_group": "ai_work",
+    "evergreen_axis": "ai_automation",
+    "source_type": "naver_blog",
+    "source_url": "https://blog.naver.com/holyyomi/224331783270?fromRss=true&trackingCode=rss",
+    "source_title": "회의록 정리에 30분 쓰던 사람, 닥스 라이브 쓰고 5분으로 줄인 이유",
+    "status": "held_for_review",
+    "publish_ready": false,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs/news_20260630_231856"
   }
 ]
