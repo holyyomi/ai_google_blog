@@ -1,81 +1,5 @@
 [
   {
-    "run_at": "2026-06-27T01:48:35+00:00",
-    "date": "2026-06-27",
-    "title": "아이돌 챌린지 유행인데⋯알고가 화제 된 반응이 갈린 이유, 먼저 볼 3가지",
-    "selected_topic": "아이돌 챌린지 유행인데⋯알고가 화제 된 이유, 사람들이 본 핵심 포인트",
-    "search_demand_topic": "아이돌 챌린지 유행인데⋯알고가 화제 된 이유, 사람들이 본 핵심 포인트",
-    "topic_group": "fandom_consumer",
-    "content_type": "viral_issue_decode",
-    "url": "",
-    "post_id": "",
-    "internal_link_targets": [],
-    "source_type": "naver_news_search",
-    "evergreen_axis": "",
-    "fallback_reason": "",
-    "published": false,
-    "dry_run": false,
-    "quality_passed": false,
-    "reader_value_score": 74,
-    "article_focus_score": 90,
-    "ai_recommender_score": 100,
-    "shareability_score": 98,
-    "policy_specificity_score": 0,
-    "recommendation_policy_passed": true,
-    "recommendation_policy_signals": [
-      "table",
-      "faq",
-      "checklist",
-      "example",
-      "official_check",
-      "risk_or_mistake",
-      "updated_date"
-    ],
-    "publish_preview_score": 79,
-    "publish_preview_status": "fail",
-    "quality_blocking_issues": [
-      "intent_qa_count_below_3",
-      "visible_title_integrity:bad_subject_particle",
-      "official_source_links_below_2:0"
-    ],
-    "quality_warnings": [
-      "score_relaxed_below_75_publishing_with_relaxation",
-      "reader_value_score_below_75",
-      "top_issue_publish_relaxed:issue_specificity_below_6:5"
-    ],
-    "auto_publish_allowed": false,
-    "auto_publish_blocking_reasons": [],
-    "post_publish_audit_passed": null,
-    "post_publish_audit_issues": [],
-    "topic_engine_score": 84,
-    "topic_candidate_grade": "A",
-    "content_candidate_grade": "A",
-    "final_editorial_score": 91,
-    "golden_pattern_id": "viral_ott_reaction_decode",
-    "golden_pattern_confidence": 95,
-    "golden_slot_fill_rate": 1.0,
-    "why_topic_selected": "topic_engine_score=84 + golden_matched=True + grade=A",
-    "why_topic_held": "",
-    "learning_signals": [
-      "not_published:blocked_by_quality_gate",
-      "quality_gate_failed",
-      "reader_value_below_80",
-      "quality_issue:intent_qa_count_below_3",
-      "quality_issue:visible_title_integrity:bad_subject_particle",
-      "quality_issue:official_source_links_below_2:0"
-    ],
-    "hashtags": [
-      "#AI뉴스해석",
-      "#이슈해석",
-      "#반응분석",
-      "#콘텐츠AI"
-    ],
-    "artifact_dir": "runs/news_20260627_014835",
-    "status": "blocked_by_quality_gate",
-    "retry_attempt": 1,
-    "max_publish_attempts": ""
-  },
-  {
     "run_at": "2026-06-27T01:48:58+00:00",
     "date": "2026-06-27",
     "title": "직장인 ChatGPT, 시간 줄이려면 먼저 볼 3가지",
@@ -12534,5 +12458,24 @@
     "status": "skipped_after_retry_limit",
     "retry_attempt": "",
     "max_publish_attempts": 12
+  },
+  {
+    "pipeline": "ai_pipeline",
+    "run_at": "2026-07-01T23:21:25.636630",
+    "date": "2026-07-01",
+    "topic": "\"클릭 노가다 이제 그만!\" 크롬 AI 오토 브라우즈, 당신의 웹 서핑을 바꾼다",
+    "selected_title": "클릭 노가다 이제 그만!\" 크롬 AI 오토 전에 정해야 할 업무 기준",
+    "golden_pattern_id": "ai_work_time_savings",
+    "content_type": "ai_work_tip",
+    "topic_group": "ai_work",
+    "evergreen_axis": "ai_automation",
+    "source_type": "naver_blog",
+    "source_url": "https://blog.naver.com/holyyomi/224331795637?fromRss=true&trackingCode=rss",
+    "source_title": "\"클릭 노가다 이제 그만!\" 크롬 AI 오토 브라우즈, 당신의 웹 서핑을 바꾼다",
+    "status": "held_for_review",
+    "publish_ready": false,
+    "article_candidate_generated": true,
+    "geo_score": 85,
+    "artifact_dir": "runs/news_20260701_232125"
   }
 ]
