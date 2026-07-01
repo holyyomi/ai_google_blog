@@ -81,7 +81,7 @@ jobs:
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: "gpt-5-mini"
+          OPENAI_MODEL: "gpt-4o-mini"
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           ENABLE_NAVER_SEARCH: "false"
@@ -131,10 +131,10 @@ jobs:
           AI_BLOG_AUTO_PUBLISH: "true"
           NEWS_EXCLUDED_QUERY_GROUPS: ""
           ALLOW_AI_NEWS_TOPICS: "true"
-          MIN_TOPIC_SCORE: "70"
+          MIN_TOPIC_SCORE: "75"
           TOPIC_CANDIDATE_LIMIT: "120"
           DEDUP_DAYS: "7"
-          TITLE_CANDIDATE_COUNT: "8"
+          TITLE_CANDIDATE_COUNT: "10"
           RUNS_DIR: "runs"
           GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
           GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
@@ -159,7 +159,7 @@ jobs:
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: "gpt-5-mini"
+          OPENAI_MODEL: "gpt-4o-mini"
           BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
           BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
           BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
