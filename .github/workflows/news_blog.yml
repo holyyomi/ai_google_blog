@@ -50,8 +50,8 @@ jobs:
         if: ${{ github.event_name == 'schedule' }}
         env:
           NEWS_SCHEDULE_TIMEZONE: "Asia/Seoul"
-          NEWS_SCHEDULE_SLOTS: "08:58"
-          NEWS_DAILY_PUBLISH_TARGET: "1"
+          NEWS_SCHEDULE_SLOTS: "08:58, 18:58"
+          NEWS_DAILY_PUBLISH_TARGET: "2"
           NEWS_FAILED_SCHEDULE_INTERVAL_MINUTES: "20"
         run: |
           python tools/should_run_news_schedule.py
