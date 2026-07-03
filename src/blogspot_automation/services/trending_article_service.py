@@ -5,7 +5,7 @@ template-based로 정해진 슬롯을 채워 HTML을 만든다. 슬롯 내용이
 사용자 피드백("공부될 내용 없음, 결론·분량 별로")의 핵심 원인이 됨.
 
 이 서비스는 trending 후보(네이버 인기 기사)를 LLM(LlmContentService 무료 우선
-fallback chain)에 직접 위임해 cli_naver와 같은 수준의 본문 품질을 만든다.
+fallback chain)에 직접 위임해 fresh news pipeline
 
 워크플로우:
   1. NewsPipeline이 trending 후보를 선택 (raw.trending_engine=True)
@@ -161,6 +161,15 @@ JSON 스키마:
 - 마크다운 금지. HTML 태그만 사용하세요.
 - HTML entity 코드(&#숫자;) 금지. 한국어 유니코드를 직접 쓰세요.
 - "안녕하세요", "이번 포스팅에서는", "도움이 되셨길" 같은 블로그 상투어 금지.
+
+
+[AI issue article mandatory rules]
+- If the topic is an AI tool, AI model, automation, prompt, or productivity workflow, include all five: what changed, practical workflow, price/free-vs-paid limits, low-cost high-efficiency usage, and security/privacy/review risks.
+- The tool/model/product named in the title or topic must appear with concrete explanation at least twice in the body. A specific title followed by generic ChatGPT advice is a failure.
+- Include at most one copy-paste prompt, and only when it is genuinely useful. Prefer save-worthy checklists, cost decision tables, and workflow steps over generic prompt blocks.
+- Structure the article as: problem -> why it matters now -> how to apply it -> cost/efficiency decision -> risks/limits -> what the reader should do today.
+- Assume generated images contain no readable Korean text. Do not request, describe, or depend on text inside images.
+- The final section must not be FAQ. End with a concrete judgment, one save-worthy rule, and one or two actions the reader can do today.
 """
 
 
@@ -488,3 +497,4 @@ class TrendingArticleService:
                     f"fake date hallucination detected: {m.group(0)!r}. "
                     "LLM이 구체 날짜·시각을 창작했습니다. 다음 provider로 fallback."
                 )
+

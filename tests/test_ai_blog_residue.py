@@ -413,7 +413,7 @@ class TestAiSlotEnricher(unittest.TestCase):
                                      topic="t", content_type="ai_tool_review", llm_service=self._fake(bad))
         self.assertNotIn("_llm_title", out2)  # 정형구 제목 거부
 
-    def test_prompt_block_replaced_only_when_present(self):
+    def test_prompt_block_replaced_and_added(self):
         from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
         payload = {"hook_opening": "x"*30, "yomi_judgment": "y"*30,
                    "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
@@ -422,10 +422,46 @@ class TestAiSlotEnricher(unittest.TestCase):
         out = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}], "prompt_block": [{"label": "old", "prompt": "old"}]},
                                     topic="t", content_type="ai_prompt_recipe", llm_service=self._fake(payload))
         self.assertEqual(out["prompt_block"][0]["label"], "썸네일")
-        # 템플릿에 prompt_block 없으면 추가하지 않음
+        # 2026-07-02 저장가치 정책: 템플릿에 없어도 복사형 프롬프트 자산을 추가한다
         out2 = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
                                      topic="t", content_type="ai_tool_review", llm_service=self._fake(payload))
-        self.assertNotIn("prompt_block", out2)
+        self.assertEqual(out2["prompt_block"][0]["label"], "썸네일")
+        # 항목이 2개 미만이면 추가하지 않음 (형식 불량 폴백)
+        thin = dict(payload, prompt_block=[{"label": "하나", "prompt": "only one"}])
+        out3 = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
+                                     topic="t", content_type="ai_tool_review", llm_service=self._fake(thin))
+        self.assertNotIn("prompt_block", out3)
+
+    def test_save_value_slots_enriched(self):
+        """pricing_table/checklist/quick_decision_table/actions 저장가치 슬롯 보강."""
+        from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+        payload = {
+            "hook_opening": "x"*30, "yomi_judgment": "y"*30,
+            "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
+            "quick_decision_table": [
+                {"내 상황": "s1", "할 일": "d1"}, {"내 상황": "s2", "할 일": "d2"},
+                {"내 상황": "s3", "할 일": "d3"},
+            ],
+            "actions": [
+                {"행동": "a1", "설명": "d1"}, {"행동": "a2", "설명": "d2"}, {"행동": "a3", "설명": "d3"},
+            ],
+            "pricing_table": [
+                {"플랜": "무료", "가격": "0원", "핵심 기능": "기본 생성", "한계": "일일 한도"},
+                {"플랜": "Plus", "가격": "공식 요금 페이지 확인", "핵심 기능": "고급 모델", "한계": "월 구독"},
+            ],
+            "checklist": ["회사 기밀 입력 금지 항목 확인", "결과물 팩트 직접 검증", "사내 AI 사용 정책 확인", "개인정보 마스킹 후 입력"],
+        }
+        out = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
+                                    topic="t", content_type="ai_work_tip", llm_service=self._fake(payload))
+        self.assertEqual(len(out["quick_decision_table"]), 3)
+        self.assertEqual(len(out["actions"]), 3)
+        self.assertEqual(out["pricing_table"][0]["플랜"], "무료")
+        self.assertEqual(len(out["checklist"]), 4)
+        # pricing_table 2행 미만이면 미채택
+        thin = dict(payload, pricing_table=[{"플랜": "무료", "가격": "0원", "핵심 기능": "f", "한계": "l"}])
+        out2 = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
+                                     topic="t", content_type="ai_work_tip", llm_service=self._fake(thin))
+        self.assertNotIn("pricing_table", out2)
 
     def test_disabled_via_env(self):
         import os

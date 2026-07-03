@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
@@ -378,13 +379,9 @@ class TestAIPipelineUnaffected(unittest.TestCase):
 
     def test_ai_pipeline_runs_normally(self):
         from blogspot_automation.pipelines.ai_pipeline import AiTopicPipeline
-        from blogspot_automation.services.naver_blog_service import NaverPost
 
-        fake_post = NaverPost(
+        forced_topic = SimpleNamespace(
             title="직장인이 ChatGPT로 업무 시간을 줄이는 방법",
-            link="https://blog.naver.com/holyyomi/123456789",
-            log_no="123456789",
-            pub_date="", rss_excerpt="ChatGPT 업무 활용 테스트", full_text="",
         )
         with tempfile.TemporaryDirectory() as tmp:
             from blogspot_automation.services.run_artifact_service import RunArtifactService
@@ -393,10 +390,11 @@ class TestAIPipelineUnaffected(unittest.TestCase):
                 artifact_service=RunArtifactService(runs_dir=tmp),
                 publish_history_service=PublishHistoryService(history_path=Path(tmp) / "hist.json"),
                 dry_run=True,
-                _force_naver_post=fake_post,
+                _force_naver_post=forced_topic,
             )
             result = pipeline.run_once()
         self.assertIn(result.get("status"), ("dry_run_saved", "skipped", "held_for_review"))
+        self.assertNotEqual(result.get("source_type"), "naver_blog")
 
 
 if __name__ == "__main__":

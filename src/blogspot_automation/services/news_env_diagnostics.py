@@ -27,10 +27,14 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
         "enable_tavily_search": _env_state(source, "ENABLE_TAVILY_SEARCH", default="auto"),
         "enable_exa_search": _env_state(source, "ENABLE_EXA_SEARCH", default="auto"),
         "enable_firecrawl_search": _env_state(source, "ENABLE_FIRECRAWL_SEARCH", default="auto"),
-        "google_ai_api_key": _env_state(source, "GOOGLE_AI_API_KEY"),
+        "openrouter_api_key": _env_state(source, "OPENROUTER_API_KEY"),
+        "openrouter_model": _env_state(source, "OPENROUTER_MODEL", default="openai/gpt-oss-120b:free"),
+        "openrouter_base_url": _env_state(source, "OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1"),
         "openai_api_key": _env_state(source, "OPENAI_API_KEY"),
+        "google_ai_api_key": _env_state(source, "GOOGLE_AI_API_KEY"),
         "gemini_model": _env_state(source, "GEMINI_MODEL", default="gemini-2.5-flash-lite"),
         "openai_model": _env_state(source, "OPENAI_MODEL", default="gpt-5-mini"),
+        "openai_base_url": _env_state(source, "OPENAI_BASE_URL", default="https://api.openai.com/v1"),
         "dry_run": _env_state(source, "DRY_RUN", default="true"),
         "news_publish_mode": _env_state(source, "NEWS_PUBLISH_MODE", default="dry_run"),
         "auto_publish": _env_state(source, "AUTO_PUBLISH", default="false"),
@@ -54,8 +58,6 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
     ]
     warnings: list[str] = []
     advisories: list[str] = []
-    if str(source.get("OPENROUTER_API_KEY", "")).strip():
-        warnings.append("OPENROUTER_API_KEY is set but ignored by the current Gemini -> OpenAI chain.")
     custom_search_enabled = str(source.get("ENABLE_GOOGLE_CUSTOM_SEARCH", "false")).strip().lower() in {
         "1",
         "true",
@@ -78,7 +80,7 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
         warnings.append("Exa search is enabled but EXA_API_KEY is missing.")
     if _enabled_or_auto(source, "ENABLE_FIRECRAWL_SEARCH", "FIRECRAWL_API_KEY") and not checks["firecrawl_api_key"]["present"]:
         warnings.append("Firecrawl search is enabled but FIRECRAWL_API_KEY is missing.")
-    if not checks["google_ai_api_key"]["present"] and not checks["openai_api_key"]["present"]:
+    if not checks["openrouter_api_key"]["present"] and not checks["openai_api_key"]["present"]:
         warnings.append("No LLM key is configured; generation will fall back to local template content only.")
     if not checks["ai_image_upload_key"]["present"] and not checks["legacy_imgbb_api_key"]["present"]:
         advisories.append("AI_IMAGE_UPLOAD_KEY is missing; AI cover images will use configured/default fallback URLs only.")
@@ -96,8 +98,10 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
 def user_required_actions(env: Mapping[str, str] | None = None) -> list[str]:
     source = os.environ if env is None else env
     actions: list[str] = []
-    if not str(source.get("GOOGLE_AI_API_KEY", "")).strip():
-        actions.append("Create or register GOOGLE_AI_API_KEY for Gemini API free-tier first generation.")
+    if not str(source.get("OPENROUTER_API_KEY", "")).strip():
+        actions.append("Create or register OPENROUTER_API_KEY for primary article generation.")
+    if not str(source.get("OPENROUTER_MODEL", "")).strip():
+        actions.append("Set OPENROUTER_MODEL to the model slug to use first.")
     if not str(source.get("OPENAI_API_KEY", "")).strip():
         actions.append("Create or register OPENAI_API_KEY as paid fallback.")
     if _publish_mode_active(source):
@@ -116,7 +120,7 @@ def user_required_actions(env: Mapping[str, str] | None = None) -> list[str]:
 def _env_state(env: Mapping[str, str], name: str, *, default: str = "") -> dict[str, Any]:
     raw = str(env.get(name, "") or "").strip()
     value = raw or default
-    display_value = value if name.endswith("_MODEL") or name.startswith("ENABLE_") or name.startswith("NEWS_") or name in {
+    display_value = value if name.endswith("_MODEL") or name.endswith("_BASE_URL") or name.startswith("ENABLE_") or name.startswith("NEWS_") or name in {
         "ENABLE_GOOGLE_CUSTOM_SEARCH",
         "DRY_RUN",
         "NEWS_PUBLISH_MODE",

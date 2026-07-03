@@ -284,7 +284,8 @@ class TestAiBlogYml(unittest.TestCase):
         if not content:
             self.skipTest("ai_blog.yml not found")
         self.assertIn("cli_ai.py", content)
-        self.assertIn("ENABLE_AI_PIPELINE", content)
+        self.assertIn("NEWS_MODE: \"news\"", content)
+        self.assertIn("AI_BLOG_MODE: \"true\"", content)
 
     def test_default_is_dry_run(self):
         content = self._yml_content()
@@ -306,7 +307,8 @@ class TestAiBlogYml(unittest.TestCase):
         if not content:
             self.skipTest("ai_blog.yml not found")
         # 중복 방지 상태를 저장소에 커밋해야 매일 다른 주제가 나옴
-        self.assertIn("naver_ai_rewritten.json", content)
+        self.assertIn("data/publish_history.json", content)
+        self.assertNotIn("naver_ai_rewritten.json", content)
         self.assertIn("git push", content)
 
     def test_llm_and_image_keys_injected(self):

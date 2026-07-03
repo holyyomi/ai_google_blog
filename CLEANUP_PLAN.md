@@ -44,7 +44,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 
 ## 네이버 측 마이너 버그 (보류)
 
-`cli_naver.py:95-110` published_history.json 마킹 코드는 빈 list를 가정해 항상 마킹 실패. 단 published_history.json은 ai_content_service / topic_dedup_service도 의존하는 운영 데이터라 수정은 데이터 손실 위험. **별도 진단 후 처리.**
+`retired legacy Naver rewrite entrypoint:95-110` published_history.json 마킹 코드는 빈 list를 가정해 항상 마킹 실패. 단 published_history.json은 ai_content_service / topic_dedup_service도 의존하는 운영 데이터라 수정은 데이터 손실 위험. **별도 진단 후 처리.**
 
 실제 네이버 발행은 동작 중인 것으로 추정:
 - `data/naver_processed.json`에 최근 5일 모두 새 entry 마킹됨
@@ -90,7 +90,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 | 용도 | 워크플로우 | 호출되는 entrypoint | 활성 파이프라인 |
 |------|-----------|---------------------|----------------|
 | 뉴스/이슈 자동발행 | `.github/workflows/news_blog.yml` (KST 20:00) | `src/blogspot_automation/cli_news.py` | `pipelines/news_pipeline.py::NewsPipeline` |
-| 네이버 → Blogspot | `.github/workflows/naver_blog.yml` (KST 08:00) | `src/blogspot_automation/cli_naver.py` | `app/runtime.py::build_service_runtime` + 레거시 storage/UI 서비스 |
+| 네이버 → Blogspot | `.github/workflows/retired Naver rewrite workflow` (KST 08:00) | `retired legacy Naver rewrite entrypoint` | `app/runtime.py::build_service_runtime` + 레거시 storage/UI 서비스 |
 
 **중복/폐기 워크플로우**: 없음. (현재 `.github/workflows/`에 위 2개만 존재 — 양호.)
 
@@ -106,7 +106,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 | 파일 | 이유 |
 |------|------|
 | `src/blogspot_automation/cli_news.py` | news_blog.yml 진입점 |
-| `src/blogspot_automation/cli_naver.py` | naver_blog.yml 진입점 |
+| `retired legacy Naver rewrite entrypoint` | retired Naver rewrite workflow 진입점 |
 | `src/blogspot_automation/pipelines/news_pipeline.py` | 뉴스 자동발행 메인 파이프라인 (~45K, 가장 큰 파일) |
 | `src/blogspot_automation/services/news_topic_service.py` | 뉴스 후보 수집 |
 | `src/blogspot_automation/services/issue_discovery_service.py` | broad scan + entity + cluster 발견 엔진 |
@@ -127,7 +127,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 | `src/blogspot_automation/services/topic_dedup_service.py` | dedup |
 | `src/blogspot_automation/services/title_generation_service.py` | cli_news 직접 사용 |
 | `src/blogspot_automation/services/news_taxonomy.py` | content_type 판별 |
-| `src/blogspot_automation/services/naver_blog_service.py` | 네이버 RSS/스크래핑 |
+| `src/blogspot_automation/services/retired legacy Naver rewrite service` | 네이버 RSS/스크래핑 |
 | `src/blogspot_automation/services/ai_content_service.py` | naver 재작성 |
 | `src/blogspot_automation/services/blog_package_service.py` | naver 패키지 빌드 |
 | `src/blogspot_automation/services/qa_service.py` | naver 플로우 QA |
@@ -144,7 +144,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 | `golden_samples/*.md` | 골든 샘플 원본 |
 | `data/blog_automation.db` | naver dedup용 sqlite (~10MB) |
 | `state/blogspot_automation.db` | naver state (gitignore에서 명시 예외) |
-| `.github/workflows/news_blog.yml`, `naver_blog.yml` | 운영 워크플로우 |
+| `.github/workflows/news_blog.yml`, `retired Naver rewrite workflow` | 운영 워크플로우 |
 | `requirements.txt`, `pyproject.toml`, `Makefile` | 빌드/의존성 |
 | `templates/html/blogger_article_template.html` | 발행 템플릿 (확인 필요) |
 | `config/topic_sources.json`, `config/monetization_topic_sources.json` | 주제 소스 설정 |
@@ -160,7 +160,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 | `golden_article_preview_service.py` | 주석/타입 힌트 | render_article_candidate_html, build_preview |
 | `run_pipeline.py` | (현재 존재하지 않음 — CLAUDE.md 표현 불일치) | — |
 | `topic_bank.csv` | (현재 존재하지 않음 — CLAUDE.md 표현 불일치) | — |
-| `cli_naver.py` | QA gate 강화, CTA 보장, 라벨 정리 | 발행 로직 자체 / 이미지 활성화 |
+| `retired legacy Naver rewrite entrypoint` | QA gate 강화, CTA 보장, 라벨 정리 | 발행 로직 자체 / 이미지 활성화 |
 
 > **CLAUDE.md 갱신 필요**: `run_pipeline.py`, `topic_bank.csv`는 현재 존재하지 않음. 보호 목록에서 제거하거나 실제 보호해야 할 파일로 교체.
 
@@ -171,7 +171,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 ### 4-A. 워크플로우에서 호출되지 않는 entrypoint
 | 파일 | 문제 | 권장 조치 |
 |------|------|----------|
-| `cli_automation.py` | naver 플로우 풀사이클 복제본. 후처리 (`re.sub` 플레이스홀더 정리, published_history 마킹)가 `cli_naver.py`와 거의 동일 | **병합 또는 삭제 후보** — naver_blog.yml이 cli_naver.py만 호출하므로 cli_automation의 풀사이클은 죽은 코드. 함수 단위로 공통화한 후 삭제 권장. |
+| `cli_automation.py` | naver 플로우 풀사이클 복제본. 후처리 (`re.sub` 플레이스홀더 정리, published_history 마킹)가 `retired legacy Naver rewrite entrypoint`와 거의 동일 | **병합 또는 삭제 후보** — retired Naver rewrite workflow이 retired legacy Naver rewrite entrypoint만 호출하므로 cli_automation의 풀사이클은 죽은 코드. 함수 단위로 공통화한 후 삭제 권장. |
 | `cli_ai.py` + `pipelines/ai_pipeline.py` | AI 전용 워크플로우 미존재. 로컬 dry_run만 가능. publish history에는 기록되지만 실제 자동발행 경로 없음 | **보관(archive/) 또는 삭제** — 정책 결정 필요. AI 자동발행 계획이 없으면 삭제. 추후 활용 계획 있으면 별도 디렉터리로 격리. |
 | `cli/main.py` | UI/Streamlit 진입점으로 추정. 운영에 미사용 | 확인 후 격리 또는 삭제 |
 | `ui/app.py`, `ui/scheduler.py`, `ui/service.py` | Streamlit UI. 로컬 검토용. 운영 워크플로우 무관 | **유지하되 의존성 격리** — 의존하는 storage/qa_service가 naver 플로우와 공유됨. 한 번에 삭제 어려움. |
@@ -244,12 +244,12 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 |--------|----------|--------|
 | `runs/news_*/article_candidate.html` | `run_artifact_service.save_article_candidate` | 검토용. publish 시 그대로 또는 변형되어 Blogger로 전송 |
 | `runs/news_*/article_candidate_meta.json` | run_artifact_service | publish_ready/geo_ready 신호 |
-| 네이버 플로우 `work_item.article_html` | `ai_content_service.generate_from_naver_post` → `package_service.build_package` → cli_naver의 `re.sub` 정리 | `publish_service.publish` |
+| 네이버 플로우 `work_item.article_html` | `ai_content_service.retired_naver_rewrite_generator` → `package_service.build_package` → cli_naver의 `re.sub` 정리 | `publish_service.publish` |
 | 네이버 플로우 `package.article_preview_html` | `blog_package_service.build_preview_html` | UI 미리보기. publish 미사용 |
 
 ### 현재 혼선
 - 뉴스 플로우와 네이버 플로우가 완전히 다른 HTML 파이프라인 (sqlite work_item vs run artifact dict). 공유 코드는 `publishing/client.py`뿐.
-- `cli_automation.py`와 `cli_naver.py`가 동일한 placeholder 정리 코드를 복사해서 가지고 있음 (`re.sub(r'<img[^>]*src="\{\{IMG_[23]\}\}"...')` 등 6줄 이상).
+- `cli_automation.py`와 `retired legacy Naver rewrite entrypoint`가 동일한 placeholder 정리 코드를 복사해서 가지고 있음 (`re.sub(r'<img[^>]*src="\{\{IMG_[23]\}\}"...')` 등 6줄 이상).
 - final HTML QA가 두 곳(news_quality_gate / cli_naver의 후처리)에서 다른 기준으로 동작.
 
 ### 정리 제안
@@ -345,7 +345,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 |------|---------|------|
 | `data/publish_history.json` | **트래킹 중**, news_blog.yml의 schedule 단계에서 자동 commit & push (`[skip ci]`) — 의도된 동작 | 로컬 dry_run 후 modified 상태가 자주 발생. 의도된 운영은 유지하되, 로컬 작업 시 우발 commit 방지를 위해 별도 메커니즘 검토. |
 | `state/news_published_history.json` | **현재 untracked** | `.gitignore`에 추가하거나, `state/blogspot_automation.db`처럼 명시 예외로 처리 결정 필요. **운영 시 GitHub Actions에서 생성됨** → 커밋되지 않아야 함 → `.gitignore`에 추가 권장. |
-| `data/naver_processed.json` | 트래킹 중. naver_blog.yml에서 `git add data/naver_processed.json`로 자동 commit | 의도된 동작 (네이버 dedup 상태). 유지. |
+| `data/naver_processed.json` | 트래킹 중. retired Naver rewrite workflow에서 `git add data/naver_processed.json`로 자동 commit | 의도된 동작 (네이버 dedup 상태). 유지. |
 | `data/published_history.json` | 트래킹 중 (2 bytes — 빈 list `[]`). cli_naver/cli_automation에서 update | 운영용으로 유지. |
 | `data/tools_database.json`, `data/blog_automation.db` | 트래킹 중. 큰 sqlite | 유지하되 size 모니터링 필요. |
 | `runs/` | gitignore 됨, 100+ 디렉터리 누적 | 로컬 디스크 정리 필요 (`runs/news_*` 7일 이전 삭제 스크립트 등). 별도 작업. |
@@ -366,7 +366,7 @@ P3-A/B로 이 흐름이 풀려야 함. 다음 schedule run에서 검증.
 5. **TitleGenerationService vs TitleCandidateService 사용처 검증** — cli_news가 인스턴스화하지만 NewsPipeline 내부 사용 여부 확인. 죽은 의존성이면 cli_news 정리
 
 ### P1 — 유지보수성 / 중복 제거 (P0 완료 후)
-6. **cli_automation.py 정리** — naver_blog.yml 미사용. 코드 함수 단위 공통화 후 삭제
+6. **cli_automation.py 정리** — retired Naver rewrite workflow 미사용. 코드 함수 단위 공통화 후 삭제
 7. **placeholder 정리 함수 공통화** — cli_naver/cli_automation 중복 코드 → blog_package_service로 이동
 8. **루트 ad-hoc 스크립트 일괄 정리** — force_publish/get_*/mark_published/patch_*/update_* (4-B 표)
 9. **루트 레벨 test_*.py를 tests/로 이동 또는 삭제**

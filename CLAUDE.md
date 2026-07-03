@@ -21,19 +21,19 @@ Phase 3 + Completion Patch 1 (GoldenPattern, SlotFiller, TitleCandidate, GEO lay
 | `src/blogspot_automation/services/publish_service.py` | 네이버 플로우 발행 서비스 |
 | `src/blogspot_automation/services/news_publish_service.py` | 뉴스 플로우 Blogger 발행 |
 | `src/blogspot_automation/cli_news.py` | news_blog.yml 진입점 |
-| `src/blogspot_automation/cli_naver.py` | naver_blog.yml 진입점 (최소 수정 가능) |
+| `retired legacy Naver rewrite entrypoint` | retired Naver rewrite workflow 진입점 (최소 수정 가능) |
 | `src/blogspot_automation/pipelines/news_pipeline.py` | 뉴스 자동발행 메인 파이프라인 |
 | `src/blogspot_automation/services/golden_article_preview_service.py` | 핵심 HTML 렌더링 (article_candidate.html 생성) |
 | `src/blogspot_automation/services/news_quality_gate.py` | 자동발행 차단 게이트 |
 | `src/blogspot_automation/services/golden_pattern_service.py` | 패턴 매칭 엔진 |
 | `golden_samples/patterns.json` | 골든 패턴 데이터 원본 |
 | `.github/workflows/news_blog.yml` | 뉴스 자동발행 워크플로우 |
-| `.github/workflows/naver_blog.yml` | 네이버 자동발행 워크플로우 |
+| `.github/workflows/retired Naver rewrite workflow` | 네이버 자동발행 워크플로우 |
 
 ### 최소 수정 허용 (삭제/대수술 금지)
 | 파일 | 허용 수정 범위 |
 |------|--------------|
-| `cli_naver.py` | QA FAIL 시 발행 차단, publish_ready/quality gate 추가, 네이버 CTA 보장, AI 내부 라벨 제거, 이미지 생성/업로드 비활성화 유지, publish_attempted/succeeded/blogger_url 로그 명확화 |
+| `retired legacy Naver rewrite entrypoint` | QA FAIL 시 발행 차단, publish_ready/quality gate 추가, 네이버 CTA 보장, AI 내부 라벨 제거, 이미지 생성/업로드 비활성화 유지, publish_attempted/succeeded/blogger_url 로그 명확화 |
 | `pipelines/news_pipeline.py` | 새 게이트/필터 추가는 가능. 기존 발행 경로/조건 변경은 별도 승인 필요 |
 | `services/news_quality_gate.py` | 게이트 강화는 가능. 기존 차단 조건 완화/제거는 별도 승인 필요 |
 
@@ -50,7 +50,7 @@ Phase 3 + Completion Patch 1 (GoldenPattern, SlotFiller, TitleCandidate, GEO lay
 
 ### GitHub Actions schedule 운영 모드 (자동)
 - `news_blog.yml` schedule: `DRY_RUN=false`, `PUBLISH_HOLD_PHASE2=false`, `AUTO_PUBLISH=true` — 자동 발행 경로
-- `naver_blog.yml` schedule: cli_naver.py 실행 후 자동 발행
+- `retired Naver rewrite workflow` schedule: retired legacy Naver rewrite entrypoint 실행 후 자동 발행
 
 ### 자동 발행 허용 조건 (news_blog.yml)
 아래 조건을 **모두** 통과해야 실제 발행:
@@ -137,7 +137,7 @@ publish_ready = (
 | 파일 | cron (UTC) | KST | 목적 | schedule 이벤트 동작 |
 |------|------|-----|------|----------------------|
 | news_blog.yml | `0 11 * * *` | 20:00 | 저녁 뉴스 이슈 (Today Issue News Automation) | DRY_RUN=false, NEWS_PUBLISH_MODE=publish, PUBLISH_HOLD_PHASE2=false, AUTO_PUBLISH=true |
-| naver_blog.yml | `0 23 * * *` | 08:00 | 네이버블로그 → 블로그스팟 재작성 발행 (Naver to Blogspot Auto Rewrite) | cli_naver.py 실행, 발행 게이트 없음 (QA score 무관 발행) |
+| retired Naver rewrite workflow | `0 23 * * *` | 08:00 | 네이버블로그 → 블로그스팟 재작성 발행 (Naver to Blogspot Auto Rewrite) | retired legacy Naver rewrite entrypoint 실행, 발행 게이트 없음 (QA score 무관 발행) |
 
 > GitHub Actions schedule은 main 브랜치에서만 실행됨
 > AI 전용 워크플로우(`ai_blog.yml`)는 현재 존재하지 않음 — `cli_ai.py`는 로컬/수동 실행만 가능
