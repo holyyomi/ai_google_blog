@@ -1066,9 +1066,11 @@ class NewsPipeline:
                 alt_text=image_plan.get("image_alt_text", ""),
                 title=best_title.title,
             )
-            html = append_hashtags_block(html, hashtags=final_hashtags, labels=plan.labels)
-            # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지)
+            # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지).
+            # 해시태그 부착은 반드시 재배치 "이후" — 순서가 반대면 이동된 GEO 블록이
+            # 해시태그 뒤로 가서 해시태그가 글 중간에 끼는 결함이 생긴다 (라이브 실측).
             html = reorder_for_reader_first(html)
+            html = append_hashtags_block(html, hashtags=final_hashtags, labels=plan.labels)
             internal_link_suggestions = self._internal_link_suggestions(
                 selected=selected,
                 content_type=str(content_angle_summary.get("content_type") or "general_life"),
@@ -1250,13 +1252,14 @@ class NewsPipeline:
                     alt_text=image_plan.get("image_alt_text", ""),
                     title=best_title.title,
                 )
+                # 독자 우선 레이아웃 재배치 후 해시태그 부착 (순서 중요 — 반대면
+                # 해시태그가 글 중간에 낌, 라이브 실측 결함)
+                _candidate_publish_html = reorder_for_reader_first(_candidate_publish_html)
                 _candidate_publish_html = append_hashtags_block(
                     _candidate_publish_html,
                     hashtags=final_hashtags,
                     labels=plan.labels,
                 )
-                # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지)
-                _candidate_publish_html = reorder_for_reader_first(_candidate_publish_html)
                 _candidate_publish_gate = self.quality_gate.evaluate(
                     selected=selected,
                     selected_title=best_title.title,
@@ -3522,9 +3525,9 @@ class NewsPipeline:
             confirmed_facts=result.confirmed_facts,
             check_needed=result.check_needed,
         )
-        html = append_hashtags_block(html, hashtags=hashtags, labels=labels)
-        # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지)
+        # 재배치 후 해시태그 부착 (순서 중요 — 반대면 해시태그가 글 중간에 낌)
         html = reorder_for_reader_first(html)
+        html = append_hashtags_block(html, hashtags=hashtags, labels=labels)
         try:
             _validate_publish_contract(
                 html,
@@ -3706,13 +3709,13 @@ class NewsPipeline:
                 alt_text=trending_image_plan.get("image_alt_text", ""),
                 title=result.title,
             )
+            # 재배치 후 해시태그 부착 (순서 중요 — 반대면 해시태그가 글 중간에 낌)
+            result.article_html = reorder_for_reader_first(result.article_html)
             result.article_html = append_hashtags_block(
                 result.article_html,
                 hashtags=result.hashtags,
                 labels=result.labels,
             )
-            # 독자 우선 레이아웃: GEO/SEO 블록이 있으면 본문 뒤로 재배치 (없으면 no-op)
-            result.article_html = reorder_for_reader_first(result.article_html)
             final_html_audit = audit_final_html_quality(
                 result.article_html,
                 topic=topic,
