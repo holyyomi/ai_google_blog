@@ -1,10 +1,10 @@
 name: holyyomi AI Blog Automation
 
+# 운영 방침(2026-07-03): 이 블로그는 AI 주제를 하루 1회만 자동 발행한다 —
+# 자동 발행은 ai_blog.yml(매일 07:05 KST) 하나만 사용한다.
+# 이 워크플로우의 30분 주기 schedule은 제거했고, 수동 실행(workflow_dispatch)만
+# 스모크 테스트/수동 발행 용도로 남긴다.
 on:
-  schedule:
-    # Wake every 30 minutes; the fixed-slot gate below publishes at most once per KST slot.
-    # This gives catch-up chances when GitHub schedule events are delayed or dropped.
-    - cron: '28,58 * * * *'
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -80,8 +80,6 @@ jobs:
           GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
           GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
           ENABLE_GOOGLE_CUSTOM_SEARCH: "true"
-          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
-          GEMINI_MODEL: "gemini-2.5-flash"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free"
           OPENROUTER_MODEL_FALLBACK: "openai/gpt-oss-120b:free"
@@ -161,8 +159,6 @@ jobs:
           NEWS_TAVILY_MAX_REQUESTS: "3"
           NEWS_EXA_MAX_REQUESTS: "1"
           NEWS_FIRECRAWL_MAX_REQUESTS: "1"
-          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
-          GEMINI_MODEL: "gemini-2.5-flash"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free"
           OPENROUTER_MODEL_FALLBACK: "openai/gpt-oss-120b:free"

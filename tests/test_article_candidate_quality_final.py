@@ -261,18 +261,24 @@ class TestTitleSpecificity(unittest.TestCase):
 class TestWorkflowSchedules(unittest.TestCase):
     """작업 G: workflow 스케줄"""
 
-    def test_news_workflow_cron(self) -> None:
+    def test_news_workflow_is_manual_only(self) -> None:
+        # 운영 방침(2026-07-03): AI 주제 하루 1회 자동 발행은 ai_blog.yml 하나만.
+        # news_blog.yml은 수동(workflow_dispatch) 전용이어야 한다.
         import pathlib
         path = pathlib.Path(".github/workflows/news_blog.yml")
         if not path.exists():
             self.skipTest("news_blog.yml not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("28,58 * * * *", content, "news_blog.yml should wake every 30 minutes for catch-up")
-        self.assertIn('NEWS_SCHEDULE_TIMEZONE: "Asia/Seoul"', content)
-        self.assertIn('NEWS_SCHEDULE_SLOTS: "08:58, 18:58"', content)
-        self.assertIn('NEWS_DAILY_PUBLISH_TARGET: "2"', content)
-        self.assertIn('NEWS_FAILED_SCHEDULE_INTERVAL_MINUTES: "20"', content)
-        self.assertIn("tools/should_run_news_schedule.py", content)
+        self.assertNotIn("cron:", content, "news_blog.yml must not have a schedule trigger")
+        self.assertIn("workflow_dispatch:", content)
+
+    def test_ai_workflow_daily_cron(self) -> None:
+        import pathlib
+        path = pathlib.Path(".github/workflows/ai_blog.yml")
+        if not path.exists():
+            self.skipTest("ai_blog.yml not found")
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("5 22 * * *", content, "ai_blog.yml should publish once daily at 07:05 KST")
 
     def test_news_workflow_operational_guards(self) -> None:
         import pathlib

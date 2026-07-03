@@ -237,7 +237,7 @@ class TrendingArticleService:
             raise RuntimeError(
                 "TrendingArticleService: LLM fallback chain 전체 실패 — "
                 "모든 provider가 호출 실패 또는 invalid JSON. "
-                "GOOGLE_AI_API_KEY 또는 OPENAI_API_KEY 중 1개 이상 유효해야 함."
+                "OPENROUTER_API_KEY 또는 OPENAI_API_KEY 중 1개 이상 유효해야 함."
             )
 
         parsed = self._normalize_and_parse(content_str)

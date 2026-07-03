@@ -32,8 +32,6 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
         "openrouter_model_fallback": _env_state(source, "OPENROUTER_MODEL_FALLBACK", default="openai/gpt-oss-120b:free"),
         "openrouter_base_url": _env_state(source, "OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1"),
         "openai_api_key": _env_state(source, "OPENAI_API_KEY"),
-        "google_ai_api_key": _env_state(source, "GOOGLE_AI_API_KEY"),
-        "gemini_model": _env_state(source, "GEMINI_MODEL", default="gemini-2.5-flash-lite"),
         "openai_model": _env_state(source, "OPENAI_MODEL", default="gpt-5-mini"),
         "openai_base_url": _env_state(source, "OPENAI_BASE_URL", default="https://api.openai.com/v1"),
         "dry_run": _env_state(source, "DRY_RUN", default="true"),

@@ -54,8 +54,18 @@ def test_custom_search_can_be_enabled_for_fact_gathering(monkeypatch) -> None:
     assert svc._search_cx == "cx"
 
 
-def test_gemini_native_generate_content_api_still_available_for_direct_calls(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+def test_google_news_rss_facts_parses_headlines(monkeypatch) -> None:
+    # Gemini 그라운딩 제거 후 키 없는 팩트 폴백 — RSS 헤드라인 파싱 검증
+    rss = (
+        '<?xml version="1.0"?><rss><channel>'
+        '<item><title>네이버, 사내 문서에 AI 도입 확대</title>'
+        '<pubDate>Thu, 03 Jul 2026 01:00:00 GMT</pubDate>'
+        '<source url="https://example.com">예시뉴스</source></item>'
+        '<item><title>카카오 AI 요약 기능 출시</title>'
+        '<pubDate>Thu, 03 Jul 2026 02:00:00 GMT</pubDate>'
+        '<source url="https://example.com">다른뉴스</source></item>'
+        '</channel></rss>'
+    ).encode("utf-8")
 
     class FakeResponse:
         def __enter__(self):
@@ -65,49 +75,19 @@ def test_gemini_native_generate_content_api_still_available_for_direct_calls(mon
             return False
 
         def read(self) -> bytes:
-            return json.dumps({
-                "candidates": [{
-                    "content": {"parts": [{"text": "<p>gemini generated html</p>"}]},
-                }],
-            }).encode("utf-8")
+            return rss
 
     def fake_urlopen(req: urllib.request.Request, timeout: int):
-        captured["url"] = req.full_url
-        captured["timeout"] = timeout
-        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        assert "news.google.com/rss/search" in req.full_url
         return FakeResponse()
 
-    monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    result = LlmContentService()._call_provider(
-        {
-            "name": "gemini_direct",
-            "provider_type": "gemini",
-            "base_url": "https://generativelanguage.googleapis.com/v1beta",
-            "api_key_env": "GOOGLE_AI_API_KEY",
-            "model_env": "GEMINI_MODEL",
-            "model": "gemini-2.5-flash",
-            "free": True,
-            "max_tokens": 16384,
-            "extra_headers": {},
-        },
-        "gemini-key",
-        "Write a post",
-        "System prompt",
-    )
+    facts = LlmContentService()._google_news_rss_facts("네이버 AI")
 
-    assert result == "<p>gemini generated html</p>"
-    assert captured["url"] == (
-        "https://generativelanguage.googleapis.com/v1beta"
-        "/models/gemini-2.5-flash:generateContent?key=gemini-key"
-    )
-    assert captured["timeout"] == 45
-    assert captured["payload"]["systemInstruction"]["parts"][0]["text"] == "System prompt"
-    assert captured["payload"]["contents"][0]["parts"][0]["text"] == "Write a post"
-    assert captured["payload"]["generationConfig"]["maxOutputTokens"] == 16384
-    # gemini-2.5-flash thinking 비활성화(렌더 안정성) 회귀 방지
-    assert captured["payload"]["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+    assert "최근 관련 뉴스 헤드라인" in facts
+    assert "네이버, 사내 문서에 AI 도입 확대" in facts
+    assert "카카오 AI 요약 기능 출시" in facts
 
 
 def test_openai_primary_uses_official_url_and_current_default_model(monkeypatch) -> None:
