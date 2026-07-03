@@ -136,7 +136,7 @@ publish_ready = (
 
 | 파일 | cron (UTC) | KST | 목적 | 동작 |
 |------|------|-----|------|------|
-| ai_blog.yml | `5 22 * * *` | 익일 07:05 | **유일한 자동 발행** — AI 이슈 1건/일 | schedule: DRY_RUN=false, AUTO_PUBLISH=true. LLM은 OpenRouter 무료(1차 nemotron→2차 gpt-oss) → OpenAI 유료 폴백 |
+| ai_blog.yml | `31 22 * * *`, `31 10 * * *` | 07:31 / 19:31 | **유일한 자동 발행** — AI 이슈 2건/일 (아침·저녁) | schedule: DRY_RUN=false, AUTO_PUBLISH=true. LLM은 OpenRouter 무료(1차 nemotron→2차 gpt-oss) → OpenAI 유료 폴백 |
 | news_blog.yml | (schedule 없음) | — | 수동 스모크 테스트/수동 발행 전용 | workflow_dispatch만 지원 (30분 주기 schedule은 2026-07-03 제거) |
 
 > GitHub Actions schedule은 main 브랜치에서만 실행됨

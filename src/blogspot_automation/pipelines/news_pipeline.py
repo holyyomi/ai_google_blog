@@ -501,6 +501,9 @@ class NewsPipeline:
             else:
                 # AI_BLOG_MODE: 신선한 실뉴스 AI 이슈 후보 부스트 — evergreen보다 항상 우선
                 scored = self._apply_ai_issue_score_boost(scored)
+            # Search Console 성과 루프 — 실제 검색 성과(클릭/노출) 쿼리와 겹치는
+            # 후보에 가산점 (data/search_performance.json 없으면 no-op)
+            scored = self._apply_search_performance_boost(scored)
             # boost 적용된 후 다시 정렬 (scored는 _apply_topic_group_cooldowns가 정렬 반환)
             scored = sorted(scored, key=lambda c: c.total_score, reverse=True)
 
@@ -2388,6 +2391,37 @@ class NewsPipeline:
             raw["click_potential_score"] = max(original_click, 8)
             item.total_score = max(item.total_score, 82)
         return scored
+
+    @staticmethod
+    def _apply_search_performance_boost(
+        scored: list[ScoredNewsCandidate],
+    ) -> list[ScoredNewsCandidate]:
+        """Search Console 성과 루프 — 실검색 쿼리와 겹치는 후보 가산점.
+
+        data/search_performance.json(scripts/fetch_search_performance.py가 갱신)이
+        없으면 no-op. 부스트는 additive(최대 8점)이고 하류 품질 게이트는 그대로다.
+        """
+        try:
+            from blogspot_automation.services.search_console_service import (
+                load_search_performance,
+                topic_boost_for,
+            )
+            performance = load_search_performance()
+            if not performance:
+                return scored
+            for item in scored:
+                result = topic_boost_for(item.candidate.topic or "", performance)
+                boost = int(result.get("boost") or 0)
+                if boost <= 0:
+                    continue
+                raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+                raw["search_performance_boost"] = boost
+                raw["search_performance_matched_queries"] = list(result.get("matched_queries") or [])
+                item.total_score = item.total_score + boost
+            return scored
+        except Exception as exc:  # noqa: BLE001 — 성과 루프 실패는 비치명
+            logger.warning("search performance boost 실패(무시): %s", exc)
+            return scored
 
     @staticmethod
     def _is_trending_candidate(item: ScoredNewsCandidate) -> bool:
