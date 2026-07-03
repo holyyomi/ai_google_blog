@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import time
 import urllib.parse
 import urllib.error
 import urllib.request
@@ -290,6 +291,14 @@ class LlmContentService:
 
     # ─── Internal ─────────────────────────────────────────────────────────────
 
+    def gather_facts(self, topic: str) -> str:
+        """실시간 팩트 수집 공개 진입점 — ai_slot_enricher 등 외부 모듈용.
+
+        슬롯 보강 LLM이 모델 지식만으로 쓰면 수치·요금이 환각될 수 있어,
+        생성 전에 이 결과를 프롬프트에 주입해 근거를 제공한다.
+        """
+        return self._gather_facts(topic)
+
     def _gather_facts(self, topic: str) -> str:
         """실제 팩트 수집: Custom Search 우선, 없으면 Gemini 그라운딩으로 폴백."""
         facts = ""
@@ -396,30 +405,39 @@ class LlmContentService:
             if not api_key:
                 logger.debug("LlmContentService: %s — API키 없음, skip", provider["name"])
                 continue
-            try:
-                result = self._call_provider(provider, api_key, user_prompt, system_prompt)
-                if not result or len(result.strip()) <= min_chars:
-                    logger.warning(
-                        "LlmContentService: %s 응답 너무 짧음 (%d자, min %d)",
-                        provider["name"], len(result or ""), min_chars,
-                    )
-                    continue
-                if validator is not None:
-                    try:
-                        validator(result)
-                    except Exception as ve:
+            # 무료 모델은 순간 혼잡(429/502)이 잦다 — 짧게 기다렸다 같은 provider를
+            # 1회 더 시도해 유료 폴백/템플릿 폴백으로 새는 빈도를 줄인다.
+            attempts = 2 if provider.get("free") else 1
+            for attempt in range(1, attempts + 1):
+                try:
+                    result = self._call_provider(provider, api_key, user_prompt, system_prompt)
+                    if not result or len(result.strip()) <= min_chars:
                         logger.warning(
-                            "LlmContentService: %s validator 실패 — %s. 다음 provider 시도",
-                            provider["name"], ve,
+                            "LlmContentService: %s 응답 너무 짧음 (%d자, min %d)",
+                            provider["name"], len(result or ""), min_chars,
                         )
-                        continue
-                logger.info(
-                    "LlmContentService: %s 성공 (%d자)",
-                    provider["name"], len(result),
-                )
-                return result
-            except Exception as exc:
-                logger.warning("LlmContentService: %s 실패 — %s", provider["name"], exc)
+                        break  # 짧은 응답은 재시도로 나아질 가능성이 낮음 → 다음 provider
+                    if validator is not None:
+                        try:
+                            validator(result)
+                        except Exception as ve:
+                            logger.warning(
+                                "LlmContentService: %s validator 실패 — %s. 다음 provider 시도",
+                                provider["name"], ve,
+                            )
+                            break  # 형식 불량도 provider 특성 — 다음 provider
+                    logger.info(
+                        "LlmContentService: %s 성공 (%d자)",
+                        provider["name"], len(result),
+                    )
+                    return result
+                except Exception as exc:
+                    logger.warning(
+                        "LlmContentService: %s 실패 (시도 %d/%d) — %s",
+                        provider["name"], attempt, attempts, exc,
+                    )
+                    if attempt < attempts:
+                        time.sleep(2.5)
 
         return None
 

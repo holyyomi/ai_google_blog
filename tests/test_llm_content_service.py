@@ -224,12 +224,15 @@ def test_call_with_fallback_uses_openai_when_both_free_models_fail(monkeypatch) 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda *_: None)
 
     result = LlmContentService().call_with_fallback("Write a post", "System prompt", min_chars=20)
 
     assert result and "openai fallback" in result
-    # 무료 1차 → 무료 2차 → 유료 폴백 = 3회
+    # 무료는 혼잡 대비 provider당 2회씩 시도: 무료1×2 → 무료2×2 → 유료 = 5회
     assert calls == [
+        "https://openrouter.ai/api/v1/chat/completions",
+        "https://openrouter.ai/api/v1/chat/completions",
         "https://openrouter.ai/api/v1/chat/completions",
         "https://openrouter.ai/api/v1/chat/completions",
         "https://api.openai.com/v1/chat/completions",

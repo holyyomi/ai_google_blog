@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from html import escape
@@ -11,15 +12,32 @@ def cover_image_url_from_env(
     content_type: str = "",
     topic_group: str = "",
     include_default: bool = True,
+    variant_seed: str = "",
 ) -> str:
+    """env에 설정된 커버 이미지 URL을 반환한다.
+
+    env 값에 콤마로 여러 URL을 넣으면 variant_seed(주제) 해시로 하나를 고른다 —
+    모든 글이 같은 기본 커버 1장으로 노출돼 홈피드/검색 썸네일에서 구분이 안 되던
+    문제의 대응. 같은 주제는 항상 같은 커버를 받는다(결정론적). 단일 URL이면
+    기존 동작 그대로.
+    """
     for key in _cover_image_env_keys(
         content_type=content_type,
         topic_group=topic_group,
         include_default=include_default,
     ):
-        value = _clean_public_image_url(os.getenv(key, ""))
-        if value:
-            return value
+        raw = os.getenv(key, "")
+        candidates = [
+            _clean_public_image_url(part)
+            for part in str(raw or "").split(",")
+        ]
+        candidates = [c for c in candidates if c]
+        if not candidates:
+            continue
+        if len(candidates) == 1 or not str(variant_seed or "").strip():
+            return candidates[0]
+        digest = hashlib.sha1(str(variant_seed).strip().encode("utf-8")).hexdigest()
+        return candidates[int(digest[:8], 16) % len(candidates)]
     return ""
 
 

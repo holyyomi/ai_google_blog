@@ -94,3 +94,44 @@ def test_cover_image_url_from_env_keeps_news_name_as_compatibility_fallback(monk
     result = cover_image_url_from_env(content_type="ai_work_tip", topic_group="ai_work")
 
     assert result == "https://cdn.example.com/legacy-news-cover.jpg"
+
+
+def test_cover_image_url_from_env_rotates_comma_list_by_seed(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "AI_DEFAULT_COVER_IMAGE_URL",
+        "https://cdn.example.com/cover-a.png, https://cdn.example.com/cover-b.png, https://cdn.example.com/cover-c.png",
+    )
+    monkeypatch.delenv("AI_COVER_IMAGE_URL", raising=False)
+    monkeypatch.delenv("NEWS_COVER_IMAGE_URL", raising=False)
+
+    pool = {
+        "https://cdn.example.com/cover-a.png",
+        "https://cdn.example.com/cover-b.png",
+        "https://cdn.example.com/cover-c.png",
+    }
+    picked = cover_image_url_from_env(
+        content_type="ai_work_tip", topic_group="ai_work", variant_seed="주제 A",
+    )
+    assert picked in pool
+    # 같은 주제는 항상 같은 커버 (결정론적)
+    assert picked == cover_image_url_from_env(
+        content_type="ai_work_tip", topic_group="ai_work", variant_seed="주제 A",
+    )
+    # 여러 주제를 돌리면 커버가 하나로 고정되지 않는다
+    varied = {
+        cover_image_url_from_env(
+            content_type="ai_work_tip", topic_group="ai_work", variant_seed=f"주제 {i}",
+        )
+        for i in range(12)
+    }
+    assert len(varied) >= 2
+
+
+def test_cover_image_url_from_env_single_url_unchanged_with_seed(monkeypatch) -> None:
+    monkeypatch.setenv("AI_DEFAULT_COVER_IMAGE_URL", "https://cdn.example.com/only.png")
+    monkeypatch.delenv("AI_COVER_IMAGE_URL", raising=False)
+    monkeypatch.delenv("NEWS_COVER_IMAGE_URL", raising=False)
+
+    assert cover_image_url_from_env(
+        content_type="ai_work_tip", topic_group="ai_work", variant_seed="아무 주제",
+    ) == "https://cdn.example.com/only.png"
