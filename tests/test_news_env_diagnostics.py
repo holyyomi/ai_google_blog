@@ -3,37 +3,37 @@ from __future__ import annotations
 from blogspot_automation.services.news_env_diagnostics import build_news_env_diagnostics
 
 
-def test_news_env_diagnostics_reports_gemini_to_openai_chain() -> None:
+def test_news_env_diagnostics_reports_openrouter_to_openai_chain() -> None:
     diagnostics = build_news_env_diagnostics({
-        "GOOGLE_AI_API_KEY": "gemini-key",
+        "OPENROUTER_API_KEY": "openrouter-key",
+        "OPENROUTER_MODEL": "openai/gpt-oss-120b:free",
         "OPENAI_API_KEY": "openai-key",
-        "GEMINI_MODEL": "gemini-test",
         "OPENAI_MODEL": "gpt-test",
     })
 
     assert diagnostics["user_required_actions"] == []
     assert [item["name"] for item in diagnostics["provider_chain"]] == [
-        "gemini_free",
-        "gemini_flash_lite",
+        "openrouter_primary",
         "openai_api_fallback",
     ]
-    assert diagnostics["provider_chain"][0]["model"] == "gemini-test"
-    assert diagnostics["provider_chain"][1]["model"] == "gemini-2.5-flash-lite"
-    assert diagnostics["provider_chain"][2]["model"] == "gpt-test"
+    assert diagnostics["provider_chain"][0]["model"] == "openai/gpt-oss-120b:free"
+    assert diagnostics["provider_chain"][1]["model"] == "gpt-test"
     assert diagnostics["checks"]["enable_google_custom_search"]["value"] == "false"
 
 
 def test_news_env_diagnostics_lists_only_user_owned_missing_keys() -> None:
     diagnostics = build_news_env_diagnostics({})
 
-    assert "Create or register GOOGLE_AI_API_KEY for Gemini API free-tier first generation." in diagnostics["user_required_actions"]
+    assert "Create or register OPENROUTER_API_KEY for primary article generation." in diagnostics["user_required_actions"]
+    assert "Set OPENROUTER_MODEL to the model slug to use first." in diagnostics["user_required_actions"]
     assert "Create or register OPENAI_API_KEY as paid fallback." in diagnostics["user_required_actions"]
     assert diagnostics["provider_chain"][0]["configured"] is False
 
 
 def test_news_env_diagnostics_custom_search_keys_are_optional_by_default() -> None:
     diagnostics = build_news_env_diagnostics({
-        "GOOGLE_AI_API_KEY": "gemini-key",
+        "OPENROUTER_API_KEY": "openrouter-key",
+        "OPENROUTER_MODEL": "openai/gpt-oss-120b:free",
         "OPENAI_API_KEY": "openai-key",
     })
 
@@ -48,7 +48,8 @@ def test_news_env_diagnostics_custom_search_keys_are_optional_by_default() -> No
 
 def test_news_env_diagnostics_reports_ai_image_upload_key() -> None:
     diagnostics = build_news_env_diagnostics({
-        "GOOGLE_AI_API_KEY": "gemini-key",
+        "OPENROUTER_API_KEY": "openrouter-key",
+        "OPENROUTER_MODEL": "openai/gpt-oss-120b:free",
         "OPENAI_API_KEY": "openai-key",
         "AI_IMAGE_UPLOAD_KEY": "img-upload-key",
         "AI_DEFAULT_COVER_IMAGE_URL": "https://cdn.example.com/default-ai-cover.png",
@@ -62,7 +63,8 @@ def test_news_env_diagnostics_reports_ai_image_upload_key() -> None:
 
 def test_news_env_diagnostics_reports_external_search_keys_without_values() -> None:
     diagnostics = build_news_env_diagnostics({
-        "GOOGLE_AI_API_KEY": "gemini-key",
+        "OPENROUTER_API_KEY": "openrouter-key",
+        "OPENROUTER_MODEL": "openai/gpt-oss-120b:free",
         "OPENAI_API_KEY": "openai-key",
         "NAVER_CLIENT_ID": "naver-id",
         "NAVER_CLIENT_SECRET": "naver-secret",
@@ -83,7 +85,8 @@ def test_news_env_diagnostics_reports_external_search_keys_without_values() -> N
 
 def test_news_env_diagnostics_requires_blogger_only_for_live_auto_publish() -> None:
     diagnostics = build_news_env_diagnostics({
-        "GOOGLE_AI_API_KEY": "gemini-key",
+        "OPENROUTER_API_KEY": "openrouter-key",
+        "OPENROUTER_MODEL": "openai/gpt-oss-120b:free",
         "OPENAI_API_KEY": "openai-key",
         "DRY_RUN": "false",
         "NEWS_PUBLISH_MODE": "publish",
@@ -98,7 +101,8 @@ def test_news_env_diagnostics_requires_blogger_only_for_live_auto_publish() -> N
 
 def test_news_env_diagnostics_accepts_complete_live_publish_secrets() -> None:
     diagnostics = build_news_env_diagnostics({
-        "GOOGLE_AI_API_KEY": "gemini-key",
+        "OPENROUTER_API_KEY": "openrouter-key",
+        "OPENROUTER_MODEL": "openai/gpt-oss-120b:free",
         "OPENAI_API_KEY": "openai-key",
         "DRY_RUN": "false",
         "NEWS_PUBLISH_MODE": "publish",

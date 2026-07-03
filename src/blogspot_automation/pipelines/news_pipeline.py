@@ -28,6 +28,7 @@ from blogspot_automation.services.news_scoring_service import NewsScoringService
 from blogspot_automation.services.news_topic_service import NewsTopicService
 from blogspot_automation.services.post_publish_audit_service import fetch_and_audit_post
 from blogspot_automation.services.publish_history_service import PublishHistoryService
+from blogspot_automation.services.reader_first_layout_service import reorder_for_reader_first
 from blogspot_automation.services.run_artifact_service import RunArtifactService
 from blogspot_automation.services.seo_policy import (
     append_hashtags_block,
@@ -497,6 +498,9 @@ class NewsPipeline:
             # TrendingNewsService에서 후순위라 일반 trending만 boost된다.
             if not ai_blog_mode:
                 scored = self._apply_trending_score_boost(scored)
+            else:
+                # AI_BLOG_MODE: 신선한 실뉴스 AI 이슈 후보 부스트 — evergreen보다 항상 우선
+                scored = self._apply_ai_issue_score_boost(scored)
             # boost 적용된 후 다시 정렬 (scored는 _apply_topic_group_cooldowns가 정렬 반환)
             scored = sorted(scored, key=lambda c: c.total_score, reverse=True)
 
@@ -1063,6 +1067,8 @@ class NewsPipeline:
                 title=best_title.title,
             )
             html = append_hashtags_block(html, hashtags=final_hashtags, labels=plan.labels)
+            # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지)
+            html = reorder_for_reader_first(html)
             internal_link_suggestions = self._internal_link_suggestions(
                 selected=selected,
                 content_type=str(content_angle_summary.get("content_type") or "general_life"),
@@ -1249,6 +1255,8 @@ class NewsPipeline:
                     hashtags=final_hashtags,
                     labels=plan.labels,
                 )
+                # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지)
+                _candidate_publish_html = reorder_for_reader_first(_candidate_publish_html)
                 _candidate_publish_gate = self.quality_gate.evaluate(
                     selected=selected,
                     selected_title=best_title.title,
@@ -1880,10 +1888,21 @@ class NewsPipeline:
         if not bool(publish_quality_gate.get("passed")):
             blocking_reasons.append("publish_quality_gate_failed")
         evergreen_daily_fallback = self._is_daily_evergreen_publish_fallback(base_result)
+        # Evergreen fallback 자동발행 기본 금지 (2026-07-02 사용자 지시):
+        # "직장인 ChatGPT 활용법" 류 범용 evergreen 글이 이슈 글 자리를 차지하는
+        # 문제를 차단한다. ALLOW_EVERGREEN_AUTO_PUBLISH=true 또는
+        # FORCE_EVERGREEN_FALLBACK=true(명시적 수동 강제)일 때만 예외 허용.
+        evergreen_auto_publish_allowed = (
+            evergreen_daily_fallback and self._evergreen_auto_publish_allowed()
+        )
         if source_type in {"fallback", "viral_fallback"} or (
-            source_type == "evergreen_fallback" and not evergreen_daily_fallback
+            source_type == "evergreen_fallback" and not evergreen_auto_publish_allowed
         ):
-            blocking_reasons.append(f"source_type_not_auto_publishable:{source_type}")
+            blocking_reasons.append(
+                "evergreen_auto_publish_disabled"
+                if source_type == "evergreen_fallback" and evergreen_daily_fallback
+                else f"source_type_not_auto_publishable:{source_type}"
+            )
         if content_type not in self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES and not ai_blog_content_allowed:
             blocking_reasons.append(f"content_type_not_auto_publishable:{content_type or 'missing'}")
         if content_type in self.NEWS_AUTO_PUBLISH_EXCLUDED_CONTENT_TYPES and not ai_blog_content_allowed:
@@ -1919,6 +1938,7 @@ class NewsPipeline:
             "article_candidate_generated": bool(base_result.get("article_candidate_generated")),
             "top_issue_direct_publish": top_issue_direct_publish,
             "evergreen_daily_fallback": evergreen_daily_fallback,
+            "evergreen_auto_publish_allowed": evergreen_auto_publish_allowed,
             "source_type": source_type,
             "content_type": content_type,
             "allowed_content_types": sorted(
@@ -1926,6 +1946,21 @@ class NewsPipeline:
                 | (frozenset({"ai_work_tip"}) if ai_blog_content_allowed else frozenset())
             ),
         }
+
+    @staticmethod
+    def _evergreen_auto_publish_allowed() -> bool:
+        """Evergreen fallback 자동발행 허용 여부 — 기본 False.
+
+        ALLOW_EVERGREEN_AUTO_PUBLISH=true: 운영자가 명시적으로 evergreen 자동발행 재허용.
+        FORCE_EVERGREEN_FALLBACK=true: 수동 evergreen 강제 실행(테스트/수동 발행)도 허용으로 간주.
+        """
+        explicit_allow = os.getenv("ALLOW_EVERGREEN_AUTO_PUBLISH", "false").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        forced = os.getenv("FORCE_EVERGREEN_FALLBACK", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        return explicit_allow or forced
 
     @staticmethod
     def _is_daily_evergreen_publish_fallback(base_result: dict[str, Any]) -> bool:
@@ -2284,6 +2319,71 @@ class NewsPipeline:
             item.total_score = max(item.total_score, 95)
             raw["trending_score_boost_applied"] = True
             raw["trending_score_boost_from"] = original
+        return scored
+
+    # 실제 AI 뉴스 소스로 인정하는 source_type — fallback/evergreen 계열 제외
+    _AI_ISSUE_REAL_NEWS_SOURCES: frozenset[str] = frozenset({
+        "google_news_rss",
+        "google_custom_search",
+        "tavily_search",
+        "exa_search",
+        "firecrawl_search",
+        "naver_news_search",
+        "daum_news_search",
+    })
+    # AI 이슈 부스트 자격 판단용 엔티티 토큰 (도구/모델/기업명)
+    _AI_ISSUE_ENTITY_TOKENS: tuple[str, ...] = (
+        "chatgpt", "챗gpt", "챗지피티", "gpt", "openai", "오픈ai", "오픈에이아이",
+        "claude", "클로드", "anthropic", "앤스로픽",
+        "gemini", "제미나이", "제미니", "구글 ai", "딥마인드",
+        "copilot", "코파일럿", "perplexity", "퍼플렉시티",
+        "midjourney", "미드저니", "sora", "소라",
+        "네이버 ai", "하이퍼클로바", "카카오 ai", "갤럭시 ai", "삼성 ai",
+        "엔비디아", "nvidia", "라마", "llama", "grok", "그록",
+    )
+
+    @classmethod
+    def _apply_ai_issue_score_boost(
+        cls,
+        scored: list[ScoredNewsCandidate],
+    ) -> list[ScoredNewsCandidate]:
+        """AI_BLOG_MODE 전용 — 신선한 실뉴스 AI 이슈 후보를 발행 임계값 위로 끌어올린다.
+
+        ai_work 후보는 MONEY/URGENCY 키워드 기반 click_potential 점수가 구조적으로
+        낮아 매일 evergreen fallback으로 밀리는 문제가 있었다. 실제 뉴스 소스 +
+        신선(pubDate stale 아님) + 구체 엔티티(도구/모델명) 3조건을 모두 갖춘
+        후보만 부스트한다. 하류 품질 게이트(본문/제목/포커스)는 그대로 적용된다.
+        """
+        for item in scored:
+            raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+            source_type = str(raw.get("source_type") or raw.get("source") or "").strip().lower()
+            if source_type not in cls._AI_ISSUE_REAL_NEWS_SOURCES:
+                continue
+            if str(raw.get("topic_group") or "") != "ai_work":
+                continue
+            if bool(raw.get("is_stale")) or bool(raw.get("stale_penalty_applied")):
+                continue
+            haystack = " ".join(
+                str(part or "")
+                for part in (
+                    item.candidate.topic,
+                    item.candidate.summary,
+                    raw.get("original_title"),
+                    raw.get("cleaned_title"),
+                )
+            ).lower()
+            if not any(token in haystack for token in cls._AI_ISSUE_ENTITY_TOKENS):
+                continue
+            if int(raw.get("risk_penalty", 0) or 0) > 0:
+                continue
+            original_score = item.total_score
+            original_click = int(raw.get("click_potential_score") or 0)
+            raw["ai_issue_engine"] = True
+            raw["ai_issue_score_boosted"] = True
+            raw["ai_issue_boost_from_score"] = original_score
+            raw["ai_issue_boost_from_click"] = original_click
+            raw["click_potential_score"] = max(original_click, 8)
+            item.total_score = max(item.total_score, 82)
         return scored
 
     @staticmethod
@@ -3392,6 +3492,8 @@ class NewsPipeline:
             check_needed=result.check_needed,
         )
         html = append_hashtags_block(html, hashtags=hashtags, labels=labels)
+        # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지)
+        html = reorder_for_reader_first(html)
         try:
             _validate_publish_contract(
                 html,
@@ -3578,6 +3680,8 @@ class NewsPipeline:
                 hashtags=result.hashtags,
                 labels=result.labels,
             )
+            # 독자 우선 레이아웃: GEO/SEO 블록이 있으면 본문 뒤로 재배치 (없으면 no-op)
+            result.article_html = reorder_for_reader_first(result.article_html)
             final_html_audit = audit_final_html_quality(
                 result.article_html,
                 topic=topic,

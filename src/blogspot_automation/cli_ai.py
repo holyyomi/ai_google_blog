@@ -14,51 +14,43 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    enabled = os.getenv("ENABLE_AI_PIPELINE", "false").strip().lower() in {"1", "true", "yes", "on"}
-    if not enabled:
-        logger.info(
-            "AiTopicPipeline is disabled for news-only operation. Set ENABLE_AI_PIPELINE=true only when AI posting is intentionally re-enabled."
-        )
-        print(json.dumps({"status": "skipped", "reason": "ai_pipeline_disabled_news_only"}, ensure_ascii=False, indent=2))
-        return
+    """Compatibility entrypoint.
 
-    from blogspot_automation.pipelines.ai_pipeline import AiTopicPipeline
-
-    dry_run = os.getenv("DRY_RUN", "true").strip().lower() in {"1", "true", "yes", "on"}
-    auto_publish = os.getenv("AUTO_PUBLISH", "false").strip().lower() in {"1", "true", "yes", "on"}
-    disable_image_generation = os.getenv("DISABLE_IMAGE_GENERATION", "true").strip().lower() in {"1", "true", "yes", "on"}
-    disable_image_upload = os.getenv("DISABLE_IMAGE_UPLOAD", "true").strip().lower() in {"1", "true", "yes", "on"}
-
-    logger.info(
-        "AiTopicPipeline start | dry_run=%s auto_publish=%s disable_image=%s/%s",
-        dry_run, auto_publish, disable_image_generation, disable_image_upload,
-    )
+    The old AiTopicPipeline used Naver Blog RSS as its first source. That path is
+    intentionally retired: this command now delegates to the fresh-news
+    pipeline so scheduled AI posts are selected from current AI/news discovery
+    sources, not from previously published Naver Blog posts.
+    """
+    os.environ.setdefault("NEWS_MODE", "news")
+    os.environ.setdefault("AI_BLOG_MODE", "true")
+    os.environ.setdefault("ALLOW_AI_NEWS_TOPICS", "true")
+    os.environ.setdefault("ENABLE_NAVER_SEARCH", "false")
+    os.environ.setdefault("ENABLE_NAVER_DATALAB", "false")
+    os.environ.setdefault("ENABLE_COVER_IMAGE_AUTOGEN", "false")
+    os.environ.setdefault("REQUIRE_NEWS_COVER_IMAGE", "false")
 
     force_topic = os.getenv("AI_FORCE_TOPIC", "").strip()
+    if force_topic:
+        logger.warning("AI_FORCE_TOPIC is ignored by cli_ai; use workflow_dispatch on cli_news for manual topic tests.")
 
-    pipeline = AiTopicPipeline(
-        dry_run=dry_run,
-        auto_publish=auto_publish,
-        disable_image_generation=disable_image_generation,
-        disable_image_upload=disable_image_upload,
-        _force_topic=force_topic,
-    )
-    result = pipeline.run_once()
+    from blogspot_automation.cli_news import run_news_cycle
+
+    logger.info("cli_ai delegated to NewsPipeline fresh AI/news discovery")
+    result = run_news_cycle()
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
-    logger.info("=== AiTopicPipeline Summary ===")
+    logger.info("=== Fresh AI NewsPipeline Summary ===")
     logger.info("  status             : %s", result.get("status"))
-    logger.info("  source_url         : %s", result.get("source_url", ""))
-    logger.info("  source_title       : %s", result.get("source_title", ""))
-    logger.info("  already_rewritten  : %s", result.get("already_rewritten", False))
+    logger.info("  selected_topic     : %s", result.get("selected_topic", ""))
+    logger.info("  selected_title     : %s", result.get("selected_title", ""))
     logger.info("  article_candidate  : %s", result.get("article_candidate_generated"))
     logger.info("  geo_ready          : %s", result.get("geo_ready"))
-    logger.info("  publish_mode       : %s", "dry_run" if dry_run else "publish")
-    logger.info("  auto_publish       : %s", auto_publish)
+    logger.info("  publish_mode       : %s", os.getenv("NEWS_PUBLISH_MODE", "dry_run"))
+    logger.info("  auto_publish       : %s", os.getenv("AUTO_PUBLISH", "false"))
     logger.info("  publish_attempted  : %s", result.get("publish_attempted", False))
     logger.info("  publish_succeeded  : %s", result.get("publish_succeeded", False))
-    logger.info("  blogger_url        : %s", result.get("blogger_url", ""))
+    logger.info("  blogger_url        : %s", result.get("blogger_url", "") or result.get("post_url", ""))
     if result.get("skip_reason"):
         logger.info("  skip_reason        : %s", result.get("skip_reason"))
     if result.get("error"):

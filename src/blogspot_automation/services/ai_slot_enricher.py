@@ -51,15 +51,39 @@ _ENRICH_SPEC = {
     ),
     "hook_opening": "독자 상황에 공감하며 글의 가치를 제시하는 3~4문장. 짧고 밀도 높게. 인사말 금지.",
     "yomi_judgment": "핵심 관점·결론을 단정적으로 2~3문장. 라벨 금지.",
-    "real_criterion": "실전 단계 3개를 '1단계: ...\\n2단계: ...\\n3단계: ...' 형식 한 문자열로. 각 단계 1~2문장, 구체적 기능·메뉴·방법 포함(고급 팁 우선).",
+    "real_criterion": (
+        "실전 단계 3개를 '1단계: ...\\n2단계: ...\\n3단계: ...' 형식 한 문자열로. "
+        "각 단계 1~2문장, 구체적 기능·메뉴·방법 포함(고급 팁 우선). "
+        "가능하면 소요 시간 변화를 수치로(예: 30분 걸리던 작업 -> 10분)."
+    ),
     "misconceptions": "주제 특화 오해 3개를 [{\"착각\":\"...\",\"실제\":\"...\"}] 배열로. 각 1문장.",
     "use_cases": "고급 실전 활용 시나리오 3개를 [{\"상황\":\"...\",\"활용\":\"...\"}] 배열로. 잘 안 알려진 활용 위주, 각 1~2문장.",
     "faq": "주제 특화 실전 질문 3개를 [{\"Q\":\"...\",\"A\":\"...\"}] 배열로. 답변 1~2문장.",
     "prompt_block": (
-        "이 주제/도구에 바로 복사해 쓰는 완성형 프롬프트 3개를 "
+        "이 주제/도구에 바로 복사해 쓰는 완성형 프롬프트 5개를 "
         "[{\"label\":\"용도(짧게)\",\"prompt\":\"실제 프롬프트 전문\"}] 배열로. "
-        "그대로 붙여넣어도 결과가 나오도록 구체적 예시 값까지 채울 것. "
+        "서로 다른 업무(예: 이메일/보고서/회의록/데이터 정리/기획) 하나씩. "
+        "그대로 붙여넣어도 결과가 나오도록 역할·조건·출력 형식·예시 값까지 채운 8줄 내외 프롬프트로. "
         "대괄호 빈칸은 꼭 필요한 1~2개로 최소화. 화살표는 ->로 표기."
+    ),
+    "quick_decision_table": (
+        "주제 특화 상황별 판단표 4~5행을 [{\"내 상황\":\"...\",\"할 일\":\"...\"}] 배열로. "
+        "'할 일'은 구체적 기능명·설정·프롬프트 방향까지 담을 것. 뻔한 일반론 금지."
+    ),
+    "actions": (
+        "오늘 바로 실행할 행동 3개를 [{\"행동\":\"짧은 제목\",\"설명\":\"1~2문장 구체 방법\"}] 배열로. "
+        "측정 가능한 행동(예: 반복 업무 3개 목록화)으로."
+    ),
+    "pricing_table": (
+        "이 주제와 관련된 도구/모델의 무료·유료 경계 비교 2~4행을 "
+        "[{\"플랜\":\"도구명 플랜명\",\"가격\":\"...\",\"핵심 기능\":\"...\",\"한계\":\"...\"}] 배열로. "
+        "확실한 가격만 쓰고, 불확실하면 가격 칸에 '공식 요금 페이지 확인'이라고 쓸 것. "
+        "'한계' 칸에는 무료 한도·제한을 구체적으로."
+    ),
+    "checklist": (
+        "이 주제를 회사 업무에 적용하기 전 확인할 체크리스트 5~6개를 문자열 배열로. "
+        "회사 기밀·개인정보 입력 금지, 결과물 팩트 검증, 사내 AI 정책 확인 등 "
+        "실무 보안·품질 항목 위주. 각 항목 한 문장."
     ),
 }
 
@@ -99,8 +123,11 @@ def enrich_slots_with_llm(
         f"주제: {topic}\n{title_part}글 성격: {focus}\n\n"
         f"아래 키를 가진 JSON 하나만 출력하세요. 각 값은 한국어로, 주제에 특화된 구체적 내용으로 채웁니다.\n"
         f"{spec_lines}\n\n"
-        "주의: 표·체크리스트·가격은 포함하지 마세요(다른 모듈이 처리). "
-        "사실이 불확실하면 일반적 원리로 쓰되 '직접 확인 필요'를 덧붙이세요."
+        "주의: 표·가격·체크리스트는 반드시 지정된 JSON 키(quick_decision_table/pricing_table/checklist)에만 담고, "
+        "텍스트 슬롯 안에는 넣지 마세요. "
+        "사실이 불확실하면 일반적 원리로 쓰되 '직접 확인 필요'를 덧붙이세요. "
+        "독자가 이 글을 저장하고 다시 찾아올 이유(복사해 쓰는 자산, 비교 기준, 비용 전략)를 "
+        "각 슬롯에 최소 하나씩 담으세요."
     )
 
     def _validator(text: str) -> None:
@@ -134,20 +161,26 @@ def enrich_slots_with_llm(
     _apply_pairs(enriched, data, "misconceptions", ("착각", "실제"))
     _apply_pairs(enriched, data, "use_cases", ("상황", "활용"))
     _apply_pairs(enriched, data, "faq", ("Q", "A"), min_items=3)
+    # 저장 가치 자산 슬롯 — 렌더러(golden_article_preview_service)가 지원하는
+    # 표/체크리스트 슬롯을 주제 특화 내용으로 채운다 (형식 불량 시 항목별 폴백).
+    _apply_pairs(enriched, data, "quick_decision_table", ("내 상황", "할 일"))
+    _apply_pairs(enriched, data, "actions", ("행동", "설명"))
+    _apply_pricing_table(enriched, data)
+    _apply_checklist(enriched, data)
 
-    # prompt_block: 템플릿에 원래 있던 패턴(프롬프트 레시피 등)에서만 주제 특화로 교체
-    if "prompt_block" in slots:
-        pb = data.get("prompt_block")
-        if isinstance(pb, list):
-            cards = []
-            for item in pb:
-                if isinstance(item, dict) and str(item.get("label", "")).strip() and str(item.get("prompt", "")).strip():
-                    cards.append({
-                        "label": str(item["label"]).strip(),
-                        "prompt": str(item["prompt"]).strip().replace("→", "->"),
-                    })
-            if len(cards) >= 2:
-                enriched["prompt_block"] = cards[:5]
+    # prompt_block: 주제 특화 완성형 프롬프트로 교체 (업무별 최대 5개).
+    # 템플릿에 슬롯이 없던 패턴에도 추가한다 — 복사해 쓰는 자산은 저장 가치의 핵심.
+    pb = data.get("prompt_block")
+    if isinstance(pb, list):
+        cards = []
+        for item in pb:
+            if isinstance(item, dict) and str(item.get("label", "")).strip() and str(item.get("prompt", "")).strip():
+                cards.append({
+                    "label": str(item["label"]).strip(),
+                    "prompt": str(item["prompt"]).strip().replace("→", "->"),
+                })
+        if len(cards) >= 2:
+            enriched["prompt_block"] = cards[:5]
 
     # 제목: LLM이 만든 자연스러운 제목을 특수 키에 담아 파이프라인이 채택하게 한다
     llm_title = data.get("title")
@@ -177,6 +210,35 @@ def _apply_text(slots: dict, data: dict, key: str, *, clean: bool = False) -> No
     val = data.get(key)
     if isinstance(val, str) and len(val.strip()) >= 20:
         slots[key] = _strip_internal_labels(val) if clean else val.strip()
+
+
+def _apply_pricing_table(slots: dict, data: dict) -> None:
+    """무료/유료 경계 비교표 — {플랜, 가격, 핵심 기능, 한계} 4필드 행만 채택."""
+    val = data.get("pricing_table")
+    if not isinstance(val, list):
+        return
+    rows = []
+    for item in val:
+        if not isinstance(item, dict):
+            continue
+        plan = str(item.get("플랜", "")).strip()
+        price = str(item.get("가격", "")).strip()
+        feature = str(item.get("핵심 기능", item.get("핵심기능", ""))).strip()
+        limit = str(item.get("한계", "")).strip()
+        if plan and price and (feature or limit):
+            rows.append({"플랜": plan, "가격": price, "핵심 기능": feature, "한계": limit})
+    if len(rows) >= 2:
+        slots["pricing_table"] = rows[:4]
+
+
+def _apply_checklist(slots: dict, data: dict) -> None:
+    """도입 전 보안·품질 체크리스트 — 문자열 배열 4개 이상일 때만 채택."""
+    val = data.get("checklist")
+    if not isinstance(val, list):
+        return
+    items = [str(c).strip() for c in val if str(c).strip() and len(str(c).strip()) >= 8]
+    if len(items) >= 4:
+        slots["checklist"] = items[:6]
 
 
 def _apply_pairs(slots: dict, data: dict, key: str, fields: tuple[str, str], *, min_items: int = 3) -> None:

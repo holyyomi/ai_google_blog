@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from blogspot_automation.pipelines.news_pipeline import NewsPipeline
 
@@ -321,7 +322,7 @@ class TestNewsAutoPublishGate(unittest.TestCase):
             gate["blocking_reasons"],
         )
 
-    def test_daily_evergreen_fallback_can_publish_when_all_gates_ready(self) -> None:
+    def test_daily_evergreen_fallback_blocked_by_default(self) -> None:
         pipeline = NewsPipeline(dry_run=False, news_publish_mode="publish", auto_publish=True)
         gate = pipeline._evaluate_auto_publish_gate(
             base_result=self._base_result(
@@ -339,6 +340,30 @@ class TestNewsAutoPublishGate(unittest.TestCase):
             ),
             publish_quality_gate={"passed": True},
         )
+
+        self.assertFalse(gate["allowed"])
+        self.assertIn("evergreen_auto_publish_disabled", gate["blocking_reasons"])
+        self.assertTrue(gate["evergreen_daily_fallback"])
+
+    def test_daily_evergreen_fallback_can_publish_with_explicit_allow(self) -> None:
+        pipeline = NewsPipeline(dry_run=False, news_publish_mode="publish", auto_publish=True)
+        with patch.dict(os.environ, {"ALLOW_EVERGREEN_AUTO_PUBLISH": "true"}, clear=False):
+            gate = pipeline._evaluate_auto_publish_gate(
+                base_result=self._base_result(
+                    source_type="evergreen_fallback",
+                    fallback_reason="no_golden_publish_candidate_used_evergreen",
+                    topic_group="delivery_money",
+                    content_angle={"content_type": "money_checklist"},
+                    evergreen_axis="money_life",
+                    article_candidate_generated=True,
+                    publish_ready=True,
+                    geo_ready=True,
+                    sge_ready=True,
+                    human_review_required=False,
+                    near_match=False,
+                ),
+                publish_quality_gate={"passed": True},
+            )
 
         self.assertTrue(gate["allowed"], gate["blocking_reasons"])
         self.assertTrue(gate["evergreen_daily_fallback"])

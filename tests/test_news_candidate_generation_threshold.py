@@ -257,6 +257,19 @@ class TestAutoPublishGateRemainsStrict(unittest.TestCase):
         }
 
         with patch.dict(os.environ, {"AI_BLOG_MODE": "true"}, clear=False):
+            default_gate = pipeline._evaluate_auto_publish_gate(
+                base_result=base_result,
+                publish_quality_gate={"passed": True},
+            )
+
+        self.assertFalse(default_gate["allowed"])
+        self.assertIn("evergreen_auto_publish_disabled", default_gate["blocking_reasons"])
+
+        with patch.dict(
+            os.environ,
+            {"AI_BLOG_MODE": "true", "ALLOW_EVERGREEN_AUTO_PUBLISH": "true"},
+            clear=False,
+        ):
             gate = pipeline._evaluate_auto_publish_gate(
                 base_result=base_result,
                 publish_quality_gate={"passed": True},

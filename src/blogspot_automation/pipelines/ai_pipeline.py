@@ -8,11 +8,6 @@ from typing import Any
 
 from blogspot_automation.services.golden_article_preview_service import GoldenArticlePreviewService
 from blogspot_automation.services.golden_pattern_service import GoldenPatternService
-from blogspot_automation.services.naver_blog_service import (
-    NaverPost,
-    fetch_latest_ai_post_for_blogspot,
-    mark_ai_blogspot_rewritten,
-)
 from blogspot_automation.services.news_label_service import NewsLabelService
 from blogspot_automation.services.publish_history_service import PublishHistoryService
 from blogspot_automation.services.run_artifact_service import RunArtifactService
@@ -24,8 +19,8 @@ from blogspot_automation.services.news_scoring_service import NewsScoringService
 logger = logging.getLogger(__name__)
 
 _AI_AXES = {"ai_automation"}
-_NAVER_CONTENT_TYPE = "ai_work_tip"
-_NAVER_TOPIC_GROUP  = "ai_work"
+_AI_CONTENT_TYPE = "ai_work_tip"
+_AI_TOPIC_GROUP = "ai_work"
 
 # 주제 → (content_type, topic_group) 분류 규칙. 위에서부터 먼저 매칭되는 규칙을 사용한다.
 # 더 구체적인 타입(프롬프트/비교/검색/모델/리스크)을 일반 타입보다 앞에 둔다.
@@ -64,7 +59,7 @@ def _classify_ai_topic(topic: str) -> tuple[str, str]:
     for keywords, ct, tg in _AI_ROUTE_RULES:
         if any(kw in haystack for kw in keywords):
             return ct, tg
-    return _NAVER_CONTENT_TYPE, _NAVER_TOPIC_GROUP
+    return _AI_CONTENT_TYPE, _AI_TOPIC_GROUP
 
 # pattern_id별 16:9 커버 이미지 scene
 _AI_IMAGE_SCENES: dict[str, str] = {
@@ -174,19 +169,6 @@ def compute_ai_content_scores(
     return result
 
 
-def _naver_post_to_source_meta(post: NaverPost) -> dict[str, Any]:
-    """NaverPost → source 메타데이터 dict."""
-    return {
-        "source_type": "naver_blog",
-        "source_url": post.link,
-        "source_title": post.title,
-        "source_summary": post.rss_excerpt[:300] if post.rss_excerpt else "",
-        "source_published_at": post.pub_date,
-        "source_log_no": post.log_no,
-        "already_rewritten": False,
-    }
-
-
 class AiTopicPipeline:
     """AI 관련 주제 Blogspot article_candidate 생성 파이프라인.
 
@@ -205,9 +187,9 @@ class AiTopicPipeline:
         auto_publish: bool = False,
         disable_image_generation: bool = True,
         disable_image_upload: bool = True,
-        # 테스트용: Naver RSS 실제 호출 없이 주제 강제 지정
+        # 테스트용: 외부 소스 호출 없이 주제 강제 지정
         _force_topic: str = "",
-        _force_naver_post: NaverPost | None = None,
+        _force_naver_post: Any | None = None,
     ) -> None:
         self.artifact_service = artifact_service or RunArtifactService()
         self.publish_history_service = publish_history_service or PublishHistoryService()
@@ -222,6 +204,8 @@ class AiTopicPipeline:
         self.disable_image_generation = disable_image_generation
         self.disable_image_upload = disable_image_upload
         self._force_topic = _force_topic
+        # Deprecated compatibility only. It is treated as a forced topic and is
+        # never fetched from, linked to, or marked as a Naver rewrite.
         self._force_naver_post = _force_naver_post
 
     # ------------------------------------------------------------------ #
@@ -230,12 +214,12 @@ class AiTopicPipeline:
 
     def run_once(self) -> dict[str, Any]:
         try:
-            naver_post, source_meta, topic, ct, tg = self._resolve_source()
+            source_meta, topic, ct, tg = self._resolve_source()
             if not topic:
                 return {"status": "skipped", "reason": "no_source_topic"}
 
-            summary = self._build_summary(naver_post, source_meta)
-            raw_candidate = self._build_candidate_raw(naver_post, source_meta, ct, tg)
+            summary = self._build_summary(source_meta)
+            raw_candidate = self._build_candidate_raw(source_meta, ct, tg)
 
             preview, pm_result, pattern_id = self._build_golden_preview(
                 topic=topic, ct=ct, tg=tg,
@@ -334,10 +318,20 @@ class AiTopicPipeline:
             blogger_url = ""
             skip_reason = ""
 
+            _evergreen_allowed = (
+                os.getenv("ALLOW_EVERGREEN_AUTO_PUBLISH", "false").strip().lower() in {"1", "true", "yes", "on"}
+                or os.getenv("FORCE_EVERGREEN_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
+            )
             if self.dry_run:
                 skip_reason = "dry_run=true"
             elif not self.auto_publish:
                 skip_reason = "auto_publish=false"
+            elif (
+                str(source_meta.get("source_type") or "") == "evergreen_fallback"
+                and not _evergreen_allowed
+            ):
+                # 범용 evergreen 글 자동발행 금지 (2026-07-02) — 최신 AI 이슈 강제
+                skip_reason = "evergreen_auto_publish_disabled"
             elif not _can_gen:
                 skip_reason = "article_candidate_generated=false"
             elif not _geo_ready:
@@ -362,12 +356,6 @@ class AiTopicPipeline:
                     hashtags=_slots_for_footer.get("hashtags") or hashtags,
                     internal_link_pairs=internal_link_pairs,
                 )
-
-            if naver_post and not self.dry_run and publish_succeeded:
-                try:
-                    mark_ai_blogspot_rewritten(naver_post)
-                except Exception as _me:
-                    logger.warning("mark_ai_blogspot_rewritten failed: %s", _me)
 
             if self.dry_run:
                 status = "dry_run_saved"
@@ -396,7 +384,7 @@ class AiTopicPipeline:
                 "source_type": source_meta.get("source_type", "unknown"),
                 "source_url": source_meta.get("source_url", ""),
                 "source_title": source_meta.get("source_title", ""),
-                "already_rewritten": bool(naver_post and publish_succeeded),
+                "already_rewritten": False,
                 "blogspot_labels": blogspot_labels,
                 "publish_attempted": publish_attempted,
                 "publish_succeeded": publish_succeeded,
@@ -414,14 +402,21 @@ class AiTopicPipeline:
 
     def _resolve_source(
         self,
-    ) -> tuple[NaverPost | None, dict[str, Any], str, str, str]:
-        """소스(Naver post or evergreen)와 topic/ct/tg를 결정한다."""
+    ) -> tuple[dict[str, Any], str, str, str]:
+        """소스(fresh AI/news topic or evergreen)와 topic/ct/tg를 결정한다."""
         # 테스트용 강제 지정
         if self._force_naver_post:
-            post = self._force_naver_post
-            meta = _naver_post_to_source_meta(post)
-            _ct, _tg = _classify_ai_topic(post.title)
-            return post, meta, post.title, _ct, _tg
+            forced_title = str(getattr(self._force_naver_post, "title", "") or "").strip()
+            meta = {
+                "source_type": "forced_topic",
+                "source_url": "",
+                "source_title": forced_title,
+                "source_summary": "",
+                "source_published_at": "",
+                "already_rewritten": False,
+            }
+            _ct, _tg = _classify_ai_topic(forced_title)
+            return meta, forced_title, _ct, _tg
         if self._force_topic:
             meta = {
                 "source_type": "forced_topic",
@@ -432,25 +427,14 @@ class AiTopicPipeline:
                 "already_rewritten": False,
             }
             _ct, _tg = _classify_ai_topic(self._force_topic)
-            return None, meta, self._force_topic, _ct, _tg
+            return meta, self._force_topic, _ct, _tg
 
-        # 1순위: Naver Blog AI 포스트
-        try:
-            post = fetch_latest_ai_post_for_blogspot()
-        except Exception as _ne:
-            logger.warning("fetch_latest_ai_post_for_blogspot failed: %s", _ne)
-            post = None
-
-        if post:
-            meta = _naver_post_to_source_meta(post)
-            _ct, _tg = _classify_ai_topic(post.title)
-            return post, meta, post.title, _ct, _tg
-
+        # 1순위: Fresh AI/news discovery
         # Fallback: evergreen_topic_service
-        logger.info("AiTopicPipeline: Naver 소스 없음 — evergreen fallback 사용")
+        logger.info("AiTopicPipeline: fresh AI/news source unavailable; evergreen fallback 사용")
         fallback_topic, fallback_ct, fallback_tg = self._evergreen_fallback()
         if not fallback_topic:
-            return None, {}, "", "", ""
+            return {}, "", "", ""
 
         meta = {
             "source_type": "evergreen_fallback",
@@ -460,7 +444,7 @@ class AiTopicPipeline:
             "source_published_at": "",
             "already_rewritten": False,
         }
-        return None, meta, fallback_topic, fallback_ct, fallback_tg
+        return meta, fallback_topic, fallback_ct, fallback_tg
 
     def _evergreen_fallback(self) -> tuple[str, str, str]:
         candidates = self.evergreen_topic_service.collect_candidates()
@@ -483,18 +467,11 @@ class AiTopicPipeline:
         return "", "", ""
 
     @staticmethod
-    def _build_summary(naver_post: NaverPost | None, source_meta: dict) -> str:
-        if naver_post:
-            parts = [
-                naver_post.rss_excerpt[:200] if naver_post.rss_excerpt else "",
-                naver_post.full_text[:200] if naver_post.full_text else "",
-            ]
-            return " ".join(p for p in parts if p)
+    def _build_summary(source_meta: dict) -> str:
         return source_meta.get("source_summary", "")
 
     @staticmethod
     def _build_candidate_raw(
-        naver_post: NaverPost | None,
         source_meta: dict,
         ct: str,
         tg: str,
@@ -509,11 +486,6 @@ class AiTopicPipeline:
             "source_published_at": source_meta.get("source_published_at", ""),
             "already_rewritten": False,
         }
-        if naver_post:
-            raw.update({
-                "search_demand_topic": naver_post.title,
-                "reader_search_questions": [],
-            })
         return raw
 
     def _build_golden_preview(
@@ -933,6 +905,9 @@ class AiTopicPipeline:
                 content_type=content_type,
                 internal_link_pairs=internal_link_pairs or [],
             )
+            # 독자 우선 레이아웃: GEO/SEO 블록을 본문 뒤로 재배치 (블록 존재는 유지)
+            from blogspot_automation.services.reader_first_layout_service import reorder_for_reader_first
+            _publish_html = reorder_for_reader_first(_publish_html)
             result = client.publish_post(
                 title=title,
                 article_html=_publish_html,
@@ -996,3 +971,4 @@ class AiTopicPipeline:
             except Exception:
                 pass
         return {}
+

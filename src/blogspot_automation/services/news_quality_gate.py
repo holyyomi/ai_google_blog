@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import unescape
+import os
 import re
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate
@@ -131,6 +132,24 @@ _POLICY_BENEFIT_BODY_TERMS = (
 )
 
 
+def _evergreen_auto_publish_allowed() -> bool:
+    """Evergreen fallback 자동발행 허용 여부 — 기본 False (news_pipeline과 동일 규칙)."""
+    explicit_allow = os.getenv("ALLOW_EVERGREEN_AUTO_PUBLISH", "false").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    forced = os.getenv("FORCE_EVERGREEN_FALLBACK", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    return explicit_allow or forced
+
+
+def _visible_text_for_debug_marker_scan(html: str) -> str:
+    content = re.sub(r"<script\b.*?</script>", " ", html or "", flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r"<style\b.*?</style>", " ", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r"<[^>]+>", " ", content)
+    return " ".join(unescape(content).split())
+
+
 class NewsQualityGate:
     def evaluate(
         self,
@@ -195,6 +214,11 @@ class NewsQualityGate:
             blocking_issues.append("stale_policy_or_support_candidate")
         if evergreen_candidate and not evergreen_axis:
             blocking_issues.append("evergreen_fallback_missing_axis")
+        # Evergreen fallback 자동발행 기본 금지 (2026-07-02): 범용 evergreen 글이
+        # 최신 AI 이슈 글을 대체하는 것을 발행 모드에서 차단한다.
+        # ALLOW_EVERGREEN_AUTO_PUBLISH=true 또는 FORCE_EVERGREEN_FALLBACK=true로만 허용.
+        if evergreen_candidate and publish_mode_active and not _evergreen_auto_publish_allowed():
+            blocking_issues.append("evergreen_fallback_auto_publish_disabled")
 
         axis_consecutive_count = int(raw.get("axis_consecutive_count") or 0)
         tax_refund_consecutive_count = int(raw.get("tax_refund_consecutive_count") or 0)
@@ -458,8 +482,9 @@ class NewsQualityGate:
                 blocking_issues.append(f"title_contains_source_suffix:{suffix}")
 
         lowered_html = html.lower()
+        visible_html_text = _visible_text_for_debug_marker_scan(html).lower()
         for marker in _DEBUG_HTML_MARKERS:
-            if marker.lower() in lowered_html:
+            if marker.lower() in visible_html_text:
                 blocking_issues.append(f"html_contains_debug_marker:{marker}")
 
         if not re.search(r"<h1\b[^>]*>.*?</h1>", html, flags=re.IGNORECASE | re.DOTALL):
@@ -619,6 +644,28 @@ class NewsQualityGate:
             blocking_issues.append("unverified_experience_or_income_claim")
         if topic_group == "ai_work" or content_type == "ai_work_tip":
             blocking_issues.extend(self._ai_blog_risk_issues(plain_text))
+        # AI 글 저장 가치 게이트 (2026-07-02): 발행 모드에서 표/프롬프트/비용 전략 같은
+        # "저장하고 다시 오는" 자산이 없는 AI 글의 발행을 차단한다.
+        _is_ai_family = (
+            topic_group == "ai_work"
+            or topic_group.startswith("ai_")
+            or content_type.startswith("ai_")
+        )
+        if _is_ai_family and publish_mode_active:
+            _save_blocking, _save_warnings = self._ai_save_value_issues(
+                html=html, content_type=content_type,
+            )
+            blocking_issues.extend(_save_blocking)
+            warnings.extend(_save_warnings)
+        blocking_issues.extend(
+            self._ai_tool_topic_specificity_issues(
+                title=title,
+                topic=selected.candidate.topic or "",
+                plain_text=plain_text,
+                content_type=content_type,
+                topic_group=topic_group,
+            )
+        )
         article_focus = self._article_focus_score(
             title=title,
             html=html,
@@ -883,6 +930,46 @@ class NewsQualityGate:
         }
         result["publish_preview_scorecard"] = build_publish_preview_scorecard(result)
         return result
+
+    @staticmethod
+    def _ai_save_value_issues(*, html: str, content_type: str) -> tuple[list[str], list[str]]:
+        """AI 글 저장 가치 검증 — (blocking, warnings).
+
+        blocking: 표 0개, 복사형 프롬프트 자산 3개 미만(프롬프트 관련 타입), 비용 언급 전무.
+        warnings: 체크리스트 부재, 프롬프트 자산 부족(비프롬프트 타입).
+        """
+        blocking: list[str] = []
+        soft: list[str] = []
+        lowered = (html or "").lower()
+
+        table_count = lowered.count("<table")
+        if table_count < 1:
+            blocking.append("ai_save_value_no_table")
+
+        # 복사형 프롬프트 자산: 골든 패턴 경로(prompt-code) + LLM 경로(<pre>)
+        prompt_asset_count = max(lowered.count("prompt-code"), lowered.count("<pre"))
+        prompt_relevant = content_type in {"ai_work_tip", "ai_prompt_recipe", "ai_beginner_guide"}
+        if prompt_relevant and prompt_asset_count < 3:
+            blocking.append(f"ai_save_value_prompt_blocks_below_3:{prompt_asset_count}")
+        elif prompt_asset_count < 2:
+            soft.append(f"ai_save_value_prompt_blocks_low:{prompt_asset_count}")
+
+        cost_terms = ("무료", "유료", "요금", "구독", "플랜", "비용", "가격")
+        cost_hits = sum(1 for term in cost_terms if term in html)
+        if cost_hits == 0:
+            blocking.append("ai_save_value_cost_strategy_missing")
+        elif cost_hits < 2:
+            soft.append("ai_save_value_cost_strategy_thin")
+
+        checklist_present = (
+            "체크리스트" in html
+            or ("checklist" in lowered and "체크" in html)
+            or "확인할 것" in html
+        )
+        if not checklist_present:
+            soft.append("ai_save_value_checklist_missing")
+
+        return blocking, soft
 
     @staticmethod
     def is_delivery_money_issue(selected: ScoredNewsCandidate) -> bool:
@@ -1264,6 +1351,11 @@ class NewsQualityGate:
         if recent_publish:
             score += 2
         if raw.get("trending_engine"):
+            score += 2
+        # ai_issue_engine: AI_BLOG_MODE에서 신선한 실뉴스 + 구체 엔티티 검증을 통과한
+        # AI 이슈 후보. AI 뉴스 헤드라인에는 "오늘" 류 키워드가 드물어 trending과
+        # 동일한 오늘성 가산을 준다 (stale이면 이 플래그 자체가 부여되지 않음).
+        if raw.get("ai_issue_engine"):
             score += 2
         if raw.get("discovery_engine"):
             try:
@@ -1701,6 +1793,70 @@ class NewsQualityGate:
             "platform_change": ("지원금 신청", "세금 환급"),
         }
         return [term for term in forbidden_by_type.get(content_type or "", ()) if term in plain_text]
+
+    @staticmethod
+    def _ai_tool_topic_specificity_issues(
+        *,
+        title: str,
+        topic: str,
+        plain_text: str,
+        content_type: str,
+        topic_group: str,
+    ) -> list[str]:
+        issues: list[str] = []
+        source_text = f"{title} {topic}"
+        body = " ".join((plain_text or "").split())
+        body_lower = body.lower()
+        source_lower = source_text.lower()
+        is_ai_article = (
+            "ai" in source_lower
+            or "gpt" in source_lower
+            or "chatgpt" in source_lower
+            or content_type.startswith("ai_")
+            or topic_group.startswith("ai_")
+        )
+        if not is_ai_article or not body:
+            return issues
+
+        generic_template_markers = (
+            "ChatGPT를 쓰기 시작했는데 오히려 시간이 더 걸리는 경험",
+            "반복 텍스트 업무에 우선 적용",
+            "이메일 초안·보고서 요약·반복 텍스트 생성",
+            "좋은 프롬프트는 어떻게 짜나",
+            "회의록 정리",
+        )
+        if "chatgpt" not in source_lower and any(marker in body for marker in generic_template_markers):
+            issues.append("ai_generic_chatgpt_template_leaked")
+
+        stop_terms = {
+            "ai", "gpt", "chatgpt", "the", "and", "for", "with", "news", "update",
+            "업무", "자동화", "활용", "기준", "이유", "방법", "정리", "사람", "먼저",
+        }
+        candidate_terms: list[str] = []
+        for term in re.findall(r"[A-Za-z][A-Za-z0-9.+-]{2,}|[가-힣]{2,}", source_text):
+            normalized = term.strip().lower()
+            if normalized in stop_terms:
+                continue
+            if normalized not in candidate_terms:
+                candidate_terms.append(normalized)
+        important_terms = candidate_terms[:5]
+        missing_terms = [term for term in important_terms if body_lower.count(term) < 2]
+        if important_terms and len(missing_terms) >= max(1, len(important_terms) // 2):
+            issues.append("ai_title_tool_terms_missing_in_body:" + ",".join(missing_terms[:3]))
+
+        value_groups = {
+            "pricing": ("요금", "가격", "비용", "무료", "유료", "플랜", "한도", "$", "달러"),
+            "workflow": ("활용", "워크플로우", "자동화", "설정", "단계", "적용", "사용법"),
+            "risk": ("보안", "개인정보", "권한", "데이터", "주의", "검수", "정책"),
+        }
+        missing_value_groups = [
+            name for name, terms in value_groups.items()
+            if not any(term in body for term in terms)
+        ]
+        if len(missing_value_groups) >= 2:
+            issues.append("ai_paid_value_information_missing:" + ",".join(missing_value_groups))
+
+        return issues
 
     @staticmethod
     def _ai_blog_risk_issues(plain_text: str) -> list[str]:

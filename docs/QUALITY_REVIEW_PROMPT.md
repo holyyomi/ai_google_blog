@@ -34,7 +34,7 @@ Never do these unless the user explicitly instructs otherwise:
 - Do not commit `runs/news_*` artifacts.
 - Do not commit `.env`, secrets, tokens, credentials, or generated private config.
 - Do not modify Naver automation protection files unless explicitly requested.
-- Do not modify `publish_service.py`, `publishing/client.py`, `cli_naver.py`, or Naver workflows unless explicitly requested.
+- Do not modify `publish_service.py`, `publishing/client.py`, `retired legacy Naver rewrite entrypoint`, or Naver workflows unless explicitly requested.
 - Do not delete fallback/test candidates unless explicitly requested.
 
 ## 5. Artifact Review Criteria
@@ -102,8 +102,8 @@ Keep changes small and focused. Do not make broad refactors while fixing publish
 
 - `src/blogspot_automation/services/publish_service.py`
 - `src/blogspot_automation/publishing/client.py`
-- `src/blogspot_automation/cli_naver.py`
-- `.github/workflows/naver_blog.yml`
+- `retired legacy Naver rewrite entrypoint`
+- `.github/workflows/retired Naver rewrite workflow`
 - Secret/config files
 - Generated `runs/news_*` artifacts
 

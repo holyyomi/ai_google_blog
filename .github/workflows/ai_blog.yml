@@ -1,8 +1,7 @@
-name: holyyomi AI Topic Blog
+name: holyyomi Fresh AI Issue Blog
 
-# AiTopicPipeline(cli_ai.py) 전용 워크플로.
-# - schedule: 매일 아침 KST 07:05(=UTC 22:05) 자동 발행. 주제는 네이버 AI 글 → 에버그린 폴백.
-# - workflow_dispatch: 수동 실행(기본 dry_run, force_topic 지정 가능).
+# cli_ai.py compatibility workflow.
+# The retired Naver Blog rewrite path is not used; cli_ai delegates to fresh AI/news discovery.
 on:
   schedule:
     # 22:05 UTC = 익일 07:05 KST. 정각(0분) 회피로 GitHub cron 지연 완화.
@@ -18,7 +17,7 @@ on:
           - dry_run
           - publish
       force_topic:
-        description: 'Optional: 강제 주제(비우면 네이버/에버그린 소스 사용)'
+        description: 'Optional: forced topic (blank = fresh AI/news discovery)'
         required: false
         default: ''
         type: string
@@ -51,28 +50,47 @@ jobs:
 
       - name: Run AI Topic Pipeline
         env:
-          ENABLE_AI_PIPELINE: "true"
           # schedule(매일 아침)이면 무조건 발행, 수동(dispatch)이면 publish_mode 입력에 따름
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (github.event.inputs.publish_mode == 'publish' && 'false' || 'true') }}
           AUTO_PUBLISH: ${{ github.event_name == 'schedule' && 'true' || (github.event.inputs.publish_mode == 'publish' && 'true' || 'false') }}
+          NEWS_PUBLISH_MODE: ${{ github.event_name == 'schedule' && 'publish' || github.event.inputs.publish_mode }}
           AI_FORCE_TOPIC: ${{ github.event.inputs.force_topic }}
+          NEWS_MODE: "news"
+          AI_BLOG_MODE: "true"
+          AI_BLOG_AUTO_PUBLISH: "true"
+          ALLOW_AI_NEWS_TOPICS: "true"
+          NEWS_EXCLUDED_QUERY_GROUPS: ""
+          MIN_TOPIC_SCORE: "75"
+          TOPIC_CANDIDATE_LIMIT: "120"
+          DEDUP_DAYS: "7"
+          TITLE_CANDIDATE_COUNT: "10"
           # LLM 주제 특화 본문 생성
           ENABLE_AI_LLM_ENRICH: "true"
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: "gpt-5-mini"
-          # 이미지 생성(Cloudflare 무료 1순위 → Gemini 2순위) → imgbb 영구 호스팅
-          DISABLE_IMAGE_GENERATION: ${{ github.event_name == 'schedule' && 'false' || (github.event.inputs.publish_mode == 'publish' && 'false' || 'true') }}
-          DISABLE_IMAGE_UPLOAD: ${{ github.event_name == 'schedule' && 'false' || (github.event.inputs.publish_mode == 'publish' && 'false' || 'true') }}
-          ENABLE_COVER_IMAGE_AUTOGEN: "true"
+          # Disable generated covers because image models often render broken Korean text.
+          DISABLE_IMAGE_GENERATION: "true"
+          DISABLE_IMAGE_UPLOAD: "true"
+          ENABLE_COVER_IMAGE_AUTOGEN: "false"
+          REQUIRE_NEWS_COVER_IMAGE: "false"
           AI_IMAGE_UPLOAD_KEY: ${{ secrets.AI_IMAGE_UPLOAD_KEY }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # 네이버 소스(1순위) — 없으면 에버그린 폴백
-          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
-          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          # Naver Blog rewrite is disabled. Fresh discovery uses Google RSS + Tavily/Exa/Firecrawl.
+          ENABLE_NAVER_SEARCH: "false"
+          ENABLE_NAVER_DATALAB: "false"
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          ENABLE_TAVILY_SEARCH: "true"
+          ENABLE_EXA_SEARCH: "true"
+          ENABLE_FIRECRAWL_SEARCH: "true"
+          NEWS_TAVILY_MAX_REQUESTS: "3"
+          NEWS_EXA_MAX_REQUESTS: "1"
+          NEWS_FIRECRAWL_MAX_REQUESTS: "1"
           # 색인 즉시 요청 (Bing·Naver IndexNow) — 키 없으면 안전하게 skip
           NAVER_INDEXNOW_KEY: ${{ secrets.NAVER_INDEXNOW_KEY }}
           NAVER_INDEXNOW_KEY_LOCATION: ${{ secrets.NAVER_INDEXNOW_KEY_LOCATION }}
@@ -116,12 +134,12 @@ jobs:
           path: runs/
           if-no-files-found: warn
 
-      # 중복 방지 상태를 저장소에 커밋 — 안 하면 매일 같은 네이버 글을 재발행하게 됨.
-      - name: Persist AI Dedup State
+      # Keep publish history so recent-topic dedup works across scheduled runs.
+      - name: Persist Publish History
         if: ${{ always() && github.ref_name == 'main' }}
         run: |
           CHANGED=""
-          for f in data/naver_ai_rewritten.json data/publish_history.json; do
+          for f in data/publish_history.json; do
             if [ -f "$f" ] && ! git diff --quiet -- "$f" 2>/dev/null; then CHANGED="yes"; fi
             if [ -f "$f" ] && ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then CHANGED="yes"; fi
           done
@@ -129,9 +147,10 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git pull --rebase --autostash origin main
-            git add data/naver_ai_rewritten.json data/publish_history.json 2>/dev/null || true
-            git commit -m "chore: update AI dedup/publish state [skip ci]" || echo "nothing to commit"
+            git add data/publish_history.json
+            git commit -m "chore: update publish history [skip ci]" || echo "nothing to commit"
             git push origin HEAD:main
           else
-            echo "AI dedup state unchanged, skipping commit"
+            echo "Publish history unchanged, skipping commit"
           fi
+

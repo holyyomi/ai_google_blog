@@ -11,6 +11,8 @@ def test_settings_from_env_loads_news_api_keys(monkeypatch) -> None:
     monkeypatch.setenv("ENABLE_GOOGLE_CUSTOM_SEARCH", "true")
     monkeypatch.setenv("NAVER_CLIENT_ID", "naver-id")
     monkeypatch.setenv("NAVER_CLIENT_SECRET", "naver-secret")
+    monkeypatch.setenv("ENABLE_NAVER_SEARCH", "true")
+    monkeypatch.setenv("ENABLE_NAVER_DATALAB", "true")
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-key")
     monkeypatch.setenv("EXA_API_KEY", "exa-key")
     monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-key")
