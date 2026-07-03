@@ -300,13 +300,50 @@ class LlmContentService:
         return self._gather_facts(topic)
 
     def _gather_facts(self, topic: str) -> str:
-        """실제 팩트 수집: Custom Search 우선, 없으면 Gemini 그라운딩으로 폴백."""
+        """실제 팩트 수집: Custom Search(키 있을 때) → Google News RSS(키 불필요) 폴백.
+
+        Gemini 그라운딩 폴백은 제거됨 — 운영 방침상 LLM은 OpenRouter/OpenAI만 쓰고
+        GOOGLE_AI_API_KEY는 더 이상 사용하지 않는다. RSS 폴백은 키가 전혀 필요
+        없어서 어떤 환경에서든 최신 헤드라인 근거를 확보할 수 있다.
+        """
         facts = ""
         if self._search_api_key and self._search_cx:
             facts = self._custom_search(topic)
         if not facts:
-            facts = self._gemini_grounding_search(topic)
+            facts = self._google_news_rss_facts(topic)
         return facts
+
+    def _google_news_rss_facts(self, topic: str) -> str:
+        """Google News RSS에서 주제 관련 최신 헤드라인을 수집한다 (API 키 불필요)."""
+        try:
+            import xml.etree.ElementTree as ET
+            query = urllib.parse.quote(topic)
+            url = (
+                f"https://news.google.com/rss/search?q={query}"
+                "&hl=ko&gl=KR&ceid=KR:ko"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                root = ET.fromstring(resp.read())
+            lines: list[str] = []
+            for item in root.iter("item"):
+                title = (item.findtext("title") or "").strip()
+                pub_date = (item.findtext("pubDate") or "").strip()
+                source = (item.findtext("source") or "").strip()
+                if not title:
+                    continue
+                suffix = " · ".join(p for p in (source, pub_date[:16]) if p)
+                lines.append(f"- {title}" + (f" ({suffix})" if suffix else ""))
+                if len(lines) >= 6:
+                    break
+            result = "\n".join(lines)
+            if result:
+                logger.info("LlmContentService: Google News RSS 팩트 %d건", len(lines))
+                return f"[최근 관련 뉴스 헤드라인]\n{result}"
+            return ""
+        except Exception as exc:
+            logger.warning("LlmContentService: Google News RSS 팩트 수집 실패 — %s", exc)
+            return ""
 
     def _custom_search(self, topic: str) -> str:
         """Google Custom Search API로 스니펫 수집."""
@@ -340,45 +377,6 @@ class LlmContentService:
             return ""
         except Exception as exc:
             logger.warning("LlmContentService: Custom Search 실패 — %s", exc)
-            return ""
-
-    def _gemini_grounding_search(self, topic: str) -> str:
-        """Gemini + Google Search Grounding으로 실시간 팩트 수집."""
-        gemini_key = os.getenv("GOOGLE_AI_API_KEY", "").strip()
-        if not gemini_key:
-            return ""
-        try:
-            query = (
-                f"다음 주제에 대한 최신 정확한 사실을 한국어로 요약해줘. "
-                f"날짜, 금액, 조건, 대상 등 구체적 수치를 포함해서 3~5문장으로.\n주제: {topic}"
-            )
-            payload = json.dumps({
-                "contents": [{"parts": [{"text": query}]}],
-                "tools": [{"google_search": {}}],
-            }, ensure_ascii=False).encode("utf-8")
-            url = (
-                f"https://generativelanguage.googleapis.com/v1beta"
-                f"/models/gemini-2.5-flash:generateContent?key={gemini_key}"
-            )
-            req = urllib.request.Request(
-                url, data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read().decode())
-            text = (
-                data.get("candidates", [{}])[0]
-                .get("content", {})
-                .get("parts", [{}])[0]
-                .get("text", "")
-            ).strip()
-            if text:
-                logger.info("LlmContentService: Gemini 그라운딩 팩트 수집 (%d자)", len(text))
-                return f"[Gemini 웹검색 요약]\n{text}"
-            return ""
-        except Exception as exc:
-            logger.warning("LlmContentService: Gemini 그라운딩 실패 — %s", exc)
             return ""
 
     def _run_fallback_chain(self, user_prompt: str) -> str | None:
@@ -449,8 +447,6 @@ class LlmContentService:
         system_prompt: str | None = None,
     ) -> str:
         """Configured LLM provider 호출."""
-        if provider.get("provider_type") == "gemini":
-            return self._call_gemini_provider(provider, api_key, user_prompt, system_prompt)
         return self._call_openai_compatible_provider(provider, api_key, user_prompt, system_prompt)
 
     def _resolve_provider_model(self, provider: dict[str, Any]) -> str:
@@ -463,55 +459,6 @@ class LlmContentService:
         if model is None:
             return os.getenv("OPENAI_MODEL", "gpt-5-mini").strip()
         return str(model).strip()
-
-    def _call_gemini_provider(
-        self,
-        provider: dict[str, Any],
-        api_key: str,
-        user_prompt: str,
-        system_prompt: str | None = None,
-    ) -> str:
-        """Gemini native generateContent API 호출."""
-        base_url = str(provider["base_url"]).strip().rstrip("/")
-        model = self._resolve_provider_model(provider)
-        max_tokens = int(provider.get("max_tokens") or 8192)
-        payload = {
-            "systemInstruction": {
-                "parts": [{"text": system_prompt if system_prompt is not None else _SYSTEM_PROMPT}],
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": user_prompt}],
-                }
-            ],
-            "generationConfig": {
-                "maxOutputTokens": max_tokens,
-                "temperature": 0.7,
-                # gemini-2.5-flash는 기본 thinking이 출력 토큰 예산을 잠식해 JSON이 잘림
-                # → 빈/invalid 응답. thinkingBudget=0으로 thinking 끄고 전량 출력에 쓴다.
-                "thinkingConfig": {"thinkingBudget": 0},
-            },
-        }
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            f"{base_url}/models/{urllib.parse.quote(model, safe='')}:generateContent?key={api_key}",
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            result = json.loads(resp.read().decode())
-
-        parts = (
-            result.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [])
-        )
-        content = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
-        if not content:
-            raise RuntimeError(f"No Gemini content in response: {result}")
-        return _clean_llm_output(content)
 
     def _call_openai_compatible_provider(
         self,

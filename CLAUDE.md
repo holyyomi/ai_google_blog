@@ -132,15 +132,15 @@ publish_ready = (
 
 ---
 
-## 워크플로우 스케줄
+## 워크플로우 스케줄 (운영 방침 2026-07-03: AI 주제 하루 1회 자동 발행)
 
-| 파일 | cron (UTC) | KST | 목적 | schedule 이벤트 동작 |
-|------|------|-----|------|----------------------|
-| news_blog.yml | `0 11 * * *` | 20:00 | 저녁 뉴스 이슈 (Today Issue News Automation) | DRY_RUN=false, NEWS_PUBLISH_MODE=publish, PUBLISH_HOLD_PHASE2=false, AUTO_PUBLISH=true |
-| retired Naver rewrite workflow | `0 23 * * *` | 08:00 | 네이버블로그 → 블로그스팟 재작성 발행 (Naver to Blogspot Auto Rewrite) | retired legacy Naver rewrite entrypoint 실행, 발행 게이트 없음 (QA score 무관 발행) |
+| 파일 | cron (UTC) | KST | 목적 | 동작 |
+|------|------|-----|------|------|
+| ai_blog.yml | `5 22 * * *` | 익일 07:05 | **유일한 자동 발행** — AI 이슈 1건/일 | schedule: DRY_RUN=false, AUTO_PUBLISH=true. LLM은 OpenRouter 무료(1차 nemotron→2차 gpt-oss) → OpenAI 유료 폴백 |
+| news_blog.yml | (schedule 없음) | — | 수동 스모크 테스트/수동 발행 전용 | workflow_dispatch만 지원 (30분 주기 schedule은 2026-07-03 제거) |
 
 > GitHub Actions schedule은 main 브랜치에서만 실행됨
-> AI 전용 워크플로우(`ai_blog.yml`)는 현재 존재하지 않음 — `cli_ai.py`는 로컬/수동 실행만 가능
+> GOOGLE_AI_API_KEY(Gemini)는 더 이상 사용하지 않음 — 팩트 수집은 Custom Search(키 있을 때) → Google News RSS(키 불필요) 폴백
 
 ---
 

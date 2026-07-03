@@ -1139,7 +1139,7 @@ class AiContentService:
         if not content_str:
             raise RuntimeError(
                 "LLM fallback chain 전체 실패 — 모든 provider가 호출 실패 또는 invalid JSON 반환. "
-                "GOOGLE_AI_API_KEY 또는 OPENAI_API_KEY 중 최소 1개가 유효 + 정상 응답해야 합니다."
+                "OPENROUTER_API_KEY 또는 OPENAI_API_KEY 중 최소 1개가 유효 + 정상 응답해야 합니다."
             )
 
         try:

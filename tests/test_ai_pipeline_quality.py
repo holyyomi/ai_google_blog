@@ -315,8 +315,10 @@ class TestAiBlogYml(unittest.TestCase):
         content = self._yml_content()
         if not content:
             self.skipTest("ai_blog.yml not found")
-        for marker in ("ENABLE_AI_LLM_ENRICH", "GOOGLE_AI_API_KEY", "IMGBB_API_KEY", "CLOUDFLARE_API_TOKEN"):
+        for marker in ("ENABLE_AI_LLM_ENRICH", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "IMGBB_API_KEY", "CLOUDFLARE_API_TOKEN"):
             self.assertIn(marker, content, f"키 주입 누락: {marker}")
+        # 운영 방침(2026-07-03): Gemini는 더 이상 사용하지 않음
+        self.assertNotIn("GOOGLE_AI_API_KEY", content)
 
     def test_artifact_upload_present(self):
         content = self._yml_content()
