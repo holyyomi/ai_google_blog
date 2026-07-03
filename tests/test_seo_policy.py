@@ -481,3 +481,26 @@ def re_match(pattern: str, value: str) -> bool:
 
     return re.match(pattern, value) is not None
 
+
+
+def test_strip_hashtag_sections_removes_hashtag_only_paragraph() -> None:
+    from blogspot_automation.services.seo_policy import strip_hashtag_sections
+
+    html = "<p>본문 문장이다.</p><p>#카카오 #AI #업무자동화 #생산성 #카카오톡</p>"
+    assert strip_hashtag_sections(html) == "<p>본문 문장이다.</p>"
+
+
+def test_strip_hashtag_sections_trims_trailing_hashtag_run() -> None:
+    from blogspot_automation.services.seo_policy import strip_hashtag_sections
+
+    html = "<p>정리하면 이렇다. #카카오AI #업무자동화 #AI도구</p>"
+    assert strip_hashtag_sections(html) == "<p>정리하면 이렇다.</p>"
+
+
+def test_strip_hashtag_sections_keeps_inline_single_hashtag_and_csharp() -> None:
+    from blogspot_automation.services.seo_policy import strip_hashtag_sections
+
+    keep1 = "<p>C#은 마이크로소프트 언어다.</p>"
+    keep2 = "<p>이번 업데이트는 #카카오 앱에서 확인할 수 있다.</p>"
+    assert strip_hashtag_sections(keep1) == keep1
+    assert strip_hashtag_sections(keep2) == keep2

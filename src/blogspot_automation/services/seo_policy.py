@@ -416,7 +416,20 @@ def strip_hashtag_sections(html: str) -> str:
         r'\s*<p\b(?=[^>]*class=["\'][^"\']*\bsource-note\b)[^>]*>[^<]*#[가-힣A-Za-z0-9_][^<]*</p>',
         flags=re.IGNORECASE | re.DOTALL,
     )
-    return hashtag_note_pattern.sub("", cleaned)
+    cleaned = hashtag_note_pattern.sub("", cleaned)
+    # LLM이 일반 문단 안에 쓴 떠돌이 해시태그 정리 — 통제된 푸터 블록은 이 단계
+    # 이후(append_hashtags_block)에 붙으므로 여기서 지워도 안전하다. 방치하면
+    # final_html_audit의 uncontrolled_visible_body_hashtags 게이트에 걸려 발행이 막힌다.
+    hashtag_only_paragraph = re.compile(
+        r'\s*<p\b[^>]*>(?:\s|&nbsp;|[,·|/]|<br\s*/?>|#[가-힣A-Za-z0-9_]{2,})+</p>',
+        flags=re.IGNORECASE,
+    )
+    cleaned = hashtag_only_paragraph.sub("", cleaned)
+    trailing_hashtag_run = re.compile(
+        r'(?:\s|&nbsp;)*(?:#[가-힣A-Za-z0-9_]{2,}(?:\s|&nbsp;|[,·])*){2,}(</p>)',
+        flags=re.IGNORECASE,
+    )
+    return trailing_hashtag_run.sub(r"\1", cleaned)
 
 
 def count_external_anchor_links(html: str, *, allowed_hosts: tuple[str, ...] = _ALLOWED_LINK_HOSTS) -> int:
