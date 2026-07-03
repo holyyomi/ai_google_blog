@@ -4,8 +4,12 @@ name: holyyomi Fresh AI Issue Blog
 # The retired Naver Blog rewrite path is not used; cli_ai delegates to fresh AI/news discovery.
 on:
   schedule:
-    # 22:05 UTC = 익일 07:05 KST. 정각(0분) 회피로 GitHub cron 지연 완화.
-    - cron: '5 22 * * *'
+    # 하루 2회 발행 (2026-07-03 운영 방침): 아침/저녁 각 1건.
+    # 22:31 UTC = 익일 07:31 KST, 10:31 UTC = 당일 19:31 KST.
+    # 정각(0분) 회피로 GitHub cron 지연 완화. 중복 주제는 dedup +
+    # 본문 지문 재탕 게이트가 차단하므로 2회여도 같은 글이 나가지 않는다.
+    - cron: '31 22 * * *'
+    - cron: '31 10 * * *'
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -47,6 +51,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # Search Console 성과 루프 — 실제 검색 성과를 받아 주제 선정에 반영.
+      # GSC_SERVICE_ACCOUNT_JSON secret이 없으면 조용히 스킵 (발행 흐름 영향 없음).
+      - name: Fetch Search Console Performance
+        env:
+          GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+          BLOGSPOT_HOME_URL: "https://holyyomiai.blogspot.com/"
+        run: |
+          PYTHONPATH=src python scripts/fetch_search_performance.py || echo "search performance fetch skipped"
 
       - name: Run AI Topic Pipeline
         env:

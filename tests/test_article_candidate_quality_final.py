@@ -272,13 +272,15 @@ class TestWorkflowSchedules(unittest.TestCase):
         self.assertNotIn("cron:", content, "news_blog.yml must not have a schedule trigger")
         self.assertIn("workflow_dispatch:", content)
 
-    def test_ai_workflow_daily_cron(self) -> None:
+    def test_ai_workflow_twice_daily_cron(self) -> None:
+        # 운영 방침(2026-07-03): 아침/저녁 하루 2회 — 07:31 KST(22:31 UTC), 19:31 KST(10:31 UTC)
         import pathlib
         path = pathlib.Path(".github/workflows/ai_blog.yml")
         if not path.exists():
             self.skipTest("ai_blog.yml not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("5 22 * * *", content, "ai_blog.yml should publish once daily at 07:05 KST")
+        self.assertIn("31 22 * * *", content, "morning slot (07:31 KST) missing")
+        self.assertIn("31 10 * * *", content, "evening slot (19:31 KST) missing")
 
     def test_news_workflow_operational_guards(self) -> None:
         import pathlib
