@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 45  # seconds
 
 # ─── Provider 설정 ────────────────────────────────────────────────────────────
+# 순서 = 폴백 체인 우선순위 (운영자 정책: 항상 무료 모델 먼저, 실패 시에만 유료).
+#   1) OpenRouter 무료 플래그십 (기본: nvidia nemotron-3-ultra 550B — 2026-07 기준
+#      OpenRouter 무료 모델 중 최상위 추론 성능)
+#   2) OpenRouter 무료 2차 (1차가 429 등으로 막힐 때 다른 무료 모델로 한 번 더)
+#   3) OpenAI 유료 (무료가 모두 실패한 날만 — 정적 템플릿 폴백/발행 스킵 방지)
 _PROVIDERS: list[dict[str, Any]] = [
     {
         "name": "openrouter_primary",
@@ -35,8 +40,24 @@ _PROVIDERS: list[dict[str, Any]] = [
         "default_base_url": "https://openrouter.ai/api/v1",
         "api_key_env": "OPENROUTER_API_KEY",
         "model_env": "OPENROUTER_MODEL",
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "free": True,
+        "max_tokens": 12000,
+        "extra_headers": {
+            "HTTP-Referer": "https://holyyomiai.blogspot.com/",
+            "X-Title": "holyyomi AI",
+        },
+    },
+    {
+        "name": "openrouter_secondary",
+        "provider_type": "openai_compatible",
+        "base_url": None,
+        "base_url_env": "OPENROUTER_BASE_URL",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "default_base_url": "https://openrouter.ai/api/v1",
+        "model_env": "OPENROUTER_MODEL_FALLBACK",
         "model": "openai/gpt-oss-120b:free",
-        "free": False,
+        "free": True,
         "max_tokens": 12000,
         "extra_headers": {
             "HTTP-Referer": "https://holyyomiai.blogspot.com/",
@@ -364,7 +385,7 @@ class LlmContentService:
     ) -> str | None:
         """Provider 폴백 체인으로 LLM 호출 — 외부 system_prompt 주입 가능.
 
-        OpenRouter 우선 → OpenAI API fallback 순서로 호출한다.
+        OpenRouter 무료 (1차→2차) → OpenAI 유료 fallback 순서로 호출한다.
         ai_content_service 등 다른 모듈이 같은 비용 절감 정책을 따르기 위한 공용 진입점.
 
         validator: 응답을 추가 검증하는 callable(text). 예외 raise 시 다음 provider로 fallback.

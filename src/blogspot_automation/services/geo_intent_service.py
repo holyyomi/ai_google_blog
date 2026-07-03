@@ -115,7 +115,7 @@ class GeoIntentService:
             ]
         elif content_type == "ai_work_tip":
             questions = [
-                f"{kw}은 어떤 업무에 효과적인가요?",
+                f"{_josa(kw, '은', '는')} 어떤 업무에 효과적인가요?",
                 "AI 도구는 무료로 쓸 수 있나요?",
                 "AI 도구로 실제 시간 절약은 어느 정도인가요?",
                 "AI 도구 사용 시 주의사항은 무엇인가요?",

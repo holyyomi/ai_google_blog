@@ -80,6 +80,9 @@ jobs:
           ENABLE_GOOGLE_CUSTOM_SEARCH: "false"
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free"
+          OPENROUTER_MODEL_FALLBACK: "openai/gpt-oss-120b:free"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: "gpt-4o-mini"
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
@@ -158,6 +161,9 @@ jobs:
           NEWS_FIRECRAWL_MAX_REQUESTS: "1"
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free"
+          OPENROUTER_MODEL_FALLBACK: "openai/gpt-oss-120b:free"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: "gpt-4o-mini"
           BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}

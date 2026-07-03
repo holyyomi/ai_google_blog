@@ -481,30 +481,33 @@ class GoldenArticlePreviewService:
                 f'    </section>'
             )
 
-        # prompt_block (AI 프롬프트 레시피 전용 — 복사 가능한 프롬프트 박스)
-        prompt_block = _list_slot(slots.get("prompt_block"))
-        if prompt_block:
-            cards = []
-            for item in prompt_block:
-                if not isinstance(item, dict):
-                    continue
-                label = escape(str(item.get("label", "프롬프트")))
-                prompt_text = escape(str(item.get("prompt", "")))
-                if not prompt_text.strip():
-                    continue
-                cards.append(
-                    f'      <div class="prompt-card">\n'
-                    f'        <p class="prompt-card-label">{label}</p>\n'
-                    f'        <pre class="prompt-code">{prompt_text}</pre>\n'
-                    f'      </div>'
-                )
-            if cards:
-                sections.append(
-                    f'    <section class="prompt-recipe-box">\n'
-                    f'      <p class="section-label">📝 복사해서 쓰는 프롬프트</p>\n'
-                    + "\n".join(cards) + "\n"
-                    f'    </section>'
-                )
+        # prompt_block — ai_prompt_recipe 전용(패턴 자체가 프롬프트 템플릿 모음).
+        # 다른 content_type에 일괄 적용하면 주제와 무관한 범용 프롬프트가 끼어들어
+        # 오히려 저장 가치를 해치므로 렌더링하지 않는다.
+        if _ct_rh == "ai_prompt_recipe":
+            prompt_block = _list_slot(slots.get("prompt_block"))
+            if prompt_block:
+                cards = []
+                for item in prompt_block:
+                    if not isinstance(item, dict):
+                        continue
+                    label = escape(str(item.get("label", "프롬프트")))
+                    prompt_text = escape(str(item.get("prompt", "")))
+                    if not prompt_text.strip():
+                        continue
+                    cards.append(
+                        f'      <div class="prompt-card">\n'
+                        f'        <p class="prompt-card-label">{label}</p>\n'
+                        f'        <pre class="prompt-code">{prompt_text}</pre>\n'
+                        f'      </div>'
+                    )
+                if cards:
+                    sections.append(
+                        f'    <section class="prompt-recipe-box">\n'
+                        f'      <p class="section-label">📝 복사해서 쓰는 프롬프트</p>\n'
+                        + "\n".join(cards) + "\n"
+                        f'    </section>'
+                    )
 
         # misconceptions
         misconceptions = _list_slot(slots.get("misconceptions"))
@@ -774,16 +777,10 @@ class GoldenArticlePreviewService:
             '    <p>' + escape(_ai_summary_text) + '</p>\n'
             '  </section>'
         )
-        _disclaimer = _PATTERN_DATE_DISCLAIMERS.get(
-            _pattern_id,
-            "이 글의 내용은 공식 안내에 따라 달라질 수 있으므로 최신 정보를 직접 확인하세요."
-        )
-        updated_date_block = (
-            f'\n  <section id="UPDATED_DATE_BLOCK">\n'
-            f'    <p>이 글은 {today_str} 기준으로 작성된 정보입니다. '
-            f'{_disclaimer}</p>\n'
-            f'  </section>'
-        )
+        # 작성 기준일은 하단 SOURCE_TRUST_BLOCK 본문에 이미 "(YYYY-MM-DD 기준)"으로
+        # 포함된다 — 상단에 같은 날짜를 또 표시하지 않는다(중복 문구 지적 반영).
+        # GEO 점수의 날짜 신호 마커(id="UPDATED_DATE_BLOCK")는 하단 출처 문단에 부여한다.
+        updated_date_block = ""
 
         # --- GEO Intent + SGE blocks ---
         _sge_paa: list[str] = []
@@ -846,6 +843,19 @@ class GoldenArticlePreviewService:
             '  </section>'
         ) if _sge_overview_text else ""
 
+        # AI_OVERVIEW_TARGET_ANSWER는 hook_opening의 첫 문장을 그대로 재사용해 만들어진다
+        # (generate_ai_overview_target_answer 참고) — 그래서 본문 리드(preview-hook)가
+        # 몇 문단 뒤에서 같은 문장을 그대로 반복해 "같은 말을 두 번 읽는" 느낌을 준다.
+        # 요약 박스가 이미 그 역할을 하므로, 본문 리드 문단은 제거한다(표시용 hook만 삭제,
+        # yomi_judgment 이하 실제 본문 섹션은 그대로 유지).
+        if ai_overview_block and hook:
+            _hook_section = (
+                f'    <section class="preview-hook">\n'
+                f'      <p>{escape(hook)}</p>\n'
+                f'    </section>\n'
+            )
+            clean = clean.replace(_hook_section, "", 1)
+
         if topic_str and topic_str not in str(_ic or ""):
             if _ai_issue_type:
                 _ic_prefix = f"{topic_str}, 지금 주목받는 이유입니다."
@@ -886,10 +896,23 @@ class GoldenArticlePreviewService:
         )
 
         # PEOPLE_ALSO_ASK_BLOCK
+        # LLM이 만든 실제 검색어 스타일 키워드(_llm_paa)가 있으면 그것을 우선 사용 —
+        # 규칙 기반 질문→검색어 변환은 조사가 어색해지는 경우가 잦다.
         _paa_html = ""
-        _paa_candidates: list[str] = []
+        _paa_phrases: list[str] = []
         _paa_seen: set[str] = set()
+        for _kw in list(slots.get("_llm_paa") or []):
+            _kw_text = str(_kw or "").strip()
+            _kw_key = _normalize_question_key(_kw_text)
+            if not _kw_text or not _kw_key or _is_near_duplicate_question_key(_kw_key, _paa_seen):
+                continue
+            _paa_seen.add(_kw_key)
+            _paa_phrases.append(_kw_text)
+            if len(_paa_phrases) >= 5:
+                break
         for _question in list(_sge_paa) + _paa_fallback_questions(topic_str, _content_type):
+            if len(_paa_phrases) >= 5:
+                break
             _question_text = str(_question or "").strip()
             _question_key = _normalize_question_key(_question_text)
             if not _question_text or not _question_key:
@@ -900,13 +923,11 @@ class GoldenArticlePreviewService:
             ):
                 continue
             _paa_seen.add(_question_key)
-            _paa_candidates.append(_question_text)
-            if len(_paa_candidates) >= 5:
-                break
-        if _paa_candidates:
+            _paa_phrases.append(_search_phrase_from_question(_question_text))
+        if _paa_phrases:
             _paa_items = "\n".join(
-                f'      <li class="paa-item">{escape(_search_phrase_from_question(str(q)))}</li>'
-                for q in _paa_candidates[:5]
+                f'      <li class="paa-item">{escape(str(q))}</li>'
+                for q in _paa_phrases[:5]
             )
             _paa_html = (
                 '\n  <section id="PEOPLE_ALSO_ASK_BLOCK" class="paa-block">\n'
@@ -943,10 +964,12 @@ class GoldenArticlePreviewService:
         _official_sources_html = render_official_sources_html(
             get_official_sources_for_pattern(_pattern_id)
         )
+        # 날짜 신호 마커(id="UPDATED_DATE_BLOCK")를 출처 문단에 부여 — 상단 별도
+        # 날짜 블록을 없앤 뒤에도 GEO 점수의 updated-date 체크가 유지되게 한다.
         source_trust_block = (
             '\n  <section id="SOURCE_TRUST_BLOCK" class="source-trust-box">\n'
             f'    <h2>{escape(_source_trust_heading_for_pattern(pattern_id=_pattern_id, content_type=_content_type))}</h2>\n'
-            f'    <p>{escape(_trust_text)}</p>'
+            f'    <p id="UPDATED_DATE_BLOCK">{escape(_trust_text)}</p>'
             f'{_official_sources_html}\n'
             '  </section>'
         )
@@ -1238,8 +1261,8 @@ class GoldenArticlePreviewService:
             )
 
         clean = _decorate_section_headings(clean)
-        if _ai_family:
-            clean = _inject_toc_html(clean)
+        # 목차(ai-toc)는 GEO/SGE 점수 어디에도 반영되지 않고, 결론 바로 다음에 끼어들어
+        # 본문 흐름만 끊는다는 지적을 반영해 제거했다.
 
         clean = prepare_blogspot_html(clean)
         # 내부링크 + 해시태그는 prepare의 strip 이후에 붙여야 살아남는다 (AI 글만)

@@ -21,6 +21,13 @@ def main() -> None:
     pipeline so scheduled AI posts are selected from current AI/news discovery
     sources, not from previously published Naver Blog posts.
     """
+    # 로컬 실행에서 .env의 LLM 키 로드 (Actions는 workflow env 주입이라 no-op).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception as _dotenv_exc:  # noqa: BLE001
+        logger.debug("dotenv load skipped: %s", _dotenv_exc)
+
     os.environ.setdefault("NEWS_MODE", "news")
     os.environ.setdefault("AI_BLOG_MODE", "true")
     os.environ.setdefault("ALLOW_AI_NEWS_TOPICS", "true")

@@ -18,6 +18,16 @@ logging.basicConfig(
 )
 _logger = logging.getLogger(__name__)
 
+# 로컬 실행에서 .env의 LLM/검색 키를 os.environ으로 로드 — 이게 없으면 로컬에서는
+# provider 키가 안 보여 슬롯 LLM 보강이 조용히 정적 템플릿으로 폴백된다.
+# GitHub Actions는 workflow env로 키를 직접 주입하므로 no-op. CLI 진입점에서만
+# 로드한다 (라이브러리/테스트 프로세스에 키가 새어 들어가면 안 됨).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(root_dir / ".env")
+except Exception as _dotenv_exc:  # noqa: BLE001 — dotenv 부재/실패는 비치명
+    _logger.debug("dotenv load skipped: %s", _dotenv_exc)
+
 from blogspot_automation.config.settings import Settings
 from blogspot_automation.pipelines.news_pipeline import NewsPipeline
 from blogspot_automation.services.contrarian_content_service import ContrarianContentService

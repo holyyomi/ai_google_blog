@@ -135,7 +135,7 @@ class TestSourceTrustBlockPresent(unittest.TestCase):
 
     def test_source_trust_block_has_text(self) -> None:
         html = _make_delivery_html()
-        m = re.search(r'id="SOURCE_TRUST_BLOCK".*?<p>(.*?)</p>', html, re.DOTALL)
+        m = re.search(r'id="SOURCE_TRUST_BLOCK".*?<p[^>]*>(.*?)</p>', html, re.DOTALL)
         self.assertIsNotNone(m, "SOURCE_TRUST_BLOCK paragraph not found")
         text = re.sub(r'<[^>]+>', '', m.group(1)).strip()
         self.assertGreater(len(text), 10)

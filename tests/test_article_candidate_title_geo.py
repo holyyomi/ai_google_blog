@@ -180,8 +180,9 @@ class TestGeoBlocks(unittest.TestCase):
         self.assertIn('id="UPDATED_DATE_BLOCK"', self.html)
 
     def test_updated_date_contains_date(self) -> None:
-        m = re.search(r'(\d{4}-\d{2}-\d{2}) 기준으로 작성된', self.html)
-        self.assertIsNotNone(m, "날짜 형식 YYYY-MM-DD 없음")
+        # 작성 기준일은 하단 출처 블록에 1회만 노출된다 (상단 중복 날짜 제거됨).
+        m = re.search(r'\(\d{4}-\d{2}-\d{2} 기준\)', self.html)
+        self.assertIsNotNone(m, "날짜 형식 (YYYY-MM-DD 기준) 없음")
 
     def test_geo_ai_citation_recorded_in_meta(self) -> None:
         result = _make_preview_result()
