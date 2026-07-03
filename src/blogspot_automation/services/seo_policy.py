@@ -420,13 +420,20 @@ def strip_hashtag_sections(html: str) -> str:
     # LLM이 일반 문단 안에 쓴 떠돌이 해시태그 정리 — 통제된 푸터 블록은 이 단계
     # 이후(append_hashtags_block)에 붙으므로 여기서 지워도 안전하다. 방치하면
     # final_html_audit의 uncontrolled_visible_body_hashtags 게이트에 걸려 발행이 막힌다.
-    hashtag_only_paragraph = re.compile(
-        r'\s*<p\b[^>]*>(?:\s|&nbsp;|[,·|/]|<br\s*/?>|#[가-힣A-Za-z0-9_]{2,})+</p>',
+    # 인라인 태그로 감싼 해시태그 뭉치(<strong>#a #b</strong> 등)를 먼저 벗겨서
+    # 아래 정리 패턴이 잡을 수 있게 한다.
+    inline_wrapped_hashtags = re.compile(
+        r'<(strong|em|b|span)\b[^>]*>((?:\s|&nbsp;|[,·|/]|#[가-힣A-Za-z0-9_]{2,})+)</\1>',
         flags=re.IGNORECASE,
     )
-    cleaned = hashtag_only_paragraph.sub("", cleaned)
+    cleaned = inline_wrapped_hashtags.sub(r"\2", cleaned)
+    hashtag_only_element = re.compile(
+        r'\s*<(p|li|div)\b[^>]*>(?:\s|&nbsp;|[,·|/]|<br\s*/?>|#[가-힣A-Za-z0-9_]{2,})+</\1>',
+        flags=re.IGNORECASE,
+    )
+    cleaned = hashtag_only_element.sub("", cleaned)
     trailing_hashtag_run = re.compile(
-        r'(?:\s|&nbsp;)*(?:#[가-힣A-Za-z0-9_]{2,}(?:\s|&nbsp;|[,·])*){2,}(</p>)',
+        r'(?:\s|&nbsp;)*(?:#[가-힣A-Za-z0-9_]{2,}(?:\s|&nbsp;|[,·])*){2,}(</(?:p|li|div|h2|h3)>)',
         flags=re.IGNORECASE,
     )
     return trailing_hashtag_run.sub(r"\1", cleaned)

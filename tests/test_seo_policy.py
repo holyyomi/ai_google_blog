@@ -504,3 +504,13 @@ def test_strip_hashtag_sections_keeps_inline_single_hashtag_and_csharp() -> None
     keep2 = "<p>이번 업데이트는 #카카오 앱에서 확인할 수 있다.</p>"
     assert strip_hashtag_sections(keep1) == keep1
     assert strip_hashtag_sections(keep2) == keep2
+
+
+def test_strip_hashtag_sections_covers_li_div_and_inline_wrapped() -> None:
+    from blogspot_automation.services.seo_policy import strip_hashtag_sections
+
+    assert strip_hashtag_sections("<li>#카카오 #AI #자동화</li>") == ""
+    assert strip_hashtag_sections("<div>#해시 #태그 #모음</div>") == ""
+    assert strip_hashtag_sections("<p>정리 끝. <strong>#태그1 #태그2 #태그3</strong></p>") == "<p>정리 끝.</p>"
+    keep = "<p>C#은 언어다. F#도 있다.</p>"
+    assert strip_hashtag_sections(keep) == keep

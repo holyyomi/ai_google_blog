@@ -23,6 +23,14 @@ on:
         options:
           - 'false'
           - 'true'
+      allow_evergreen_publish:
+        description: 'Manual publish only: allow evergreen fallback auto publish (quality gates still apply)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 concurrency:
   group: news-blog-publish
@@ -117,6 +125,8 @@ jobs:
           PUBLISH_HOLD_PHASE2: "false"
           AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'false' || 'true' }}
           NEWS_MANUAL_DEDUP_BYPASS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.manual_dedup_bypass == 'true' && github.event.inputs.publish_mode == 'publish' && 'true' || 'false' }}
+          # 수동 실행 전용: 운영자가 명시적으로 켠 경우에만 evergreen 자동발행 허용 (품질 게이트는 그대로)
+          ALLOW_EVERGREEN_AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_evergreen_publish == 'true' && github.event.inputs.publish_mode == 'publish' && 'true' || 'false' }}
           NEWS_MAX_PUBLISH_ATTEMPTS: "12"
           DISABLE_IMAGE_GENERATION: "true"
           DISABLE_IMAGE_UPLOAD: "true"
