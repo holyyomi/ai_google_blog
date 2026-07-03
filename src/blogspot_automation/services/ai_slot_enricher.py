@@ -88,6 +88,24 @@ _ENRICH_SPEC = {
         "질문형 어미(~인가요/~하나요) 금지, 조사 어색함 금지, 글 제목 그대로 반복 금지. "
         "실제 검색량이 있을 법한 구체 키워드 조합으로."
     ),
+    "citation_summary": (
+        "AI 검색엔진(구글 AI Overviews, Perplexity 등)이 그대로 발췌·인용하기 좋은 "
+        "이 주제의 핵심 요약 3~4문장 한 문자열. 첫 문장은 주제의 핵심 답을 직접 진술, "
+        "가능하면 구체적 수치·조건 포함, 광고 문구·독자 호명 금지, 완결된 평서문."
+    ),
+    "target_reader": (
+        "이 글이 실제로 도움이 되는 사람을 2~3문장으로. 구체적 상황·직무로 특정할 것 "
+        "(예: '주간 보고서를 매주 직접 쓰는 팀 실무자'). 막연한 '30~50대 직장인' 같은 "
+        "표현 금지, 글 제목 반복 금지."
+    ),
+    "confirmed_facts": (
+        "이 주제에서 확실하게 성립하는 사실 3개를 문자열 배열로. 각 한 문장, "
+        "주제 특화 내용(범용 AI 주의사항 금지)."
+    ),
+    "check_needed": (
+        "독자가 직접 확인해야 하는 가변 항목 3개를 문자열 배열로. 각 한 문장, "
+        "이 주제에서 실제로 자주 바뀌는 것들(요금, 한도, 정책 등 구체적으로)."
+    ),
     "checklist": (
         "이 주제를 회사 업무에 적용하기 전 확인할 체크리스트 5~6개를 문자열 배열로. "
         "회사 기밀·개인정보 입력 금지, 결과물 팩트 검증, 사내 AI 정책 확인 등 "
@@ -127,8 +145,28 @@ def enrich_slots_with_llm(
     focus = _CT_FOCUS.get(content_type, "이 AI 주제의 실용적 핵심")
     spec_lines = "\n".join(f'- "{k}": {v}' for k, v in _ENRICH_SPEC.items())
     title_part = f"제목: {selected_title}\n" if selected_title else ""
+
+    # 실시간 검색 팩트 주입 — 모델 지식만으로 쓰면 수치·요금이 환각된다.
+    # Custom Search/Gemini 그라운딩 결과를 근거로 제공하고, 근거에 없는 수치는
+    # 단정하지 않도록 지시한다. 수집 실패 시엔 기존 방식(보수적 서술)으로 폴백.
+    facts_part = ""
+    if os.getenv("ENABLE_AI_FACT_INJECTION", "true").strip().lower() not in {"0", "false", "no", "off"}:
+        try:
+            facts = str(llm_service.gather_facts(topic) or "").strip()
+            if facts:
+                facts_part = (
+                    "\n[웹 검색으로 수집한 최신 근거 — 오늘 날짜 기준]\n"
+                    f"{facts[:2500]}\n"
+                    "위 근거에 있는 수치·날짜·요금은 그대로 인용하고, "
+                    "근거에 없는 수치는 단정하지 말 것.\n"
+                )
+                logger.info("ai_slot_enricher: 검색 팩트 주입 (%d자)", len(facts))
+        except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
+            logger.warning("ai_slot_enricher: 팩트 수집 실패(근거 없이 진행): %s", exc)
+
     user_prompt = (
-        f"주제: {topic}\n{title_part}글 성격: {focus}\n\n"
+        f"주제: {topic}\n{title_part}글 성격: {focus}\n"
+        f"{facts_part}\n"
         f"아래 키를 가진 JSON 하나만 출력하세요. 각 값은 한국어로, 주제에 특화된 구체적 내용으로 채웁니다.\n"
         f"{spec_lines}\n\n"
         "주의: 표·가격·체크리스트는 반드시 지정된 JSON 키(quick_decision_table/pricing_table/checklist)에만 담고, "
@@ -189,6 +227,21 @@ def enrich_slots_with_llm(
                 })
         if len(cards) >= 2:
             enriched["prompt_block"] = cards[:5]
+
+    # GEO 블록 3종 — 규칙 기반(geo_intent_service) 일반론 대신 주제 특화 생성을
+    # 특수 키로 전달, 렌더러가 우선 사용한다.
+    cit = data.get("citation_summary")
+    if isinstance(cit, str) and len(cit.strip()) >= 60:
+        enriched["_llm_citation_summary"] = re.sub(r"\s+", " ", cit).strip()
+    tr = data.get("target_reader")
+    if isinstance(tr, str) and len(tr.strip()) >= 30:
+        enriched["_llm_target_reader"] = re.sub(r"\s+", " ", tr).strip()
+    for src_key, dst_key in (("confirmed_facts", "_llm_confirmed"), ("check_needed", "_llm_check_needed")):
+        val = data.get(src_key)
+        if isinstance(val, list):
+            items = [re.sub(r"\s+", " ", str(v)).strip() for v in val if str(v).strip() and len(str(v).strip()) >= 8]
+            if len(items) >= 2:
+                enriched[dst_key] = items[:4]
 
     # 관련 검색어: 규칙 기반 PAA(어색한 조합 잦음) 대신 LLM이 만든 실제
     # 검색어 스타일 키워드를 특수 키로 전달 — 렌더러가 우선 사용한다.

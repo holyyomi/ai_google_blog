@@ -77,7 +77,9 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'true' || 'false' }}
           NEWS_PUBLISH_MODE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode || 'publish' }}
           AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'dry_run' && 'false' || 'true' }}
-          ENABLE_GOOGLE_CUSTOM_SEARCH: "false"
+          GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+          GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
+          ENABLE_GOOGLE_CUSTOM_SEARCH: "true"
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -141,7 +143,7 @@ jobs:
           RUNS_DIR: "runs"
           GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
           GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
-          ENABLE_GOOGLE_CUSTOM_SEARCH: "false"
+          ENABLE_GOOGLE_CUSTOM_SEARCH: "true"
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           ENABLE_NAVER_SEARCH: "false"

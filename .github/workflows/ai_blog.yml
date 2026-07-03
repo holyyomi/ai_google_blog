@@ -66,6 +66,9 @@ jobs:
           TITLE_CANDIDATE_COUNT: "10"
           # LLM 주제 특화 본문 생성
           ENABLE_AI_LLM_ENRICH: "true"
+          ENABLE_GOOGLE_CUSTOM_SEARCH: "true"
+          GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+          GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

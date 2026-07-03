@@ -765,8 +765,10 @@ class GoldenArticlePreviewService:
         )
 
         # --- GEO: AI_CITATION_SUMMARY (완전한 문장, 내부 라벨 없음) ---
+        # LLM이 만든 주제 특화 인용 요약(_llm_citation_summary)이 있으면 우선 사용 —
+        # 규칙 기반 조립은 hook/yomi 문장 재활용이라 일반론에 머문다.
         today_str = _dt.now().strftime("%Y-%m-%d")
-        _ai_summary_text = _build_ai_citation_summary(
+        _ai_summary_text = str(slots.get("_llm_citation_summary") or "").strip() or _build_ai_citation_summary(
             hook=hook, yomi=yomi, real=real,
             faq_list=faq_list, content_type=_content_type,
             pattern_id=_pattern_id,
@@ -818,6 +820,13 @@ class GoldenArticlePreviewService:
             )
             _sge_confirmed = _cvck.get("confirmed", [])
             _sge_check_needed = _cvck.get("check_needed", [])
+            # LLM 주제 특화 목록이 있으면 규칙 기반 일반론 대신 사용
+            _llm_confirmed = [str(x).strip() for x in (slots.get("_llm_confirmed") or []) if str(x).strip()]
+            _llm_check_needed = [str(x).strip() for x in (slots.get("_llm_check_needed") or []) if str(x).strip()]
+            if len(_llm_confirmed) >= 2:
+                _sge_confirmed = _llm_confirmed
+            if len(_llm_check_needed) >= 2:
+                _sge_check_needed = _llm_check_needed
             _trust_text = _geo_intent.generate_enhanced_source_trust_block(
                 content_type=_ct, topic_group=_tg, pattern_id=_pattern_id,
                 today_str=today_str,
@@ -856,7 +865,12 @@ class GoldenArticlePreviewService:
             )
             clean = clean.replace(_hook_section, "", 1)
 
-        if topic_str and topic_str not in str(_ic or ""):
+        # LLM이 만든 주제 특화 대상 독자(_llm_target_reader)가 있으면 우선 사용 —
+        # 규칙 기반 _ic는 "30~50대 직장인" 식 일반론 + 제목 반복에 머문다.
+        _llm_target_reader = str(slots.get("_llm_target_reader") or "").strip()
+        if _llm_target_reader:
+            _ic = _llm_target_reader
+        elif topic_str and topic_str not in str(_ic or ""):
             if _ai_issue_type:
                 _ic_prefix = f"{topic_str}, 지금 주목받는 이유입니다."
             elif _ai_family:
@@ -986,6 +1000,7 @@ class GoldenArticlePreviewService:
                     _cover_url = cover_image_url_from_env(
                         content_type=_content_type,
                         topic_group=str((_p_data or {}).get("topic_group") or ""),
+                        variant_seed=topic_str,
                     )
                 except Exception:
                     _cover_url = ""
