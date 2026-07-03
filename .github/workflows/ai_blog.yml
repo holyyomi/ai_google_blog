@@ -68,6 +68,9 @@ jobs:
           ENABLE_AI_LLM_ENRICH: "true"
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           GEMINI_MODEL: "gemini-2.5-flash"
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free"
+          OPENROUTER_MODEL_FALLBACK: "openai/gpt-oss-120b:free"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: "gpt-5-mini"
           # Disable generated covers because image models often render broken Korean text.

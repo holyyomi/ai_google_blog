@@ -7,17 +7,22 @@ from blogspot_automation.services import llm_content_service as module
 from blogspot_automation.services.llm_content_service import LlmContentService
 
 
-def test_llm_provider_order_uses_openrouter_before_openai_fallback() -> None:
+def test_llm_provider_order_free_first_then_paid_fallback() -> None:
+    # 운영자 정책: 무료(OpenRouter) 2단 시도 후에만 유료(OpenAI) 폴백.
     names = [provider["name"] for provider in module._PROVIDERS]
 
     assert names == [
         "openrouter_primary",
+        "openrouter_secondary",
         "openai_api_fallback",
     ]
     assert [p["api_key_env"] for p in module._PROVIDERS] == [
         "OPENROUTER_API_KEY",
+        "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
     ]
+    assert module._PROVIDERS[0]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+    assert module._PROVIDERS[1]["model"] == "openai/gpt-oss-120b:free"
 
 
 def test_llm_provider_chain_excludes_gemini_for_main_generation() -> None:
@@ -182,14 +187,14 @@ def test_openrouter_primary_uses_openrouter_url_and_model(monkeypatch) -> None:
     assert result == "<p>openrouter generated html</p>"
     assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert captured["timeout"] == 45
-    assert captured["payload"]["model"] == "openai/gpt-oss-120b:free"
+    assert captured["payload"]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
     assert captured["payload"]["max_tokens"] == 12000
     assert captured["payload"]["temperature"] == 0.7
     assert captured["headers"]["Http-referer"] == "https://holyyomiai.blogspot.com/"
     assert captured["headers"]["X-title"] == "holyyomi AI"
 
 
-def test_call_with_fallback_uses_openai_when_openrouter_fails(monkeypatch) -> None:
+def test_call_with_fallback_uses_openai_when_both_free_models_fail(monkeypatch) -> None:
     calls: list[str] = []
 
     class FakeOpenAIResponse:
@@ -208,13 +213,14 @@ def test_call_with_fallback_uses_openai_when_openrouter_fails(monkeypatch) -> No
         del timeout
         calls.append(req.full_url)
         if "openrouter.ai" in req.full_url:
-            raise RuntimeError("openrouter failed")
+            raise RuntimeError("free model rate limited")
         return FakeOpenAIResponse()
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_FALLBACK", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
@@ -222,7 +228,41 @@ def test_call_with_fallback_uses_openai_when_openrouter_fails(monkeypatch) -> No
     result = LlmContentService().call_with_fallback("Write a post", "System prompt", min_chars=20)
 
     assert result and "openai fallback" in result
-    # flash → flash-lite(둘 다 Gemini, 실패) → openai 폴백 = 3회
-    assert len(calls) == 2
-    assert calls[0] == "https://openrouter.ai/api/v1/chat/completions"
-    assert calls[1] == "https://api.openai.com/v1/chat/completions"
+    # 무료 1차 → 무료 2차 → 유료 폴백 = 3회
+    assert calls == [
+        "https://openrouter.ai/api/v1/chat/completions",
+        "https://openrouter.ai/api/v1/chat/completions",
+        "https://api.openai.com/v1/chat/completions",
+    ]
+
+
+def test_call_with_fallback_stops_at_free_primary_when_it_succeeds(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeOpenRouterResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({
+                "choices": [{"message": {"content": "<p>" + ("free primary " * 30) + "</p>"}}],
+            }).encode("utf-8")
+
+    def fake_urlopen(req: urllib.request.Request, timeout: int):
+        del timeout
+        calls.append(req.full_url)
+        return FakeOpenRouterResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    result = LlmContentService().call_with_fallback("Write a post", "System prompt", min_chars=20)
+
+    assert result and "free primary" in result
+    # 무료 1차 성공 → 유료로 내려가지 않음 (비용 0)
+    assert calls == ["https://openrouter.ai/api/v1/chat/completions"]

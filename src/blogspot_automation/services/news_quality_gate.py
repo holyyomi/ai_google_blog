@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import unescape
+import logging
 import os
 import re
 
@@ -19,6 +20,17 @@ from blogspot_automation.services.seo_policy import (
     has_unverified_experience_or_income_claim,
 )
 from blogspot_automation.services.title_integrity_policy import audit_title_integrity
+
+logger = logging.getLogger(__name__)
+
+
+def _content_rehash_block_ratio() -> float:
+    """재탕 차단 임계값 (후보 본문 문장 중 과거 발행 글과 겹치는 비율)."""
+    try:
+        value = float(os.getenv("NEWS_CONTENT_REHASH_BLOCK_RATIO", "0.6"))
+    except ValueError:
+        return 0.6
+    return min(1.0, max(0.1, value))
 
 
 _BANNED_DEFAULT_PHRASES: tuple[str, ...] = (
@@ -849,9 +861,29 @@ class NewsQualityGate:
             raw_topic_count=raw_topic_count,
         )
 
+        # --- 재탕(near-duplicate) 감지 — 과거 발행 글과 본문 문장 겹침 비율 ---
+        # LLM 보강 실패로 정적 템플릿 폴백된 글이 사실상 같은 본문으로 다시
+        # 발행되는 것을 차단한다. 지문 없는 과거 레코드(기능 도입 전)는 비교에서
+        # 제외되므로 기존 이력과의 오탐은 없다.
+        content_fingerprint = self._sentence_fingerprints(html)
+        content_rehash = {"ratio": 0.0, "matched_title": "", "compared_records": 0}
+        try:
+            content_rehash = self._max_history_overlap(content_fingerprint)
+        except Exception as _sim_exc:  # noqa: BLE001 — 감지 실패는 비치명(게이트 완화 아님)
+            logger.warning("content rehash check failed (skipped): %s", _sim_exc)
+        _rehash_block_ratio = _content_rehash_block_ratio()
+        if publish_mode_active and content_rehash["ratio"] >= _rehash_block_ratio:
+            blocking_issues.append(
+                f"content_near_duplicate_of_recent_post:{content_rehash['ratio']:.2f}"
+            )
+
         practical_title_bonus = 8 if any(token in title for token in _GOOD_TITLE_SIGNALS) else 0
         score = max(0, min(100, 100 + practical_title_bonus - (len(set(blocking_issues)) * 12) - (len(warnings) * 5)))
         result = {
+            "content_fingerprint": content_fingerprint,
+            "content_rehash_ratio": content_rehash["ratio"],
+            "content_rehash_matched_title": content_rehash["matched_title"],
+            "content_rehash_compared_records": content_rehash["compared_records"],
             "passed": not blocking_issues,
             "score": score,
             "topic_group": topic_group,
@@ -932,6 +964,19 @@ class NewsQualityGate:
         return result
 
     @staticmethod
+    def _sentence_fingerprints(html: str) -> list[str]:
+        from blogspot_automation.services.content_similarity_service import sentence_fingerprints
+        return sentence_fingerprints(html)
+
+    @staticmethod
+    def _max_history_overlap(candidate_fingerprints: list[str]) -> dict[str, object]:
+        """최근 발행 이력(지문 보유 레코드)과의 최대 본문 겹침 비율."""
+        from blogspot_automation.services.content_similarity_service import max_overlap_ratio
+        from blogspot_automation.services.publish_history_service import PublishHistoryService
+        records = PublishHistoryService().recent_records(limit=60, published_only=True)
+        return max_overlap_ratio(candidate_fingerprints, records)
+
+    @staticmethod
     def _ai_save_value_issues(*, html: str, content_type: str) -> tuple[list[str], list[str]]:
         """AI 글 저장 가치 검증 — (blocking, warnings).
 
@@ -946,13 +991,14 @@ class NewsQualityGate:
         if table_count < 1:
             blocking.append("ai_save_value_no_table")
 
-        # 복사형 프롬프트 자산: 골든 패턴 경로(prompt-code) + LLM 경로(<pre>)
+        # 복사형 프롬프트 자산: ai_prompt_recipe(패턴 자체가 프롬프트 템플릿 모음)만 강제.
+        # ai_work_tip/ai_beginner_guide에 일괄 강제하면 주제와 무관한 범용 프롬프트 3개를
+        # 억지로 끼워 넣게 되어 오히려 저장 가치를 해친다 — 표/체크리스트/비용 언급 등
+        # 다른 저장 가치 신호로 충분히 커버된다.
         prompt_asset_count = max(lowered.count("prompt-code"), lowered.count("<pre"))
-        prompt_relevant = content_type in {"ai_work_tip", "ai_prompt_recipe", "ai_beginner_guide"}
+        prompt_relevant = content_type in {"ai_prompt_recipe"}
         if prompt_relevant and prompt_asset_count < 3:
             blocking.append(f"ai_save_value_prompt_blocks_below_3:{prompt_asset_count}")
-        elif prompt_asset_count < 2:
-            soft.append(f"ai_save_value_prompt_blocks_low:{prompt_asset_count}")
 
         cost_terms = ("무료", "유료", "요금", "구독", "플랜", "비용", "가격")
         cost_hits = sum(1 for term in cost_terms if term in html)

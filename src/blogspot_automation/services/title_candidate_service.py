@@ -37,7 +37,7 @@ _MALFORMED_TITLE_PATTERNS: tuple[str, ...] = (
 )
 
 _GOOD_SIGNALS: tuple[str, ...] = (
-    "이유", "먼저 볼", "확인", "방법", "줄이는", "차이", "비교",
+    "이유", "확인", "방법", "줄이는", "차이", "비교",
     "조회", "반응", "체크", "손해", "시간", "돈", "기준",
 )
 
@@ -529,9 +529,10 @@ class TitleCandidateService:
             for phrase in ("대박", "끝판왕", "인생이 바뀐다", "돈 복사", "자동수익", "충격"):
                 if phrase in title:
                     ctr -= 15
-            # 매일 반복되는 "먼저 볼/확인할 N가지" 정형 패턴 완화 → 제목 다양성 유도
-            if re.search(r"먼저\s*(볼|확인할|정할|해야)\s*\d+\s*가지", title):
-                ctr -= 12
+            # 매일 반복되는 "먼저 볼/확인할 N가지"류 정형구 — 사람이 쓴 제목처럼 읽히지 않는다는
+            # 지적을 반영해 강하게 감점(다른 후보가 있으면 확실히 밀려나도록).
+            if re.search(r"먼저\s*(볼|확인할|정할|해야)\s*(\d+\s*가지|것)", title):
+                ctr -= 30
 
         # 단어 반복 감점
         words = re.split(r"[\s,·\-]+", title)
@@ -668,9 +669,19 @@ class TitleCandidateService:
 # ------------------------------------------------------------------ #
 
 _CONTEXTUAL_TITLE_MAX_LEN = 45
-_BAD_CONTEXTUAL_TAIL_TOKENS = {"vs", "vs.", "전", "때", "및", "과", "와", "의", "로"}
+# core가 길이 제한으로 잘릴 때 끝에 남으면 문장이 조각나는 토큰들.
+# 관형형 어미(미치는/주는/하는 등)는 뒤에 수식할 명사가 잘려나간 상태라
+# "…에 미치는, 시간이 줄지 않는 이유"처럼 비문이 된다 — 함께 제거한다.
+_BAD_CONTEXTUAL_TAIL_TOKENS = {
+    "vs", "vs.", "전", "때", "및", "과", "와", "의", "로",
+    "미치는", "주는", "하는", "되는", "대한", "관한", "위한", "따른", "향한",
+}
 
 _CONTEXTUAL_SUFFIX_PATTERNS: tuple[tuple[str, str], ...] = (
+    # 시드 topic 자체에 "…5가지"/"…3단계"처럼 개수가 이미 붙어 있으면, 뒤에 다른
+    # 제목 템플릿을 이어붙일 때 "…5가지 써도 일이 줄지 않는 이유"처럼 어색한
+    # 문장이 된다. core로 쓰기 전에 미리 잘라낸다.
+    (r"\s*\d+\s*(가지|단계|개)$", ""),
     (r"\s*(켜기|쓰기|사용하기|신청하기)?\s*전(?:에)?\s*(먼저\s*)?(확인할|볼)\s*(설정|조건|항목|것|체크리스트)?$", ""),
     (r"^직장인이\s+(.+?)로\s+업무\s*시간을\s*줄이는\s*방법$", r"직장인 \1"),
     (r"\s*로\s*업무\s*시간을\s*줄이는\s*방법$", ""),
@@ -777,21 +788,24 @@ def _contextual_title_templates(
         ]
     if pattern_id == "ai_tool_comparison":
         return [
-            ("comparison", "{core}, 업무용으로 고를 때 먼저 볼 3가지"),
-            ("howto", "{core}, 기능보다 중요한 선택 기준"),
+            ("comparison", "{core}, 기능표보다 중요한 선택 기준"),
+            ("howto", "{core}, 업무별로 갈리는 이유"),
             ("loss", "{core} 바꾸기 전 놓치면 손해인 것"),
         ]
     if pattern_id == "ai_automation_workflow":
         return [
-            ("howto", "{core} 전에 먼저 정할 3가지"),
-            ("search", "{core}, 처음 막히는 이유와 해결 순서"),
+            ("howto", "{core}, 처음 막히는 이유와 해결 순서"),
+            ("reason", "{core}가 자꾸 실패하는 이유"),
             ("loss", "{core} 실패 전에 확인할 기준"),
         ]
     if pattern_id == "ai_work_time_savings" or content_type == "ai_work_tip" or topic_group == "ai_work":
         return [
-            ("save_time", "{core}, 시간 줄이려면 먼저 볼 3가지"),
-            ("howto", "{core} 전에 정해야 할 업무 기준"),
-            ("loss", "{core} 써도 일이 줄지 않는 이유"),
+            ("reason", "{core}, 왜 오히려 시간이 더 걸릴까"),
+            ("howto", "{core}, 반복 업무부터 맡겨야 하는 이유"),
+            # "{core} 써도"는 core가 도구명(ChatGPT 등)일 때만 자연스럽고, core가
+            # "AI 업무 자동화 처음 버릴 반복 작업"처럼 긴 구절이면 "써도"가 붙을
+            # 자리가 없어 어색해진다. "써도" 없이도 성립하도록 수정.
+            ("loss", "{core}, 시간이 줄지 않는 이유"),
         ]
     if pattern_id == "delivery_money_checklist" or content_type == "money_checklist":
         return [
@@ -824,9 +838,9 @@ def _contextual_title_templates(
             ("search", "{core} 대응 전 확인할 기록"),
         ]
     return [
-        ("search", "{core}, 먼저 확인할 3가지"),
+        ("search", "{core}, 헷갈리는 기준 정리"),
         ("curiosity", "{core}이 헷갈리는 이유와 기준"),
-        ("howto", "{core} 전에 먼저 볼 것"),
+        ("howto", "{core}, 실제로는 무엇이 다른가"),
     ]
 
 
@@ -924,8 +938,29 @@ def _truncate_contextual_text(text: str, max_len: int) -> str:
 
 def _trim_contextual_tail(text: str) -> str:
     parts = text.split()
+    trimmed = False
     while parts and parts[-1].strip(" ,.-").lower() in _BAD_CONTEXTUAL_TAIL_TOKENS:
         parts.pop()
+        trimmed = True
+    # 관형형을 걷어낸 뒤 끝 단어에 부사격 조사가 매달려 있으면
+    # ("…직장인 업무에") 조사만 떼어 명사로 끝나게 한다.
+    if parts:
+        last = parts[-1]
+        stripped = re.sub(r"(에서|에게|으로|까지|부터|에)$", "", last)
+        if stripped and stripped != last and len(stripped) >= 2:
+            parts[-1] = stripped
+            trimmed = True
+    # 문장이 중간에서 잘린 경우("구글 AI 검색 변화가 직장인 업무") 주격 조사
+    # 뒤에 서술어가 없어 비문이 된다 — 마지막 주어 경계까지 되돌리고 조사를
+    # 떼어 온전한 명사구("구글 AI 검색 변화")로 끝낸다. 잘림이 실제로 일어난
+    # 경우에만 적용해 멀쩡한 core를 건드리지 않는다.
+    if trimmed and len(parts) >= 2:
+        for i in range(len(parts) - 1, -1, -1):
+            token = parts[i]
+            if len(token) >= 3 and re.search(r"[가-힣](가|이)$", token):
+                parts = parts[: i + 1]
+                parts[-1] = token[:-1]
+                break
     return " ".join(parts).strip(" ,.-")
 
 

@@ -335,9 +335,10 @@ class TestAiFooterAndBadge(unittest.TestCase):
         from blogspot_automation.services.seo_policy import YOMI_CLEAN_ARTICLE_STYLE
         self.assertNotIn('content:"AI"', YOMI_CLEAN_ARTICLE_STYLE)
 
-    def test_work_tip_has_ready_prompts(self):
-        self.assertIn('class="prompt-recipe-box"', self.html)
-        self.assertIn("당신은", self.html)
+    def test_work_tip_has_no_generic_prompt_box(self):
+        # ai_work_tip은 주제와 무관한 범용 프롬프트 3개를 강제로 끼워 넣지 않는다.
+        # prompt-recipe-box는 ai_prompt_recipe(패턴 자체가 프롬프트 템플릿 모음)에서만 렌더링된다.
+        self.assertNotIn('class="prompt-recipe-box"', self.html)
 
 
 class TestAiStructuredData(unittest.TestCase):
@@ -549,13 +550,13 @@ class TestLivePostFixes(unittest.TestCase):
         self.assertNotIn("&#10003", self.html)
 
     def test_css_uses_unicode_escapes(self):
-        # 체크/화살표 글리프는 CSS 유니코드 이스케이프로(발행 후에도 안전)
+        # 체크 글리프는 CSS 유니코드 이스케이프로(발행 후에도 안전)
         self.assertIn(r'content:"\2713"', self.html)
-        self.assertIn(r'content:"\25B6\00A0"', self.html)
 
     def test_prompt_code_readable_light_scheme(self):
         # 프롬프트 박스는 밝은 배경+어두운 글씨 + !important (테마 덮어쓰기 방어)
-        self.assertIn("background:#f1f5f9!important;color:#0f172a!important", self.html)
+        self.assertIn("background:#fbfcfe!important", self.html)
+        self.assertIn("color:var(--ink)!important", self.html)
 
 
 class TestForcedPatternFallback(unittest.TestCase):
@@ -574,15 +575,13 @@ class TestForcedPatternFallback(unittest.TestCase):
 
 
 class TestAiToc(unittest.TestCase):
-    """목차(TOC) 출력 — AI 글에만."""
+    """목차(TOC) — GEO/SGE 점수에 반영되지 않고 본문 흐름만 끊는다는 지적으로 제거됨."""
 
-    def test_toc_present_with_anchors(self):
+    def test_toc_removed_for_ai_post(self):
         svc = GoldenArticlePreviewService()
         pv = svc.build_preview(topic="Perplexity AI 사용 후기와 무료 한계", content_type="ai_tool_review", topic_group="ai_tool")
         html = svc.render_article_candidate_html(pv["pattern_match"], pv["slot_result"], selected_title="Perplexity 후기")
-        self.assertIn('class="ai-toc"', html)
-        import re
-        self.assertGreaterEqual(len(re.findall(r'id="sec-\d+"', html)), 4)
+        self.assertNotIn('class="ai-toc"', html)
         # AI가 썼다고 광고하는 작성자 바이라인은 노출하지 않음
         self.assertNotIn('class="ai-byline"', html)
 

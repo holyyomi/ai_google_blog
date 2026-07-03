@@ -28,7 +28,8 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
         "enable_exa_search": _env_state(source, "ENABLE_EXA_SEARCH", default="auto"),
         "enable_firecrawl_search": _env_state(source, "ENABLE_FIRECRAWL_SEARCH", default="auto"),
         "openrouter_api_key": _env_state(source, "OPENROUTER_API_KEY"),
-        "openrouter_model": _env_state(source, "OPENROUTER_MODEL", default="openai/gpt-oss-120b:free"),
+        "openrouter_model": _env_state(source, "OPENROUTER_MODEL", default="nvidia/nemotron-3-ultra-550b-a55b:free"),
+        "openrouter_model_fallback": _env_state(source, "OPENROUTER_MODEL_FALLBACK", default="openai/gpt-oss-120b:free"),
         "openrouter_base_url": _env_state(source, "OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1"),
         "openai_api_key": _env_state(source, "OPENAI_API_KEY"),
         "google_ai_api_key": _env_state(source, "GOOGLE_AI_API_KEY"),
@@ -98,10 +99,9 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
 def user_required_actions(env: Mapping[str, str] | None = None) -> list[str]:
     source = os.environ if env is None else env
     actions: list[str] = []
+    # 운영자 정책: 무료(OpenRouter) 우선, OpenAI는 유료 폴백.
     if not str(source.get("OPENROUTER_API_KEY", "")).strip():
-        actions.append("Create or register OPENROUTER_API_KEY for primary article generation.")
-    if not str(source.get("OPENROUTER_MODEL", "")).strip():
-        actions.append("Set OPENROUTER_MODEL to the model slug to use first.")
+        actions.append("Create or register OPENROUTER_API_KEY for free-first article generation.")
     if not str(source.get("OPENAI_API_KEY", "")).strip():
         actions.append("Create or register OPENAI_API_KEY as paid fallback.")
     if _publish_mode_active(source):

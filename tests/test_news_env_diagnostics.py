@@ -3,10 +3,10 @@ from __future__ import annotations
 from blogspot_automation.services.news_env_diagnostics import build_news_env_diagnostics
 
 
-def test_news_env_diagnostics_reports_openrouter_to_openai_chain() -> None:
+def test_news_env_diagnostics_reports_free_first_chain() -> None:
     diagnostics = build_news_env_diagnostics({
         "OPENROUTER_API_KEY": "openrouter-key",
-        "OPENROUTER_MODEL": "openai/gpt-oss-120b:free",
+        "OPENROUTER_MODEL": "nvidia/nemotron-3-ultra-550b-a55b:free",
         "OPENAI_API_KEY": "openai-key",
         "OPENAI_MODEL": "gpt-test",
     })
@@ -14,18 +14,19 @@ def test_news_env_diagnostics_reports_openrouter_to_openai_chain() -> None:
     assert diagnostics["user_required_actions"] == []
     assert [item["name"] for item in diagnostics["provider_chain"]] == [
         "openrouter_primary",
+        "openrouter_secondary",
         "openai_api_fallback",
     ]
-    assert diagnostics["provider_chain"][0]["model"] == "openai/gpt-oss-120b:free"
-    assert diagnostics["provider_chain"][1]["model"] == "gpt-test"
+    assert diagnostics["provider_chain"][0]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+    assert diagnostics["provider_chain"][1]["model"] == "openai/gpt-oss-120b:free"
+    assert diagnostics["provider_chain"][2]["model"] == "gpt-test"
     assert diagnostics["checks"]["enable_google_custom_search"]["value"] == "false"
 
 
 def test_news_env_diagnostics_lists_only_user_owned_missing_keys() -> None:
     diagnostics = build_news_env_diagnostics({})
 
-    assert "Create or register OPENROUTER_API_KEY for primary article generation." in diagnostics["user_required_actions"]
-    assert "Set OPENROUTER_MODEL to the model slug to use first." in diagnostics["user_required_actions"]
+    assert "Create or register OPENROUTER_API_KEY for free-first article generation." in diagnostics["user_required_actions"]
     assert "Create or register OPENAI_API_KEY as paid fallback." in diagnostics["user_required_actions"]
     assert diagnostics["provider_chain"][0]["configured"] is False
 

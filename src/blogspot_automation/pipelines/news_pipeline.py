@@ -2651,6 +2651,37 @@ class NewsPipeline:
         _selected_title = (_title_result.get("best_title") or {}).get("title", "")
         # --------------------------------------------------
 
+        # --- AI 계열 글: 슬롯을 LLM 주제 특화 본문으로 보강 ---
+        # 정적 골든패턴 텍스트가 매 발행마다 그대로 반복되는 문제의 해결 지점.
+        # ai_pipeline._enrich_preview_slots와 동일한 in-place 패턴 — 실패/비활성 시
+        # 원본 슬롯 유지(폴백)라 발행 흐름은 바뀌지 않는다. 렌더링 직전에만 호출해
+        # 탈락 후보에는 LLM 비용을 쓰지 않는다.
+        if _can_generate_candidate:
+            try:
+                from blogspot_automation.services.golden_article_preview_service import _is_ai_family
+                _raw_e = selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
+                _ct_e = str((_raw_e.get("content_angle") or {}).get("content_type") or "")
+                _pid_e = str(_pm_for_cand.get("pattern_id") or "")
+                if _is_ai_family(_pid_e, _ct_e):
+                    from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
+                    _sr_e = golden_preview_result.get("slot_result") or {}
+                    _slots_e = _sr_e.get("slots") or {}
+                    if _slots_e:
+                        _enriched = enrich_slots_with_llm(
+                            slots=_slots_e,
+                            topic=selected.candidate.topic or "",
+                            content_type=_ct_e,
+                            selected_title=_selected_title,
+                        )
+                        _sr_e["slots"] = _enriched
+                        golden_preview_result["slot_result"] = _sr_e
+                        _llm_t = _enriched.get("_llm_title")
+                        if _llm_t:
+                            logger.info("NewsPipeline: LLM 제목 채택 — %s", _llm_t)
+                            _selected_title = _llm_t
+            except Exception as _en_exc:
+                logger.warning("NewsPipeline: slot enrich 실패(템플릿 폴백): %s", _en_exc)
+
         # article_candidate.html 렌더링 (selected_title 반영)
         _article_candidate_html = ""
         if _can_generate_candidate:
@@ -4434,6 +4465,12 @@ class NewsPipeline:
             "status": status,
             "retry_attempt": result.get("retry_attempt", ""),
             "max_publish_attempts": result.get("max_publish_attempts", ""),
+            # 본문 문장 지문 — 이후 발행 후보의 재탕(near-duplicate) 감지에 사용.
+            "content_fingerprint": (
+                list(quality_gate.get("content_fingerprint") or [])
+                if isinstance(quality_gate, dict)
+                else []
+            ),
         }
 
     def _try_record_history(self, *, status: str, result: dict[str, Any]) -> bool:
