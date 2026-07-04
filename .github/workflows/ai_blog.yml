@@ -96,9 +96,11 @@ jobs:
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # Naver Blog rewrite is disabled. Fresh discovery uses Google RSS + Tavily/Exa/Firecrawl.
-          ENABLE_NAVER_SEARCH: "false"
-          ENABLE_NAVER_DATALAB: "false"
+          # Naver Blog rewrite/publish is disabled, but Naver search is used as a free fact-source.
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          ENABLE_NAVER_SEARCH: "true"
+          ENABLE_NAVER_DATALAB: "true"
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
@@ -106,7 +108,7 @@ jobs:
           ENABLE_EXA_SEARCH: "true"
           ENABLE_FIRECRAWL_SEARCH: "true"
           NEWS_TAVILY_MAX_REQUESTS: "3"
-          NEWS_EXA_MAX_REQUESTS: "1"
+          NEWS_EXA_MAX_REQUESTS: "3"
           NEWS_FIRECRAWL_MAX_REQUESTS: "1"
           # 색인 즉시 요청 (Bing·Naver IndexNow) — 키 없으면 안전하게 skip
           NAVER_INDEXNOW_KEY: ${{ secrets.NAVER_INDEXNOW_KEY }}

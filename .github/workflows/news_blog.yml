@@ -95,8 +95,8 @@ jobs:
           OPENAI_MODEL: "gpt-4o-mini"
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          ENABLE_NAVER_SEARCH: "false"
-          ENABLE_NAVER_DATALAB: "false"
+          ENABLE_NAVER_SEARCH: "true"
+          ENABLE_NAVER_DATALAB: "true"
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
@@ -154,8 +154,8 @@ jobs:
           ENABLE_GOOGLE_CUSTOM_SEARCH: "true"
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          ENABLE_NAVER_SEARCH: "false"
-          ENABLE_NAVER_DATALAB: "false"
+          ENABLE_NAVER_SEARCH: "true"
+          ENABLE_NAVER_DATALAB: "true"
           NEWS_NAVER_SEARCH_TYPES: "news,webkr"
           NEWS_NAVER_MAX_REQUESTS: "36"
           NEWS_NAVER_DISPLAY: "10"
@@ -167,7 +167,7 @@ jobs:
           ENABLE_EXA_SEARCH: "true"
           ENABLE_FIRECRAWL_SEARCH: "true"
           NEWS_TAVILY_MAX_REQUESTS: "3"
-          NEWS_EXA_MAX_REQUESTS: "1"
+          NEWS_EXA_MAX_REQUESTS: "3"
           NEWS_FIRECRAWL_MAX_REQUESTS: "1"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free"
