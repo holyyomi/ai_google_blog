@@ -67,6 +67,12 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (github.event.inputs.publish_mode == 'publish' && 'false' || 'true') }}
           AUTO_PUBLISH: ${{ github.event_name == 'schedule' && 'true' || (github.event.inputs.publish_mode == 'publish' && 'true' || 'false') }}
           NEWS_PUBLISH_MODE: ${{ github.event_name == 'schedule' && 'publish' || github.event.inputs.publish_mode }}
+          # news_blog.yml과 동일한 정책: PUBLISH_HOLD_PHASE2는 항상 false로 둔다.
+          # (실제 발행 여부는 DRY_RUN/AUTO_PUBLISH가 따로 통제하므로 안전함.)
+          # 이 값이 없으면 news_pipeline.py의 기본값이 "true"라 human_review_required가
+          # 항상 True가 되어, golden pattern 매칭/등급과 무관하게 모든 실행이 held_for_review로
+          # 막힌다 — ai_blog.yml에 이 줄이 누락된 것이 2026-07-03 이후 발행이 전혀 안 된 근본 원인.
+          PUBLISH_HOLD_PHASE2: "false"
           AI_FORCE_TOPIC: ${{ github.event.inputs.force_topic }}
           NEWS_MODE: "news"
           AI_BLOG_MODE: "true"
