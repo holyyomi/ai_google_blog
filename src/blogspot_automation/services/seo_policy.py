@@ -787,7 +787,11 @@ def normalize_search_description(*, title: str, description: str = "", html: str
 
 
 def build_search_description(*, title: str, html: str = "", topic: str = "") -> str:
-    text = unescape(re.sub(r"<[^>]+>", " ", html or ""))
+    # <style>/<script>를 먼저 제거하지 않으면 CSS 원문이 검색 설명에 새어 들어간다
+    # (라이브 실측: search_description에 ".yomi-clean-post{max-width:744px…" 노출).
+    stripped = re.sub(r"<style\b.*?</style>", " ", html or "", flags=re.IGNORECASE | re.DOTALL)
+    stripped = re.sub(r"<script\b.*?</script>", " ", stripped, flags=re.IGNORECASE | re.DOTALL)
+    text = unescape(re.sub(r"<[^>]+>", " ", stripped))
     text = " ".join(text.split())
     seed = " ".join(part for part in [topic.strip(), title.strip()] if part)
     if text:
