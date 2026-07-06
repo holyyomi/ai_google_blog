@@ -1,80 +1,5 @@
 [
   {
-    "run_at": "2026-06-30T01:55:10+00:00",
-    "date": "2026-06-30",
-    "title": "AI 업무 자동화 처음 버릴 반복 작업 써도 일이 줄지 않는 이유",
-    "selected_topic": "AI 업무 자동화 처음 버릴 반복 작업 5가지",
-    "search_demand_topic": "AI 업무 자동화 처음 버릴 반복 작업 5가지",
-    "topic_group": "ai_work",
-    "content_type": "ai_work_tip",
-    "url": "",
-    "post_id": "",
-    "internal_link_targets": [
-      {
-        "anchor_text": "오늘 AI가 화제 된 이유, 사람들이 본 반응이 갈린 이유, 먼저 볼 3가지",
-        "url": "https://holyyomiai.blogspot.com/2026/06/ai-entertainment-sports-reaction-b0cc2.html"
-      }
-    ],
-    "source_type": "evergreen_fallback",
-    "evergreen_axis": "ai_automation",
-    "fallback_reason": "no_publishable_candidate_used_evergreen",
-    "published": false,
-    "dry_run": false,
-    "quality_passed": false,
-    "reader_value_score": 92,
-    "article_focus_score": 100,
-    "ai_recommender_score": 100,
-    "shareability_score": 98,
-    "policy_specificity_score": 0,
-    "recommendation_policy_passed": true,
-    "recommendation_policy_signals": [
-      "table",
-      "faq",
-      "checklist",
-      "example",
-      "official_check",
-      "risk_or_mistake",
-      "updated_date"
-    ],
-    "publish_preview_score": 79,
-    "publish_preview_status": "fail",
-    "quality_blocking_issues": [
-      "intent_qa_count_below_3"
-    ],
-    "quality_warnings": [
-      "evergreen_today_relevance_below_7:5",
-      "ai_evergreen_issue_specificity_below_6:5"
-    ],
-    "auto_publish_allowed": false,
-    "auto_publish_blocking_reasons": [],
-    "post_publish_audit_passed": null,
-    "post_publish_audit_issues": [],
-    "topic_engine_score": 82,
-    "topic_candidate_grade": "A",
-    "content_candidate_grade": "A",
-    "final_editorial_score": 90,
-    "golden_pattern_id": "ai_work_time_savings",
-    "golden_pattern_confidence": 100,
-    "golden_slot_fill_rate": 1.0,
-    "why_topic_selected": "topic_engine_score=82 + golden_matched=True + grade=A",
-    "why_topic_held": "",
-    "learning_signals": [
-      "not_published:blocked_by_quality_gate",
-      "quality_gate_failed",
-      "quality_issue:intent_qa_count_below_3"
-    ],
-    "hashtags": [
-      "#AI활용",
-      "#업무자동화",
-      "#생산성",
-      "#AI도구"
-    ],
-    "artifact_dir": "runs/news_20260630_015510",
-    "status": "blocked_by_quality_gate",
-    "retry_attempt": 2,
-    "max_publish_attempts": ""
-  },
-  {
     "run_at": "2026-06-30T01:55:33+00:00",
     "date": "2026-06-30",
     "title": "",
@@ -14048,6 +13973,106 @@
       "d3f83db37fbc",
       "66163b3c8571",
       "79b3262c6560",
+      "0e1280b745f3",
+      "563eb7840845",
+      "53419cecea2c",
+      "40a8dc797357"
+    ]
+  },
+  {
+    "run_at": "2026-07-06T14:15:56+00:00",
+    "date": "2026-07-06",
+    "title": "네이버 AI 켜기 전 확인할 설정 3가지",
+    "selected_topic": "네이버 AI 기능 켜기 전에 확인할 설정",
+    "search_demand_topic": "네이버 AI 기능 켜기 전에 확인할 설정",
+    "topic_group": "ai_work",
+    "content_type": "ai_work_tip",
+    "url": "",
+    "post_id": "",
+    "internal_link_targets": [
+      {
+        "anchor_text": "무료 AI 도구 업무 도입 전 반드시 체크할 5가지 한계",
+        "url": "https://holyyomiai.blogspot.com/2026/07/ai-work-automation-productivity-update.html"
+      }
+    ],
+    "source_type": "google_news_rss",
+    "evergreen_axis": "",
+    "fallback_reason": "",
+    "published": false,
+    "dry_run": false,
+    "quality_passed": false,
+    "reader_value_score": 100,
+    "article_focus_score": 90,
+    "ai_recommender_score": 100,
+    "shareability_score": 84,
+    "policy_specificity_score": 0,
+    "recommendation_policy_passed": true,
+    "recommendation_policy_signals": [
+      "table",
+      "faq",
+      "checklist",
+      "example",
+      "official_check",
+      "updated_date"
+    ],
+    "publish_preview_score": 79,
+    "publish_preview_status": "fail",
+    "quality_blocking_issues": [
+      "title_body_entity_mismatch:확인할",
+      "original_issue_preservation_below_6:4"
+    ],
+    "quality_warnings": [
+      "issue_specificity_below_7:6"
+    ],
+    "auto_publish_allowed": false,
+    "auto_publish_blocking_reasons": [],
+    "post_publish_audit_passed": null,
+    "post_publish_audit_issues": [],
+    "topic_engine_score": 60,
+    "topic_candidate_grade": "C",
+    "content_candidate_grade": "A",
+    "final_editorial_score": 83,
+    "golden_pattern_id": "ai_work_time_savings",
+    "golden_pattern_confidence": 100,
+    "golden_slot_fill_rate": 1.0,
+    "why_topic_selected": "topic_engine_score=60 + golden_matched=True + grade=C",
+    "why_topic_held": "",
+    "learning_signals": [
+      "not_published:blocked_by_quality_gate",
+      "quality_gate_failed",
+      "quality_issue:title_body_entity_mismatch:확인할",
+      "quality_issue:original_issue_preservation_below_6:4"
+    ],
+    "hashtags": [
+      "#AI활용",
+      "#업무자동화",
+      "#생산성",
+      "#AI도구"
+    ],
+    "artifact_dir": "runs/news_20260706_141556",
+    "status": "blocked_by_quality_gate",
+    "retry_attempt": 0,
+    "max_publish_attempts": "",
+    "content_fingerprint": [
+      "dc81fb1aafd5",
+      "d556e72e2b52",
+      "242a9d0854d7",
+      "f1bfd06c20f9",
+      "cd7c3cfee3ac",
+      "b2d4ffe4582c",
+      "de5d2c02bf42",
+      "90a56760816d",
+      "fead4706ae9f",
+      "05a2548851ac",
+      "b6a8c9b8a0b1",
+      "ca7e32556199",
+      "a426e5814ef0",
+      "a7784e099187",
+      "39751093080e",
+      "3d34bab644cb",
+      "6b2aa88cd9f7",
+      "063ba0e81215",
+      "29e7bfa97e56",
       "0e1280b745f3",
       "563eb7840845",
       "53419cecea2c",
