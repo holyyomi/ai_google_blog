@@ -926,6 +926,9 @@ def build_search_angle(
     if ("AI" in text or "인공지능" in text or "챗GPT" in text or "ChatGPT" in text
             or re.search(r"(?<![a-zA-Z])ai(?![a-zA-Z])", lower)):
         product = "크롬" if "크롬" in text else _leading_entity(original_topic) or "AI"
+        # 엔티티가 이미 "…AI"로 끝나면 템플릿의 "AI 기능"과 붙어 "AI AI"가 된다
+        # (실제 발행 사고: "구글 지도+제미나이 AI AI 기능…") — 꼬리 AI를 제거한다.
+        product = re.sub(r"[\s+·]*(?:AI|인공지능)\s*$", "", product).strip() or "AI"
         return angle(
             search_demand_topic=f"{product} AI 기능 켜기 전에 확인할 설정",
             questions=[
