@@ -16,6 +16,8 @@ from blogspot_automation.services.news_taxonomy import content_type_for_topic_gr
 _LABEL_VARIANTS: dict[str, tuple[str, ...]] = {
     "overview": ("결론부터 말하면", "핵심부터 짚으면", "한 줄로 먼저", "짧게 보면 이렇습니다"),
     "context": ("왜 지금 터졌나", "이 일이 불거진 배경", "지금 주목받는 이유", "타이밍부터 보면"),
+    # AI 도구/기능 글은 "터졌나" 같은 사건 어휘가 어색하다 — 도구 글 전용 변주.
+    "context_ai": ("무엇이 달라졌나", "이 기능이 지금 중요한 이유", "지금 확인해야 하는 이유", "변화의 핵심부터"),
     "intent": ("많이들 궁금해하는 것", "이건 짚고 넘어가죠", "자주 나오는 물음", "여기서 헷갈리기 쉬운 것"),
     "confirmed": ("지금까지 확인된 것", "사실과 추측, 이렇게 갈립니다", "확인된 것과 아직인 것"),
     "trust": ("어디서 확인했나", "참고한 보도", "근거"),
@@ -148,9 +150,33 @@ def ensure_answer_engine_optimized_html(
     if 'id="AI_OVERVIEW_TARGET_ANSWER"' not in content:
         head_blocks.append(_section("AI_OVERVIEW_TARGET_ANSWER", "yomi-lede", _varied_label("overview", _seed), overview))
     if 'id="ISSUE_CONTEXT_BLOCK"' not in content and not _drop_issue_context:
-        head_blocks.append(_section("ISSUE_CONTEXT_BLOCK", "yomi-note", _varied_label("context", _seed), issue_context))
+        _context_kind = "context_ai" if resolved_type.startswith("ai_") else "context"
+        head_blocks.append(_section("ISSUE_CONTEXT_BLOCK", "yomi-note", _varied_label(_context_kind, _seed), issue_context))
     if 'id="INTENT_ANSWER_BLOCK"' not in content:
         _intent_items = llm_faq_pairs[:3] if use_llm_intent else intent_answers
+        # 본문에 이미 visible FAQ가 있으면 같은 Q&A를 이 블록에서 반복하지 않는다
+        # (실제 발행 사고: 동일 Q&A가 '핵심 Q&A'와 '많이들 궁금해하는 것'에 두 번 노출).
+        _body_faq_keys = {
+            _normalize_question_key(str(p.get("Q") or ""))
+            for p in (slots.get("faq") or [])
+            if isinstance(p, dict)
+        }
+        if _has_faq_section(content) and _body_faq_keys:
+            _distinct = [
+                qa for qa in _intent_items
+                if _normalize_question_key(str(qa.get("Q") or "")) not in _body_faq_keys
+            ]
+            if len(_distinct) < 3:
+                _extra_questions = [
+                    q for q in questions
+                    if _normalize_question_key(q) not in _body_faq_keys
+                    and all(
+                        _normalize_question_key(q) != _normalize_question_key(str(d.get("Q") or ""))
+                        for d in _distinct
+                    )
+                ]
+                _distinct.extend(_fallback_intent_answers(_extra_questions, topic_text)[: 3 - len(_distinct)])
+            _intent_items = _distinct
         head_blocks.append(_intent_answer_block(_intent_items, label=_varied_label("intent", _seed)))
     if 'id="PEOPLE_ALSO_ASK_BLOCK"' not in content and not _author_rich_today:
         head_blocks.append(_people_also_ask_block(people_also_ask))
@@ -200,6 +226,10 @@ def ensure_answer_engine_optimized_html(
     # 블록을 모두 추가한 뒤 최종 질문헤딩 예산(≤5) 보장. 본문이 자체 질문 h2를
     # 갖고 있고 여기서 intent Q&A까지 더해지면 누적 초과 → 감사 차단되던 문제 해소.
     content = _demote_excess_question_headings(content, max_count=5)
+    # 이 함수가 발행 직전에 한 번 더 호출되면 FAQ 재배치가 이미 부착된 해시태그
+    # 뒤로 블록을 밀어 넣어 해시태그가 글 중간에 끼는 사고가 있었다(라이브 실측).
+    # 어떤 순서로 호출되든 해시태그는 항상 맨 끝을 보장한다.
+    content = _relocate_hashtags_to_tail(content)
 
     try:
         from blogspot_automation.services.seo_policy import ensure_yomi_clean_article_layout
@@ -231,8 +261,12 @@ def answer_engine_coverage(html: str) -> dict[str, object]:
 
 def _build_slots_from_html(html: str, *, title: str, topic: str) -> dict[str, Any]:
     scoped_html = _content_scope_html(html)
-    plain = _plain_text(scoped_html)
     faq = _extract_faq_pairs(scoped_html)
+    # 요약 카드/표/리스트가 섞인 전체 텍스트를 그대로 자르면 "핵심 변화/이점 리뷰·사."
+    # 같은 중간 절단 덤프가 overview/context 블록에 노출된다(라이브 실측).
+    # 문장부호가 온전한 본문 <p> 문단에서만 문장을 추출하고, 없을 때만 전체로 폴백.
+    prose = _prose_paragraph_text(scoped_html)
+    plain = prose or _plain_text(scoped_html)
     sentences = _sentences(plain, max_items=4)
     first_sentence = sentences[0] if sentences else _first_sentence(plain, max_len=180)
     second_sentence = ""
@@ -343,7 +377,19 @@ def _intent_answer_block(items: list[dict[str, str]], *, label: str = "") -> str
 
 
 def _people_also_ask_block(questions: list[str], *, label: str = "") -> str:
-    items = "".join(f'<li class="paa-item">{escape(_search_phrase_from_question(str(q)))}</li>' for q in questions[:5])
+    phrases: list[str] = []
+    for q in questions:
+        phrase = _search_phrase_from_question(str(q))
+        # 긴 주제 문자열이 그대로 접합된 항목은 조사·어미가 깨진다
+        # (라이브 실측: "…AI 기능 켜기 전에 확인할은 어떤 업무에 효과적").
+        # 실제 검색어답지 않은 과장 길이/깨진 어미 항목은 버린다.
+        if len(phrase) > 40 or re.search(r"[가-힣]할은\s|할은$", phrase):
+            continue
+        if phrase not in phrases:
+            phrases.append(phrase)
+        if len(phrases) >= 5:
+            break
+    items = "".join(f'<li class="paa-item">{escape(p)}</li>' for p in phrases)
     heading = label or "이어서 찾아보면 좋은 것"
     return (
         '<section id="PEOPLE_ALSO_ASK_BLOCK" class="yomi-paa-compact">'
@@ -417,8 +463,25 @@ def _dedupe_people_also_ask(
     return cleaned
 
 
+def _compact_search_topic(topic: str, *, max_len: int = 18) -> str:
+    """긴 주제 문자열을 실제 검색어처럼 짧은 핵심 구로 압축.
+
+    "구글 지도+제미나이 AI 기능 켜기 전에 확인할 설정" → "구글 지도+제미나이 AI"
+    처럼 앞쪽 개체명 위주로 자른다 — PAA 폴백이 문장형 주제를 그대로 붙이면
+    검색어가 아니라 깨진 문장이 되기 때문.
+    """
+    words = " ".join((topic or "").split()).split(" ")
+    out: list[str] = []
+    for word in words:
+        candidate = " ".join([*out, word])
+        if out and len(candidate) > max_len:
+            break
+        out.append(word)
+    return " ".join(out).strip()
+
+
 def _paa_search_fallbacks(*, topic: str, content_type: str) -> list[str]:
-    topic_text = " ".join((topic or "이 주제").split()).strip()
+    topic_text = _compact_search_topic(topic or "이 주제") or "이 주제"
     if content_type in {"money_checklist", "delivery_money"}:
         return [
             "배달앱 무료 배달 조건",
@@ -688,6 +751,34 @@ def _relocate_body_faq_to_tail(html: str) -> str:
     return stripped + "\n" + bundle
 
 
+def _relocate_hashtags_to_tail(html: str) -> str:
+    """해시태그 블록(yomi-hashtags)을 항상 글 맨 끝(</article> 직전)으로 이동.
+
+    FAQ/보조 블록 재배치가 해시태그 부착 이후에 실행되면 해시태그가 본문 중간에
+    끼는 결함을 막는 최종 안전장치. 해시태그 블록이 없으면 그대로 반환한다.
+    """
+    content = html or ""
+    pattern = re.compile(
+        r'\s*<section\b[^>]*class=["\'][^"\']*\byomi-hashtags\b[^"\']*["\'][^>]*>.*?</section>',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    moved: list[str] = []
+
+    def _extract(match: re.Match[str]) -> str:
+        moved.append(match.group(0).strip())
+        return ""
+
+    stripped = pattern.sub(_extract, content)
+    if not moved:
+        return content
+    # 중복 부착돼 있었다면 첫 블록 하나만 유지한다.
+    block = moved[0]
+    last_article = stripped.lower().rfind("</article>")
+    if last_article >= 0:
+        return stripped[:last_article] + block + "\n" + stripped[last_article:]
+    return stripped.rstrip() + "\n" + block
+
+
 def _clean_fact_list(items: list[str] | None, *, max_items: int) -> list[str]:
     """LLM이 뽑은 사실 목록 정리 — 짧거나 깨진 항목 제거, 중복 제거."""
     cleaned: list[str] = []
@@ -873,7 +964,15 @@ def _insert_json_ld(html: str, payload: dict[str, Any]) -> str:
 
 
 def _has_faq_section(html: str) -> bool:
-    return bool(re.search(r'<section\b[^>]*class=["\'][^"\']*faq', html or "", flags=re.IGNORECASE))
+    # LLM 직접발행 본문은 FAQ를 <div class="faq-section">으로 출력한다 —
+    # <section>만 보면 본문 FAQ를 놓쳐 intent 블록이 같은 Q&A를 중복 노출한다(라이브 실측).
+    return bool(
+        re.search(
+            r'<(?:section|div|article)\b[^>]*class=["\'][^"\']*faq',
+            html or "",
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _has_author_answer_sections(html: str) -> bool:
@@ -931,6 +1030,26 @@ def _plain_text(html: str) -> str:
     text = re.sub(r"<style\b.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = unescape(re.sub(r"<[^>]+>", " ", text))
     return " ".join(text.split())
+
+
+def _prose_paragraph_text(html: str) -> str:
+    """표·카드·리스트를 제외한 본문 <p> 문단에서 온전한 산문만 모아 반환.
+
+    요약 블록 인용문 소스로 쓴다 — 문장부호 없이 이어지는 카드/표 텍스트가
+    섞이면 문장 추출이 중간에서 잘리기 때문. 표 안의 <p>는 흔치 않지만
+    테이블 전체를 먼저 제거해 방어한다.
+    """
+    scoped = re.sub(r"<table\b.*?</table>", " ", html or "", flags=re.IGNORECASE | re.DOTALL)
+    scoped = re.sub(r"<(?:ul|ol)\b.*?</(?:ul|ol)>", " ", scoped, flags=re.IGNORECASE | re.DOTALL)
+    paragraphs: list[str] = []
+    for match in re.finditer(r"<p\b[^>]*>(.*?)</p>", scoped, flags=re.IGNORECASE | re.DOTALL):
+        text = _plain_text(match.group(1))
+        # 완결된 한국어 문장으로 끝나는 실제 산문만 채택 (라벨/캡션/태그줄 배제)
+        if len(text) >= 30 and re.search(r"(?:다|요)\.\s*$|[.!?]$", text):
+            paragraphs.append(text)
+        if len(paragraphs) >= 6:
+            break
+    return " ".join(paragraphs)
 
 
 def _sentences(text: str, *, max_items: int = 4) -> list[str]:

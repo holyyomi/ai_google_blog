@@ -63,6 +63,13 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .yomi-note p:last-child,.yomi-judgment-box p:last-child{margin-bottom:0}
 .yomi-note h2,.yomi-judgment-box h2,.real-criterion h2,.core-message-box h2,.target-reader-box h2{margin-top:0;border:0;padding:0;background:none;font-size:1.06rem}
 .real-criterion{white-space:pre-line}
+/* ── 표 기본값: 래퍼 클래스 없이 나온 표도 최소한의 규격을 보장 ──
+   (LLM이 래퍼를 빼먹은 비교표가 무스타일 브라우저 기본값으로 노출되던 결함 방어.
+   아래 '표 공통' 박스 규칙이 같은 특이도로 뒤에 오므로 박스 표는 그쪽이 이긴다.) */
+.yomi-clean-post table{width:100%;border-collapse:separate;border-spacing:0;margin:14px 0;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.yomi-clean-post th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
+.yomi-clean-post td{border-top:1px solid var(--line);padding:12px 14px;vertical-align:top;background:#fff;color:var(--body)}
+.yomi-clean-post tr:first-child td{border-top:0}
 /* ── 표 공통: 헤더는 중립 그레이, 줄무늬 없음 ── */
 .misconception-box table,.quick-decision-table table,.pricing-table table,.yomi-risk{width:100%;border-collapse:separate;border-spacing:0;margin:12px 0 4px;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .misconception-box th,.quick-decision-table th,.pricing-table th,.yomi-risk th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
@@ -125,6 +132,11 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .prompt-card{border:1px solid var(--line);border-radius:10px;margin:0 0 14px;overflow:hidden}
 .prompt-card-label{margin:0!important;padding:10px 15px!important;background:var(--soft)!important;color:var(--ink)!important;font-size:.86rem;font-weight:750;border-bottom:1px solid var(--line)}
 .yomi-clean-post .prompt-code{margin:0!important;padding:16px 17px!important;background:#fbfcfe!important;color:var(--ink)!important;font-family:'D2Coding','Consolas','Courier New',monospace;font-size:.92rem;line-height:1.75;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+/* ── 마감 CTA 카드: 결론 강조 카드 (리드와 함께 강조 2곳 원칙 유지) ── */
+.deadline-box{margin:30px 0 8px;padding:20px 22px;border:1px solid var(--line);border-left:3px solid var(--a1);background:var(--soft);border-radius:10px}
+.deadline-box .dl-icon{display:inline-block;font-size:1.4rem;line-height:1;margin-right:8px;vertical-align:-3px}
+.deadline-box .dl-title{display:inline-block;font-weight:800;color:var(--ink);font-size:1.05rem}
+.deadline-box .dl-desc{margin:10px 0 0;color:var(--ink);font-size:1.01em}
 /* ── 체크리스트 ── */
 .quality-checklist ul{margin:10px 0 2px;padding:0;list-style:none}
 .quality-checklist li{margin:0;padding:10px 0 10px 30px;position:relative;border-top:1px dashed var(--line);color:var(--body)}
@@ -166,7 +178,8 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .yomi-clean-post{width:100%;max-width:100%;font-size:16px;line-height:1.78;padding:0 16px 30px!important;overflow-x:hidden;word-break:normal}
 .yomi-clean-post h1{font-size:1.42rem}
 .yomi-clean-post h2{font-size:1.16rem;overflow-wrap:anywhere;margin:34px 0 14px}
-.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box,.misconception-box,.quick-decision-table,.actions-box,.action-guide-box,.checklist,.quality-checklist,.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support,.tool-summary,.pricing-table,.risk-note,.verdict-box{padding:15px 16px;border-radius:10px}
+.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box,.misconception-box,.quick-decision-table,.actions-box,.action-guide-box,.checklist,.quality-checklist,.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support,.tool-summary,.pricing-table,.risk-note,.verdict-box,.deadline-box{padding:15px 16px;border-radius:10px}
+.yomi-clean-post table{display:block;overflow-x:auto}
 .yomi-thesis,.yomi-lens,.key-fact-cards,.who-for-cols{grid-template-columns:1fr;gap:12px}
 .ai-hero{padding:16px 17px;border-radius:11px}
 .ai-hero-title{font-size:1.04rem}
@@ -803,6 +816,13 @@ def _normalize_legacy_article_classes(html: str) -> str:
         "source-trust-box": "yomi-source",
         "faq faq-block": "yomi-faq",
         "answer-engine-support": "yomi-engine-support",
+        # LLM 직접발행 본문이 쓰는 클래스 → 디자인 시스템 클래스로 정규화
+        # (summary-card/faq-section/faq-item은 스타일 정의가 없어 브라우저
+        # 기본값으로 노출되던 결함 — 라이브 발행 글에서 실측.)
+        "summary-card": "quick-decision-table",
+        "info-box": "yomi-note",
+        "faq-section": "yomi-faq",
+        "faq-item": "faq-card",
     }
     content = html or ""
     for old, new in replacements.items():
