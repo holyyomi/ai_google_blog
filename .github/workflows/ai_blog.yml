@@ -98,6 +98,10 @@ jobs:
           DISABLE_IMAGE_UPLOAD: "true"
           ENABLE_COVER_IMAGE_AUTOGEN: "false"
           REQUIRE_NEWS_COVER_IMAGE: "false"
+          # 커버 이미지 env — news_blog.yml과 동일. 이 두 줄이 없으면 발행 글에
+          # 이미지가 하나도 없어 홈피드/검색/공유 썸네일이 비어 나간다 (라이브 실측).
+          AI_COVER_IMAGE_URL: ${{ secrets.AI_COVER_IMAGE_URL }}
+          AI_DEFAULT_COVER_IMAGE_URL: "https://raw.githubusercontent.com/holyyomi/ai_google_blog/main/assets/ai-blog-cover-default.png"
           AI_IMAGE_UPLOAD_KEY: ${{ secrets.AI_IMAGE_UPLOAD_KEY }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
