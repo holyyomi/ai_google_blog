@@ -405,9 +405,10 @@ class LlmContentService:
             if not api_key:
                 logger.debug("LlmContentService: %s — API키 없음, skip", provider["name"])
                 continue
-            # 무료 모델은 순간 혼잡(429/502)이 잦다 — 짧게 기다렸다 같은 provider를
-            # 1회 더 시도해 유료 폴백/템플릿 폴백으로 새는 빈도를 줄인다.
-            attempts = 2 if provider.get("free") else 1
+            # 순간 혼잡(429/타임아웃)이 마지막 유료 폴백까지 겹치면 그대로 발행이
+            # 통째로 스킵되므로, provider 종류와 무관하게 최소 1회는 재시도한다.
+            # 무료 모델은 2회, 유료(마지막 보루)도 2회 — 유료는 비용 때문에 그 이상은 안 늘린다.
+            attempts = 2
             for attempt in range(1, attempts + 1):
                 try:
                     result = self._call_provider(provider, api_key, user_prompt, system_prompt)
@@ -437,7 +438,8 @@ class LlmContentService:
                         provider["name"], attempt, attempts, exc,
                     )
                     if attempt < attempts:
-                        time.sleep(2.5)
+                        # 429(rate limit)는 짧은 대기로 안 풀리는 경우가 많아 더 길게 기다린다.
+                        time.sleep(6.0 if "429" in str(exc) else 2.5)
 
         return None
 
