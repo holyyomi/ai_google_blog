@@ -767,12 +767,18 @@ class GoldenArticlePreviewService:
         # --- GEO: AI_CITATION_SUMMARY (완전한 문장, 내부 라벨 없음) ---
         # LLM이 만든 주제 특화 인용 요약(_llm_citation_summary)이 있으면 우선 사용 —
         # 규칙 기반 조립은 hook/yomi 문장 재활용이라 일반론에 머문다.
+        # 단, LLM 요약이 문장 수 등 유효성 검사를 통과하지 못하면(예: 2문장만 생성)
+        # publish_ready가 막히므로 규칙 기반 요약으로 폴백한다.
         today_str = _dt.now().strftime("%Y-%m-%d")
-        _ai_summary_text = str(slots.get("_llm_citation_summary") or "").strip() or _build_ai_citation_summary(
-            hook=hook, yomi=yomi, real=real,
-            faq_list=faq_list, content_type=_content_type,
-            pattern_id=_pattern_id,
-        )
+        _llm_summary_text = str(slots.get("_llm_citation_summary") or "").strip()
+        if _llm_summary_text and validate_ai_citation_summary(_llm_summary_text)["valid"]:
+            _ai_summary_text = _llm_summary_text
+        else:
+            _ai_summary_text = _build_ai_citation_summary(
+                hook=hook, yomi=yomi, real=real,
+                faq_list=faq_list, content_type=_content_type,
+                pattern_id=_pattern_id,
+            )
 
         ai_citation_block = (
             '\n  <section id="AI_CITATION_SUMMARY">\n'
