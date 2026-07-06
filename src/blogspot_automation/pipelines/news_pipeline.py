@@ -2755,7 +2755,20 @@ class NewsPipeline:
         raw_candidate["near_match"] = _is_near_match
 
         phase_hold = self._is_publish_hold_phase2()
-        human_review_required = phase_hold or initial_grade in ("C", "D") or _is_near_match
+        # topic_candidate_grade는 golden pattern 매칭 이전, 원본 주제 자체의 점수다.
+        # golden pattern이 완전 매칭(near_match 아님)되고 실제 생성된 글이 A/B 등급이면,
+        # 원본 주제 점수가 낮았다는 이유만으로 계속 사람 검토 대기시키지 않는다 —
+        # 발행 여부는 최종 콘텐츠 품질(content_candidate_grade) 기준을 따른다.
+        _content_grade_overrides_topic_grade = (
+            golden_matched
+            and not _is_near_match
+            and content_candidate_grade in ("A", "B")
+        )
+        human_review_required = (
+            phase_hold
+            or _is_near_match
+            or (initial_grade in ("C", "D") and not _content_grade_overrides_topic_grade)
+        )
         why_selected = (
             f"topic_engine_score={raw_candidate.get('topic_engine_score', 0)} "
             f"+ golden_matched={golden_matched} + grade={initial_grade}"
@@ -2777,7 +2790,7 @@ class NewsPipeline:
                 why_held = "golden_pattern_not_matched:no_keyword_overlap"
         elif _is_near_match:
             why_held = f"near_match_confidence:{_pm_conf}+human_review_required"
-        elif initial_grade in ("C", "D"):
+        elif initial_grade in ("C", "D") and not _content_grade_overrides_topic_grade:
             why_held = f"grade={initial_grade}"
         elif phase_hold:
             why_held = "PUBLISH_HOLD_PHASE2=true"
