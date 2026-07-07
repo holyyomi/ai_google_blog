@@ -1107,6 +1107,11 @@ class NewsPipeline:
             # 실제 발행 본문(html)만 한 편으로 읽히는 LLM 서술형을 유지한다(가독성 우선).
             # 통과 못 했으면 기존처럼 템플릿을 발행해 발행 자체가 막히지 않게 폴백한다.
             _llm_body_gate_passed = bool(_llm_used) and bool(publish_quality_gate.get("passed"))
+            if bool(_llm_used) and not _llm_body_gate_passed:
+                logger.info(
+                    "news pipeline: LLM 서술형 본문 자체 게이트 미통과 → 템플릿 폴백 (blocking=%s)",
+                    publish_quality_gate.get("blocking_issues"),
+                )
             duplicate_issue = self._recent_duplicate_issue(
                 selected_topic=selected.candidate.topic,
                 selected_title=best_title.title,
