@@ -1091,15 +1091,6 @@ class NewsPipeline:
                 1 for _ax in recent_evergreen_axes[:2] if _ax == "tax_refund_support"
             )
             publish_mode_active = (not self.dry_run) or self.news_publish_mode == "publish"
-            if _llm_used and os.environ.get("DUMP_LLM_BODY", "1") != "0":
-                try:
-                    import os as _os
-                    _rd = _os.environ.get("RUNS_DIR", "runs")
-                    _os.makedirs(_rd, exist_ok=True)
-                    with open(_os.path.join(_rd, "gate_input_preview.html"), "w", encoding="utf-8") as _gf:
-                        _gf.write(html)
-                except Exception:  # noqa: BLE001
-                    pass
             publish_quality_gate = self.quality_gate.evaluate(
                 selected=selected,
                 selected_title=best_title.title,
