@@ -761,9 +761,12 @@ def _seed_specific_contextual_templates(
         and "설정" in compact
         and ("켜기" in compact or "AI기능" in compact or "기능" in compact)
     ):
+        # "켜기/확인할"은 제목 골격어일 뿐 본문 산문에는 거의 안 나와
+        # title_body_entity_mismatch 게이트에 걸린다. 본문에 실제로 존재하는
+        # 명사(설정 등) 중심으로 구성하고, 나머지는 게이트 stop-token(먼저 등)만 쓴다.
         return [
-            ("setting", "{core}, 켜기 전에 볼 설정 3가지"),
-            ("setting", "{core}, 업무 자료 넣기 전 확인할 기준"),
+            ("setting", "{core} 설정 3가지"),
+            ("setting", "{core}, 먼저 볼 설정 3가지"),
         ]
     return []
 

@@ -592,6 +592,18 @@ def _collapse_visible_question_overstack(html: str) -> str:
         content,
         flags=re.IGNORECASE | re.DOTALL,
     )
+    # LLM 서술형 본문은 FAQ를 <article class="faq-card">/<div class="faq-card">로
+    # 내보내는데, 위 <section> 제거 규칙에 안 걸려 intent(3)+paa(5)와 3중으로 남아
+    # aeo_visible_question_blocks_overstacked(faq_card>=3) 게이트에 걸린다. intent가
+    # 이미 3개로 시각적 질문 예산을 채웠으므로, 남은 faq 블록의 카드 클래스만 제거해
+    # faq_card_count를 0으로 떨어뜨린다. 질문 h3(faq_h3_count)·FAQ 섹션 존재 요건은
+    # 그대로 보존되므로 news_quality_gate의 faq 요구도 충족한다.
+    content = re.sub(
+        r'(class=["\'][^"\']*?)\bfaq-card\b',
+        r"\1faq-item",
+        content,
+        flags=re.IGNORECASE,
+    )
     return content
 
 

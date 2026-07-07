@@ -66,6 +66,16 @@ def reorder_for_reader_first(html: str) -> str:
     - 블록을 삭제하지 않는다 (이동만).
     - 본문 마커가 없거나 앵커를 못 찾으면 원본을 반환한다.
     """
+    # LLM 서술형 FAQ가 faq-card로 렌더되면 answer-engine의 intent(3)+paa(5) 질문블록과
+    # 3중으로 쌓여 aeo_visible_question_blocks_overstacked 게이트(faq_card>=3)에 걸린다.
+    # faq-card 클래스는 어떤 발행 게이트도 요구하지 않으므로(faq는 h3 개수·section 존재로
+    # 판정) 발행 직전 마지막 레이아웃 단계에서 표준 faq-item으로 정규화해 faq_card_count=0을
+    # 보장한다. 골든 템플릿 경로는 faq-card를 쓰지 않아 영향 없음.
+    if html:
+        html = re.sub(
+            r'(class=["\'][^"\']*?)\bfaq-card\b', r"\1faq-item", html, flags=re.IGNORECASE
+        )
+
     if not html or not any(marker in html for marker in _BODY_MARKERS):
         return html
 

@@ -1102,6 +1102,16 @@ class NewsPipeline:
                 dry_run=self.dry_run,
                 news_publish_mode=self.news_publish_mode,
             )
+            # 콘텐츠 품질: LLM 서술형 본문이 자체 품질 게이트를 통과했는지 여기서 캡처한다.
+            # 통과했다면 아래 golden_preview promotion에서 발행 가부·플래그는 그대로 두되
+            # 실제 발행 본문(html)만 한 편으로 읽히는 LLM 서술형을 유지한다(가독성 우선).
+            # 통과 못 했으면 기존처럼 템플릿을 발행해 발행 자체가 막히지 않게 폴백한다.
+            _llm_body_gate_passed = bool(_llm_used) and bool(publish_quality_gate.get("passed"))
+            if bool(_llm_used) and not _llm_body_gate_passed:
+                logger.info(
+                    "news pipeline: LLM 서술형 본문 자체 게이트 미통과 → 템플릿 폴백 (blocking=%s)",
+                    publish_quality_gate.get("blocking_issues"),
+                )
             duplicate_issue = self._recent_duplicate_issue(
                 selected_topic=selected.candidate.topic,
                 selected_title=best_title.title,
@@ -1275,11 +1285,17 @@ class NewsPipeline:
                     news_publish_mode=self.news_publish_mode,
                 )
                 if bool(_candidate_publish_gate.get("passed")):
+                    # 템플릿 candidate가 게이트를 통과했다 — 발행 가부 판정·플래그는 이 기준을
+                    # 그대로 쓴다(발행 회귀 0). 단 LLM 서술형 본문도 자체 게이트를 통과했다면
+                    # 실제 발행 본문은 한 편으로 읽히는 LLM 서술형(html)을 유지하고, 통과 못
+                    # 했을 때만 템플릿 candidate로 발행한다.
+                    _final_html_source = "llm_narrative" if _llm_body_gate_passed else "article_candidate"
                     logger.info(
-                        "news pipeline: promoting article_candidate.html as publish content (grade=%s, len=%d)",
-                        _grade, len(_candidate_html),
+                        "news pipeline: candidate gate passed — publishing %s (grade=%s, llm_ok=%s)",
+                        _final_html_source, _grade, _llm_body_gate_passed,
                     )
-                    html = _candidate_publish_html
+                    if not _llm_body_gate_passed:
+                        html = _candidate_publish_html
                     meta_description = normalize_search_description(
                         title=best_title.title,
                         description=extract_meta_description(html) or meta_description,
@@ -1293,8 +1309,9 @@ class NewsPipeline:
                         html=html,
                         publish_quality_gate=publish_quality_gate,
                         run_meta_updates={
-                            "final_publish_html_source": "article_candidate",
-                            "promoted_article_candidate_as_publish_content": True,
+                            "final_publish_html_source": _final_html_source,
+                            "promoted_article_candidate_as_publish_content": not _llm_body_gate_passed,
+                            "llm_narrative_published": _llm_body_gate_passed,
                             "promoted_article_candidate_grade": _grade,
                             "promoted_article_candidate_length": len(_candidate_html),
                             "selected_title": best_title.title,
@@ -1313,7 +1330,7 @@ class NewsPipeline:
                             "related_ai_blog_box_present": publish_quality_gate.get("related_ai_blog_box_present", False),
                         },
                         scoring_updates={
-                            "final_publish_html_source": "article_candidate",
+                            "final_publish_html_source": _final_html_source,
                             "selected_title": best_title.title,
                             "faq_count": publish_quality_gate.get("faq_count"),
                             "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),

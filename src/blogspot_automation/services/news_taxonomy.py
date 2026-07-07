@@ -929,17 +929,32 @@ def build_search_angle(
         # 엔티티가 이미 "…AI"로 끝나면 템플릿의 "AI 기능"과 붙어 "AI AI"가 된다
         # (실제 발행 사고: "구글 지도+제미나이 AI AI 기능…") — 꼬리 AI를 제거한다.
         product = re.sub(r"[\s+·]*(?:AI|인공지능)\s*$", "", product).strip() or "AI"
+        # 모든 AI 뉴스를 "AI 기능 켜기 전에 확인할 설정" 하나로 뭉개면 두 게이트에 걸린다:
+        # ① 원문 이슈 명사(보안·개인정보 등)가 사라져 original_issue_preservation < 6,
+        # ② "켜기/확인할" 골격어가 본문 산문에 없어 title_body_entity_mismatch.
+        # 원문 헤드라인의 실제 이슈 명사를 살려 topic/제목에 보존하고, 골격 동사는 뺀다.
+        focus = _ai_setting_focus(original_topic) or _ai_setting_focus(text)
+        # product가 여러 단어(예: "카카오 AI 쇼핑")이면 focus/AI가 이미 들어 있어
+        # "카카오 AI 쇼핑 AI 쇼핑 기능 설정"처럼 중복될 수 있다 — 토큰 중복을 제거한다.
+        head = f"{product} AI {focus} 기능 설정" if focus else f"{product} AI 기능 설정"
+        demand_topic = _dedupe_tokens(head)
+        subject = _dedupe_tokens(f"{product} AI {focus}" if focus else f"{product} AI 기능")
+        first_question = f"{subject} 설정은 어디서 바꾸나요?"
+        benefit = (
+            f"{product} AI의 {focus} 관련 설정과 확인 기준을 알 수 있다."
+            if focus else "새 AI 기능의 기본 설정과 검수 기준을 알 수 있다."
+        )
         return angle(
-            search_demand_topic=f"{product} AI 기능 켜기 전에 확인할 설정",
+            search_demand_topic=demand_topic,
             questions=[
-                f"{product} AI 기능은 어디서 켜나요?",
+                first_question,
                 f"{product} AI 기능을 쓰기 전에 어떤 설정을 확인해야 하나요?",
                 "AI 기능이 업무 흐름에 영향을 주는 부분은 무엇인가요?",
             ],
-            click_reason="AI 기능을 켜기 전에 설정과 데이터 사용 기준을 모르면 업무 흐름이 꼬일 수 있다.",
-            reader_benefit="새 AI 기능을 켜기 전 확인할 설정과 검수 기준을 알 수 있다.",
+            click_reason="AI 기능의 설정과 데이터 사용 기준을 모르면 업무 흐름이 꼬일 수 있다.",
+            reader_benefit=benefit,
             urgency_reason="새 기능 출시 직후에는 기본 설정과 사용 범위를 먼저 확인해야 한다.",
-            content_promise="기능 켜기 전 설정, 업무 적용 기준, 주의점을 정리한다.",
+            content_promise="AI 기능 설정, 업무 적용 기준, 주의점을 정리한다.",
             angle_type="ai_setting",
         )
 
@@ -1057,6 +1072,35 @@ def _leading_entity(text: str) -> str:
     if len(result) < 2:
         return ""
     return result
+
+
+# ai_setting 앵글에서 원문 헤드라인의 실제 이슈 명사를 골라 topic/제목에 보존한다.
+# "AI 설정" 소비자 콘텐츠와 자연스럽게 붙고, AI 뉴스 본문에도 자주 등장해
+# original_issue_preservation·title_body 게이트를 정직하게 통과시키는 명사만 담는다.
+_AI_SETTING_FOCUS_NOUNS = (
+    "보안", "정보보호", "개인정보", "데이터", "계정",
+    "검색", "번역", "요약", "광고", "쇼핑", "결제", "알림",
+    "음성", "이미지", "영상", "문서", "메일", "일정", "코딩", "학습", "추천", "챗봇",
+)
+
+
+def _ai_setting_focus(text: str) -> str:
+    haystack = text or ""
+    for noun in _AI_SETTING_FOCUS_NOUNS:
+        if noun in haystack:
+            return noun
+    return ""
+
+
+def _dedupe_tokens(text: str) -> str:
+    seen: set[str] = set()
+    result: list[str] = []
+    for tok in (text or "").split():
+        if tok in seen:
+            continue
+        seen.add(tok)
+        result.append(tok)
+    return " ".join(result)
 
 
 def _subject_particle(word: str) -> str:
