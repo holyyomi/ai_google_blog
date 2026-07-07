@@ -276,6 +276,13 @@ class LlmContentService:
         # 3-1. HTML entity artifact 정제 — LLM이 &#숫자 형태로 이모지를 삽입하는 것을 방지
         content_html = _clean_entity_artifacts(content_html)
 
+        # 3-2. FAQ 마크업 정규화: LLM이 FAQ를 'faq-card'로 출력하면, answer-engine이
+        # 붙이는 intent-qa-item·paa-item 블록과 3중으로 쌓여 final_html_audit의
+        # aeo_visible_question_blocks_overstacked 게이트에 걸린다(faq_card≥3 AND intent≥3
+        # AND paa≥5). 표준 클래스 faq-item으로 바꾸면 faq_card_count=0이 되어 overstack을
+        # 피하고, faq-q h3(faq_h3_count 요건)는 그대로 보존된다.
+        content_html = re.sub(r'faq-card\b', "faq-item", content_html)
+
         # 4. FAQ 추출 (JSON-LD용)
         schema_faq = _extract_faq(content_html)
 
