@@ -238,6 +238,15 @@ def ensure_answer_engine_optimized_html(
     except Exception:
         pass
 
+    # 최종 정규화(모든 재렌더 이후): LLM 서술형 FAQ는 위 clean-layout 단계에서 faq-card로
+    # 렌더돼, answer-engine intent(3)+paa(5)와 3중 스택이 되어 aeo_visible_question_blocks_
+    # overstacked 게이트/최종 발행 계약에 걸린다. 이 함수는 파이프라인과 news_publish_service
+    # 양쪽에서 호출되므로, 여기서 faq-card를 표준 faq-item으로 바꿔 faq_card_count=0을
+    # 어느 경로에서든 보장한다(질문 h3·FAQ 섹션 존재 요건은 보존).
+    content = re.sub(
+        r'(class=["\'][^"\']*?)\bfaq-card\b', r"\1faq-item", content, flags=re.IGNORECASE
+    )
+
     return content
 
 
