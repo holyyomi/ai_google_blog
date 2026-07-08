@@ -59,6 +59,7 @@ _HISTORY_RECORDABLE_STATUSES: frozenset[str] = frozenset({
     "trending_held_for_review",
     "trending_publish_failed",
     "failed",
+    "draft_saved_for_review",
 })
 
 
@@ -1656,6 +1657,15 @@ class NewsPipeline:
                 image_alt_text=image_plan.get("image_alt_text", ""),
                 is_draft=self.publish_as_draft,
             )
+            draft_result = self._draft_review_result(publish_outcome, topic=selected.candidate.topic)
+            if draft_result is not None:
+                base_result.update(draft_result)
+                history_recorded = self._try_record_history(status="draft_saved_for_review", result=base_result)
+                logger.info(
+                    "NewsPipeline: draft saved for review → topic=%s dashboard=%s",
+                    selected.candidate.topic[:50], draft_result.get("blogger_url", ""),
+                )
+                return {**base_result, "history_recorded": history_recorded}
             _pub_url = getattr(publish_outcome, "post_url", "") or ""
             _publish_response = getattr(publish_outcome, "response_json", {}) or {}
             post_publish_audit = self._post_publish_audit(
@@ -3694,6 +3704,13 @@ class NewsPipeline:
         except Exception as exc:  # noqa: BLE001
             logger.error("clean_trending 발행 실패 → 다음 후보 (%s): %s", topic[:36], exc)
             return None
+        draft_result = self._draft_review_result(outcome, topic=topic)
+        if draft_result is not None:
+            self._try_record_history(status="draft_saved_for_review", result={**base, **draft_result})
+            logger.info(
+                "clean_trending 초안 저장(검토 필요) → %s", draft_result.get("blogger_url", ""),
+            )
+            return {**base, **draft_result}
         resp = getattr(outcome, "response_json", {}) or {}
         url = getattr(outcome, "post_url", "") or str(resp.get("url") or "")
         logger.info("clean_trending 발행 성공 ✅ → %s", url)
@@ -3851,6 +3868,8 @@ class NewsPipeline:
         blogger_url = ""
         publish_error = ""
         post_publish_audit: dict[str, Any] = {}
+        is_draft_saved = False
+        draft_review_note = ""
 
         publish_mode_active = (
             not self.dry_run
@@ -3877,40 +3896,53 @@ class NewsPipeline:
                     hashtags=result.hashtags,
                     is_draft=self.publish_as_draft,
                 )
-                publish_succeeded = True
-                blogger_url = getattr(outcome, "post_url", "") or ""
-                _publish_response = getattr(outcome, "response_json", {}) or {}
-                post_publish_audit = self._post_publish_audit(
-                    blogger_url,
-                    expected_title=result.title,
-                    expected_permalink_slug=str(_publish_response.get("permalink_slug") or ""),
-                    expected_labels=normalize_labels(result.labels),
-                    content_type="today_issue_explainer",
-                    topic_group="today_issue",
-                )
-                fatal_issues = self._post_publish_fatal_issues(post_publish_audit)
-                if post_publish_audit and fatal_issues:
-                    try:
-                        self.publish_service.delete_post(getattr(outcome, "post_id", ""))  # type: ignore[union-attr]
-                    except Exception as delete_exc:  # noqa: BLE001
-                        logger.warning("Trending post-publish audit cleanup failed: %s", delete_exc)
+                draft_result = self._draft_review_result(outcome, topic=topic)
+                if draft_result is not None:
+                    is_draft_saved = True
                     publish_succeeded = False
-                    publish_error = "post_publish_audit_failed:" + ",".join(fatal_issues)
+                    blogger_url = draft_result["blogger_url"]
+                    post_publish_audit = draft_result["post_publish_audit"]
+                    draft_review_note = draft_result.get("draft_review_note", "")
+                    logger.info("Trending 초안 저장(검토 필요) → %s", blogger_url)
                 else:
-                    if post_publish_audit and not bool(post_publish_audit.get("passed")):
-                        logger.warning(
-                            "Trending post publish audit advisory (post kept): url=%s issues=%s",
-                            blogger_url, list(post_publish_audit.get("issues") or []),
-                        )
-                    logger.info("Trending 발행 성공 → %s", blogger_url)
+                    publish_succeeded = True
+                    blogger_url = getattr(outcome, "post_url", "") or ""
+                    _publish_response = getattr(outcome, "response_json", {}) or {}
+                    post_publish_audit = self._post_publish_audit(
+                        blogger_url,
+                        expected_title=result.title,
+                        expected_permalink_slug=str(_publish_response.get("permalink_slug") or ""),
+                        expected_labels=normalize_labels(result.labels),
+                        content_type="today_issue_explainer",
+                        topic_group="today_issue",
+                    )
+                    fatal_issues = self._post_publish_fatal_issues(post_publish_audit)
+                    if post_publish_audit and fatal_issues:
+                        try:
+                            self.publish_service.delete_post(getattr(outcome, "post_id", ""))  # type: ignore[union-attr]
+                        except Exception as delete_exc:  # noqa: BLE001
+                            logger.warning("Trending post-publish audit cleanup failed: %s", delete_exc)
+                        publish_succeeded = False
+                        publish_error = "post_publish_audit_failed:" + ",".join(fatal_issues)
+                    else:
+                        if post_publish_audit and not bool(post_publish_audit.get("passed")):
+                            logger.warning(
+                                "Trending post publish audit advisory (post kept): url=%s issues=%s",
+                                blogger_url, list(post_publish_audit.get("issues") or []),
+                            )
+                        logger.info("Trending 발행 성공 → %s", blogger_url)
             except Exception as exc:  # noqa: BLE001
                 publish_error = f"{type(exc).__name__}: {exc}"
                 logger.error("Trending 발행 실패: %s", publish_error)
 
+        _today_issue_status = (
+            "draft_saved_for_review" if is_draft_saved
+            else "trending_published" if publish_succeeded
+            else "trending_dry_run" if self.dry_run
+            else "trending_publish_failed"
+        )
         history_recorded = self._try_record_history(
-            status="trending_published" if publish_succeeded else (
-                "trending_dry_run" if self.dry_run else "trending_publish_failed"
-            ),
+            status=_today_issue_status,
             result={
                 "trending_engine": True,
                 "selected_topic": topic,
@@ -3920,10 +3952,12 @@ class NewsPipeline:
                 "sge_ready": True,
                 "publish_attempted": publish_attempted,
                 "publish_succeeded": publish_succeeded,
+                **({"published": False} if is_draft_saved else {}),
                 "blogger_url": blogger_url,
                 "post_url": blogger_url,
                 "published_url": blogger_url,
                 "post_publish_audit": post_publish_audit,
+                "draft_review_note": draft_review_note,
                 "html_length": len(result.article_html),
                 "labels": result.labels,
                 "hashtags_count": len(result.hashtags),
@@ -3941,7 +3975,8 @@ class NewsPipeline:
 
         return {
             "status": (
-                "trending_published" if publish_succeeded
+                "draft_saved_for_review" if is_draft_saved
+                else "trending_published" if publish_succeeded
                 else "trending_dry_run" if self.dry_run
                 else "trending_publish_failed" if publish_attempted
                 else "trending_held_for_review"
@@ -4610,6 +4645,38 @@ class NewsPipeline:
         "ai_topic_leaked_to_news_blog",
         "published_labels_mojibake",
     )
+
+    @staticmethod
+    def _draft_review_result(publish_outcome: Any, *, topic: str) -> dict[str, Any] | None:
+        """초안 발행이면 결과를 만들어 반환, 아니면 None(호출부가 평소 라이브 발행 흐름을 계속 진행).
+
+        배경: Blogger는 초안 post의 url로 블로그 홈 URL을 돌려준다(개별 초안 미리보기
+        URL이 아님). 그래서 이 URL로 라이브 fetch 감사(_post_publish_audit)를 돌리면
+        '홈페이지에 있던 이전 글'과 새 후보를 비교해 필연적으로 전부 불일치가 나고,
+        그 결과 방금 만든 초안이 매번 자동 삭제됐다(2026-07-08 실측). 초안은 원래
+        사람이 Blogger 대시보드에서 직접 열어 검토하는 용도라 라이브 fetch 감사
+        자체가 성립하지 않는다 — 그래서 초안일 때는 감사를 건너뛰고 대시보드
+        편집 링크만 남긴다. publish_succeeded/published는 정직하게 False로 둬서
+        dedup·이력이 이걸 실제 발행처럼 취급하지 않게 한다(엔티티 쿨다운도 미적용).
+        """
+        if not getattr(publish_outcome, "is_draft", False):
+            return None
+        dashboard_url = getattr(publish_outcome, "dashboard_url", "") or ""
+        return {
+            "status": "draft_saved_for_review",
+            "post_id": getattr(publish_outcome, "post_id", ""),
+            "post_url": dashboard_url,
+            "published_url": dashboard_url,
+            "blogger_url": dashboard_url,
+            "publish_attempted": True,
+            "publish_succeeded": False,
+            "published": False,
+            "post_publish_audit": {"skipped": True, "reason": "draft_not_live_fetchable"},
+            "draft_review_note": (
+                f"Blogger 대시보드에서 '{topic[:60]}' 초안을 열어 직접 검토하세요: {dashboard_url}"
+                if dashboard_url else "Blogger 초안 생성됨 — 대시보드에서 확인하세요."
+            ),
+        }
 
     @staticmethod
     def _post_publish_fatal_issues(post_publish_audit: dict[str, Any]) -> list[str]:

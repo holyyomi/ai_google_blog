@@ -38,6 +38,10 @@ class NewsPublishOutcome:
     post_url: str
     status: str
     response_json: dict[str, object]
+    is_draft: bool = False
+    # 초안일 때 사람이 검토할 Blogger 대시보드 편집 링크.
+    # (draft의 post_url은 Blogger가 블로그 홈 URL을 돌려줘 신뢰할 수 없다 — 절대 audit/fetch에 쓰지 말 것.)
+    dashboard_url: str = ""
 
 
 class NewsPublishService:
@@ -135,11 +139,18 @@ class NewsPublishService:
             permalink_slug=permalink_slug,
             is_draft=is_draft,
         )
+        _post_id = str(response.get("id") or "")
         outcome = NewsPublishOutcome(
-            post_id=str(response.get("id") or ""),
+            post_id=_post_id,
             post_url=str(response.get("url") or ""),
             status=str(response.get("status") or ""),
             response_json=response,
+            is_draft=is_draft,
+            dashboard_url=(
+                f"https://www.blogger.com/blog/post/edit/{blogger_client.blog_id}/{_post_id}"
+                if is_draft and _post_id
+                else ""
+            ),
         )
         try:
             self._append_history(
