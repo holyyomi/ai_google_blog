@@ -123,6 +123,15 @@ class NewsPipeline:
             if auto_publish is None
             else bool(auto_publish)
         )
+        # 수동 publish 리허설을 라이브 대신 Blogger 초안으로 보낸다.
+        # 배경: ai_blog.yml의 workflow_dispatch publish 모드는 스케줄과 똑같이
+        # 라이브에 발행한다. PR 개발 중 이 "리허설"들이 실제 글을 라이브에 쌓아
+        # 중복(예: 네이버 AI 3연속)을 만들었다. NEWS_PUBLISH_AS_DRAFT=true면
+        # 최종 발행 계약까지 동일하게 검증하되 글은 초안으로만 남아 라이브 오염 0.
+        # 스케줄 발행은 이 값을 세팅하지 않으므로 항상 라이브.
+        self.publish_as_draft = (
+            os.getenv("NEWS_PUBLISH_AS_DRAFT", "").strip().lower() in {"1", "true", "yes", "on"}
+        )
         seed = os.getenv("NEWS_TOPIC_SELECTION_SEED", "").strip()
         self._selection_random_seed = seed or f"{datetime.now(timezone.utc).isoformat()}:{os.getpid()}:{id(self)}"
         self._retry_excluded_topics: list[str] = []
@@ -1645,7 +1654,7 @@ class NewsPipeline:
                 content_type=str(content_angle_summary.get("content_type") or ""),
                 hashtags=final_hashtags,
                 image_alt_text=image_plan.get("image_alt_text", ""),
-                is_draft=False,
+                is_draft=self.publish_as_draft,
             )
             _pub_url = getattr(publish_outcome, "post_url", "") or ""
             _publish_response = getattr(publish_outcome, "response_json", {}) or {}
@@ -3678,7 +3687,7 @@ class NewsPipeline:
                 topic_group=topic_group,
                 content_type=content_type,
                 hashtags=hashtags,
-                is_draft=False,
+                is_draft=self.publish_as_draft,
                 internal_links=internal_links,
                 permalink_slug_hint=result.slug,
             )
@@ -3866,7 +3875,7 @@ class NewsPipeline:
                     topic_group="today_issue",
                     content_type="today_issue_explainer",
                     hashtags=result.hashtags,
-                    is_draft=False,
+                    is_draft=self.publish_as_draft,
                 )
                 publish_succeeded = True
                 blogger_url = getattr(outcome, "post_url", "") or ""
