@@ -38,7 +38,10 @@ class EvergreenTopicService:
         6: "adsense_revenue",
     }
 
-    def collect_candidates(self, *, limit: int = 30) -> list[NewsCandidate]:
+    # limit 기본값은 전체 풀을 덮도록 둔다(원래 풀=30일 때 30은 사실상 '전체 반환'이었다).
+    # 풀이 커지면 이 값도 함께 커야 요일 축·골든매칭 후보가 매 실행 온전히 노출되고,
+    # 다양성은 축 선호 + topic_group/엔티티 쿨다운이 담당한다.
+    def collect_candidates(self, *, limit: int = 60) -> list[NewsCandidate]:
         topics = self._topics()
         start = self._daily_offset(len(topics))
         ordered = topics[start:] + topics[:start]
@@ -226,6 +229,19 @@ class EvergreenTopicService:
                 topic_group="general_life",
                 content_type="general_life",
             ),
+            # 2026-07 하이브리드: AI 글 수익화 시 애드센스 정책 리스크(정보형).
+            cls._topic(
+                topic="AI로 쓴 글, 애드센스 정책 위반 없이 올리는 기준",
+                axis="adsense_revenue",
+                search_topic="AI 글 애드센스 정책 위반 피하는 기준",
+                questions=("AI로 쓴 글도 애드센스 정책에 걸리나요?", "자동 생성 콘텐츠 정책은 무엇을 금지하나요?", "정책 위반을 피하려면 무엇을 지켜야 하나요?"),
+                click_reason="정책을 모르고 양산하면 저품질 콘텐츠로 분류돼 수익이 제한되거나 계정 리스크가 생길 수 있다.",
+                reader_benefit="원본성, 독자 가치, 표시 의무, 금지 주제를 확인하는 기준을 얻는다.",
+                content_promise="AI 글을 애드센스 정책 안에서 올리는 기준을 정리한다.",
+                angle_type="money_compare",
+                topic_group="general_life",
+                content_type="general_life",
+            ),
         ]
 
     @classmethod
@@ -236,6 +252,9 @@ class EvergreenTopicService:
             cls._topic(topic="블로그스팟 글쓰기 템플릿: 제목, 소제목, 이미지, 내부링크까지", axis="blogspot_growth", search_topic="블로그스팟 글쓰기 템플릿 체크리스트", questions=("블로그스팟 글쓰기 템플릿은 어떻게 구성하나요?", "제목과 소제목은 어떤 순서로 잡아야 하나요?", "이미지와 내부 링크는 어디에 넣어야 하나요?"), click_reason="템플릿이 없으면 글마다 구조가 흔들려 검색 노출과 체류 시간이 약해질 수 있다.", reader_benefit="제목, 소제목, 이미지, 내부 링크를 한 번에 점검하는 작성 순서를 얻는다.", content_promise="블로그스팟 글쓰기 구조를 실행 가능한 체크리스트로 정리한다.", angle_type="benefit_howto", topic_group="general_life", content_type="general_life", category="tech"),
             cls._topic(topic="블로그스팟 초보가 애드센스 승인 전에 준비할 것", axis="blogspot_growth", search_topic="블로그스팟 애드센스 승인 전 준비 체크리스트", questions=("블로그스팟 애드센스 승인 전에 무엇을 준비해야 하나요?", "승인 거절을 줄이려면 어떤 페이지가 필요한가요?", "초보가 글 몇 개부터 점검해야 하나요?"), click_reason="승인 전에 기본 구조를 놓치면 콘텐츠보다 사이트 신뢰 요소에서 막힐 수 있다.", reader_benefit="필수 페이지, 글 구조, 정책 리스크를 확인하는 순서를 얻는다.", content_promise="애드센스 승인 전 준비 항목을 체크리스트로 정리한다.", angle_type="benefit_howto", topic_group="general_life", content_type="general_life"),
             cls._topic(topic="블로그스팟에서 내부링크가 중요한 이유", axis="blogspot_growth", search_topic="블로그스팟 내부링크 넣기 전에 볼 기준", questions=("블로그스팟에서 내부링크는 왜 중요한가요?", "내부링크는 어느 위치에 넣어야 하나요?", "관련 글이 없을 때는 어떻게 연결해야 하나요?"), click_reason="내부링크가 없으면 독자가 한 글만 보고 나가 체류와 수익 기회가 줄 수 있다.", reader_benefit="관련 글, 앵커 문구, 배치 위치를 고르는 기준을 얻는다.", content_promise="내부링크의 역할과 배치 체크리스트를 정리한다.", angle_type="benefit_howto", topic_group="general_life", content_type="general_life"),
+            # 2026-07 하이브리드: 블로그 자동화·수익화 how-to (재현 가능한 정보형만 — 개인 수익일기 제외).
+            cls._topic(topic="AI 블로그 자동화로 수익? 시작 전 알아야 할 현실", axis="blogspot_growth", search_topic="AI 블로그 자동화 수익, 시작 전 확인할 현실", questions=("AI 블로그 자동화로 정말 수익이 나나요?", "자동화 시작 전에 무엇을 확인해야 하나요?", "자동 발행 블로그가 실패하는 이유는 무엇인가요?"), click_reason="자동화만 하면 수익이 난다고 생각하고 시작하면 품질, 색인, 정책에서 막혀 시간만 쓸 수 있다.", reader_benefit="콘텐츠 품질, 색인, 애드센스 정책, 운영 비용을 현실적으로 점검하는 기준을 얻는다.", content_promise="AI 블로그 자동화 수익화의 현실과 시작 전 체크 항목을 정리한다.", angle_type="money_compare", topic_group="general_life", content_type="general_life"),
+            cls._topic(topic="블로그 자동화 도구를 직접 만들 때 필요한 구성과 함정", axis="blogspot_growth", search_topic="블로그 자동화 도구 직접 만들 때 필요한 구성", questions=("블로그 자동화 도구는 어떤 구성으로 만드나요?", "직접 만들 때 자주 놓치는 함정은 무엇인가요?", "자동화와 수동 검수는 어떻게 나눠야 하나요?"), click_reason="구성을 모르고 시작하면 발행, 품질 검수, 중복 관리에서 반복 수정 비용이 커질 수 있다.", reader_benefit="주제 선정, 생성, 품질 게이트, 발행, 중복 관리 구성요소를 잡는 기준을 얻는다.", content_promise="블로그 자동화 도구의 핵심 구성요소와 흔한 함정을 정리한다.", angle_type="benefit_howto", topic_group="general_life", content_type="general_life", category="tech"),
         ]
 
     @classmethod
@@ -246,6 +265,18 @@ class EvergreenTopicService:
             cls._topic(topic="크롬 AI 기능 켜기 전에 확인할 설정", axis="ai_automation", search_topic="크롬 AI 기능 켜기 전에 확인할 설정", questions=("크롬 AI 기능을 켜기 전에 무엇을 확인해야 하나요?", "브라우저 AI 기능은 개인정보에 어떤 영향을 주나요?", "직장인이 크롬 AI를 쓸 때 주의할 설정은 무엇인가요?"), click_reason="업무 브라우저에서 AI 기능을 켜기 전 설정을 놓치면 개인정보와 업무 자료 노출 리스크가 생길 수 있다.", reader_benefit="계정, 동기화, 개인정보, 확장 프로그램 설정을 확인하는 순서를 얻는다.", content_promise="크롬 AI 기능 사용 전 설정 체크리스트를 정리한다.", angle_type="ai_setting", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
             cls._topic(topic="구글 AI 검색 변화가 직장인에게 중요한 이유", axis="ai_automation", search_topic="구글 AI 검색 변화가 직장인 업무에 미치는 영향", questions=("구글 AI 검색 변화는 직장인에게 왜 중요한가요?", "AI 검색 시대에 자료 조사는 어떻게 바뀌나요?", "업무용 검색 결과를 볼 때 무엇을 확인해야 하나요?"), click_reason="AI 검색 결과만 믿으면 출처와 조건을 놓쳐 업무 판단이 흔들릴 수 있다.", reader_benefit="AI 답변, 공식 출처, 비교 자료를 함께 확인하는 기준을 얻는다.", content_promise="AI 검색 변화에 맞춘 직장인 검색 습관을 정리한다.", angle_type="ai_setting", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
             cls._topic(topic="무료 AI 도구를 업무에 쓸 때 먼저 확인할 한계", axis="ai_automation", search_topic="무료 AI 도구 업무 활용 전 확인할 한계", questions=("무료 AI 도구를 업무에 써도 괜찮나요?", "무료 AI 도구의 한계는 무엇인가요?", "업무 자료를 넣기 전에 무엇을 확인해야 하나요?"), click_reason="무료 도구의 제한과 데이터 정책을 모르고 쓰면 업무 자료와 결과 품질에서 문제가 생길 수 있다.", reader_benefit="데이터 입력, 출력 검수, 사용량 제한, 유료 전환 조건을 확인하는 기준을 얻는다.", content_promise="무료 AI 도구를 업무에 쓰기 전 확인할 한계를 체크리스트로 정리한다.", angle_type="ai_setting", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            # 2026-07 하이브리드: 뉴스가 약한 날 AI 업무·자동화 how-to로 로테이션.
+            # angle_type=benefit_howto — "설정 3가지" 틀 붕괴(제목↔본문 불일치) 회피.
+            cls._topic(topic="OpenAI API 요금, 글 한 편 자동 생성에 실제 얼마 드나", axis="ai_automation", search_topic="OpenAI API 비용 계산법과 글 한 편당 실제 요금", questions=("OpenAI API 요금은 어떻게 계산하나요?", "글 한 편 생성에 토큰과 비용이 얼마나 드나요?", "API 비용을 줄이려면 무엇을 바꿔야 하나요?"), click_reason="토큰 단가와 사용량을 모르고 쓰면 자동화 비용이 예상보다 커질 수 있다.", reader_benefit="입력·출력 토큰, 모델별 단가, 월 예상 비용을 계산하는 기준을 얻는다.", content_promise="OpenAI API 요금 구조와 글 한 편당 실제 비용을 계산 예시로 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            cls._topic(topic="AI가 쓴 글, 발행 전 반드시 검수할 체크리스트", axis="ai_automation", search_topic="AI 글 발행 전 품질 검수 체크리스트", questions=("AI가 쓴 글은 발행 전 무엇을 검수해야 하나요?", "AI 글에서 자주 나오는 오류는 무엇인가요?", "사실 오류와 어색한 문장은 어떻게 거르나요?"), click_reason="검수 없이 AI 글을 올리면 사실 오류와 어색한 문장이 신뢰와 검색 평가를 떨어뜨릴 수 있다.", reader_benefit="사실 확인, 출처, 문장 자연스러움, 중복 여부를 점검하는 순서를 얻는다.", content_promise="AI 글 발행 전 검수 항목을 체크리스트로 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            cls._topic(topic="Cursor로 블로그 자동화 만들 때 자주 막히는 문제와 해결", axis="ai_automation", search_topic="Cursor 블로그 자동화 만들 때 자주 막히는 문제", questions=("Cursor로 자동화를 만들 때 무엇이 자주 막히나요?", "AI 코딩 도구로 만든 스크립트는 왜 자주 깨지나요?", "자동화 오류를 줄이려면 무엇부터 점검해야 하나요?"), click_reason="AI 코딩 도구만 믿고 만들면 인증, 오류 처리, 반복 실행에서 예상 못한 문제가 생길 수 있다.", reader_benefit="API 키 관리, 오류 처리, 테스트, 반복 실행 안정성을 점검하는 기준을 얻는다.", content_promise="Cursor로 자동화를 만들 때 자주 막히는 지점과 해결법을 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            cls._topic(topic="AI로 자동 생성한 글이 검색에서 밀리는 진짜 이유", axis="ai_automation", search_topic="AI 자동 생성 글이 구글 검색에서 약한 이유", questions=("AI로 쓴 글은 왜 검색에서 밀리나요?", "자동 생성 글이 색인에서 불리한 이유는 무엇인가요?", "검색에 살아남는 AI 글은 무엇이 다른가요?"), click_reason="양산형 AI 글을 그대로 올리면 helpful content 기준에서 낮게 평가돼 유입이 줄 수 있다.", reader_benefit="독자 가치, 원본성, 경험 요소, 검수 기준을 점검하는 방법을 얻는다.", content_promise="AI 자동 생성 글이 검색에서 약한 이유와 보완법을 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            # 2026-07 'AI 자동화 실험실' — 도구 조합·비용·자동화 실전(계산기·비교표·체크리스트 유형).
+            cls._topic(topic="Codex와 Claude Code를 같이 쓰면 빨라지는 작업", axis="ai_automation", search_topic="Codex와 Claude Code 같이 쓸 때 빨라지는 작업 비교", questions=("Codex와 Claude Code를 같이 쓰면 뭐가 빨라지나요?", "두 AI 코딩 도구는 어떤 작업에 각각 강한가요?", "둘을 함께 쓸 때 작업 흐름은 어떻게 나누나요?"), click_reason="도구를 하나만 고집하면 각 도구가 강한 작업을 놓쳐 시간이 더 들 수 있다.", reader_benefit="코드 생성, 리팩터링, 디버깅, 문서화에서 어떤 도구를 언제 쓸지 기준을 얻는다.", content_promise="Codex와 Claude Code의 강점을 작업별 비교표로 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            cls._topic(topic="AI 글 자동발행이 위험한 이유와 임시저장 방식이 나은 이유", axis="ai_automation", search_topic="AI 글 자동발행 위험과 임시저장 방식 비교", questions=("AI 글을 바로 자동발행하면 뭐가 위험한가요?", "임시저장(초안) 후 검수 방식이 나은 이유는 무엇인가요?", "자동발행과 반자동 발행은 어떻게 나눠야 하나요?"), click_reason="검수 없이 바로 발행하면 사실 오류·저품질 글이 검색 평가와 신뢰를 떨어뜨릴 수 있다.", reader_benefit="자동발행·임시저장·수동검수를 나누는 기준과 점검 체크리스트를 얻는다.", content_promise="자동발행 위험과 임시저장 방식의 장단점을 비교표와 체크리스트로 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            cls._topic(topic="AI로 쓴 제휴·리뷰 글, 발행 전 품질 체크리스트", axis="ai_automation", search_topic="AI 제휴 리뷰 글 발행 전 품질 체크리스트", questions=("AI로 쓴 제휴 글은 발행 전 무엇을 확인해야 하나요?", "제휴 글이 저품질로 분류되지 않으려면 무엇이 필요한가요?", "가격·재고·링크는 어떻게 검증하나요?"), click_reason="검증 없이 AI 제휴 글을 올리면 가격 오류·과장 표현으로 신뢰와 정책에서 문제가 생길 수 있다.", reader_benefit="사실 검증, 가격·재고 확인, 과장 표현 제거, 표시 의무를 점검하는 기준을 얻는다.", content_promise="AI 제휴·리뷰 글 발행 전 품질 체크리스트를 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            cls._topic(topic="AI 글 100개 자동 생성하면 실제 비용은 얼마일까", axis="ai_automation", search_topic="AI 글 100개 자동 생성 실제 비용 계산", questions=("AI로 글 100개 만들면 API 비용이 얼마나 드나요?", "글 한 편당 토큰과 비용은 어떻게 계산하나요?", "비용을 줄이려면 어떤 모델·설정을 골라야 하나요?"), click_reason="대량 생성 비용을 계산 없이 시작하면 예상보다 큰 API 요금이 나올 수 있다.", reader_benefit="글당 토큰, 모델별 단가, 100편 예상 비용을 계산하는 방법을 얻는다.", content_promise="AI 글 100개 생성 비용을 계산 공식과 예시로 정리한다.", angle_type="money_compare", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+            cls._topic(topic="Codex 주간 사용 한도 막혔을 때 대체 루트", axis="ai_automation", search_topic="Codex 주간 한도 막혔을 때 대체 루트 정리", questions=("Codex 주간 사용 한도에 걸리면 어떻게 하나요?", "한도 없이 이어서 작업할 대체 도구는 무엇인가요?", "한도 소모를 줄이는 사용 순서는 무엇인가요?"), click_reason="한도에 걸리는 걸 모르고 쓰면 작업 중간에 막혀 흐름이 끊길 수 있다.", reader_benefit="대체 도구, 한도 절약 사용 순서, 작업 분산 기준을 얻는다.", content_promise="Codex 한도 소진 시 대체 루트와 절약법을 비교표로 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
         ]
 
     @classmethod

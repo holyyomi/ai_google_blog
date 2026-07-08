@@ -456,12 +456,19 @@ def classify_topic_group(text: str, category: str = "", raw: dict[str, Any] | No
         return "platform_issue"
     if extract_public_benefit_keyword(haystack):
         return "policy_benefit"
+    # AI 세부 그룹 라우팅 (2026-07-08 주제 틀 붕괴 수정): ai_model/ai_search/
+    # ai_risk/ai_compare 그룹과 골든 패턴(ai_model_update 등)이 Phase 3부터
+    # 존재했지만 어떤 분류 경로도 이 그룹들에 도달하지 못해 모든 AI 뉴스가
+    # ai_work로 뭉개졌다 — 다양한 패턴이 "도달 불가능한 코드"였다.
+    # 그룹을 build_search_angle과 같은 사건 분류기(_classify_ai_event)에서
+    # 파생시켜, 앵글 프레임 ↔ 그룹 ↔ 골든 패턴이 한 출처로 일관되게 한다.
+    if _has_ai_signal(haystack):
+        event = _classify_ai_event(text or haystack)
+        return _AI_EVENT_TOPIC_GROUP.get(event, "ai_work")
     for group in _TOPIC_GROUP_PRIORITY:
         if any(keyword.lower() in haystack for keyword in TOPIC_GROUP_KEYWORDS[group]):
             return group
     if any(keyword.lower() in haystack for keyword in TOPIC_GROUP_KEYWORDS["ai_work"]):
-        return "ai_work"
-    if re.search(r"(?<![a-z0-9])ai(?![a-z0-9])", haystack):
         return "ai_work"
     return "general_life"
 
@@ -923,39 +930,163 @@ def build_search_angle(
             angle_type="viral_issue_decode",
         )
 
-    if ("AI" in text or "인공지능" in text or "챗GPT" in text or "ChatGPT" in text
-            or re.search(r"(?<![a-zA-Z])ai(?![a-zA-Z])", lower)):
+    if _has_ai_signal(text):
         product = "크롬" if "크롬" in text else _leading_entity(original_topic) or "AI"
         # 엔티티가 이미 "…AI"로 끝나면 템플릿의 "AI 기능"과 붙어 "AI AI"가 된다
         # (실제 발행 사고: "구글 지도+제미나이 AI AI 기능…") — 꼬리 AI를 제거한다.
-        product = re.sub(r"[\s+·]*(?:AI|인공지능)\s*$", "", product).strip() or "AI"
-        # 모든 AI 뉴스를 "AI 기능 켜기 전에 확인할 설정" 하나로 뭉개면 두 게이트에 걸린다:
-        # ① 원문 이슈 명사(보안·개인정보 등)가 사라져 original_issue_preservation < 6,
-        # ② "켜기/확인할" 골격어가 본문 산문에 없어 title_body_entity_mismatch.
-        # 원문 헤드라인의 실제 이슈 명사를 살려 topic/제목에 보존하고, 골격 동사는 뺀다.
+        # 단, 구분자 없이 붙은 브랜드명(OpenAI, xAI)은 자르면 안 된다
+        # (실측: "OpenAI"가 "Open"이 됐음) — 구분자(공백/+/·)가 있을 때만 제거.
+        product = re.sub(r"[\s+·]+(?:AI|인공지능)\s*$", "", product).strip() or "AI"
+        # 원문 헤드라인의 실제 이슈 명사를 topic/제목에 보존 (PR #28의 교훈 유지).
         focus = _ai_setting_focus(original_topic) or _ai_setting_focus(text)
-        # product가 여러 단어(예: "카카오 AI 쇼핑")이면 focus/AI가 이미 들어 있어
-        # "카카오 AI 쇼핑 AI 쇼핑 기능 설정"처럼 중복될 수 있다 — 토큰 중복을 제거한다.
-        head = f"{product} AI {focus} 기능 설정" if focus else f"{product} AI 기능 설정"
-        demand_topic = _dedupe_tokens(head)
-        subject = _dedupe_tokens(f"{product} AI {focus}" if focus else f"{product} AI 기능")
-        first_question = f"{subject} 설정은 어디서 바꾸나요?"
-        benefit = (
-            f"{product} AI의 {focus} 관련 설정과 확인 기준을 알 수 있다."
-            if focus else "새 AI 기능의 기본 설정과 검수 기준을 알 수 있다."
-        )
+        # 주제 틀 붕괴 수정(2026-07-08): "AI 뉴스 = 설정 how-to" 단일 틀을 폐기하고
+        # 사건 유형(_classify_ai_event)별로 프레임을 배정한다. 설정이 없는 사건
+        # (광고·요금·규제·모델 발표)에 설정 글을 지어내지 않는다.
+        event = _classify_ai_event(text)
+
+        if event == "pricing":
+            core = _dedupe_tokens(f"{product} AI {focus} 요금 변화" if focus else f"{product} AI 요금 변화")
+            return angle(
+                search_demand_topic=core,
+                questions=[
+                    f"{product} AI 요금은 무엇이 어떻게 바뀌나요?",
+                    "무료로 쓸 수 있는 범위는 어디까지인가요?",
+                    "유료 전환을 고민할 때 기준은 무엇인가요?",
+                ],
+                click_reason="요금과 무료 한도가 바뀌면 지금 쓰던 방식의 비용이 달라질 수 있다.",
+                reader_benefit=f"{product} AI의 바뀐 요금 조건과 무료·유료 선택 기준을 얻는다.",
+                urgency_reason="요금 변경 직후에는 기존 사용자 적용 시점과 조건 확인이 필요하다.",
+                content_promise="바뀐 요금 조건, 무료 한도, 전환 판단 기준을 비교표로 정리한다.",
+                angle_type="money_compare",
+            )
+        if event == "risk":
+            risk_focus = focus or "보안"
+            core = _dedupe_tokens(f"{product} AI {risk_focus} 이슈")
+            return angle(
+                search_demand_topic=core,
+                questions=[
+                    f"{product} AI {risk_focus} 이슈는 무엇이 확인된 건가요?",
+                    "내 계정과 데이터에서 지금 확인할 것은 무엇인가요?",
+                    "공식 안내는 어디에서 확인하나요?",
+                ],
+                click_reason=f"{risk_focus} 이슈를 모르고 쓰면 내 데이터와 계정이 영향을 받을 수 있다.",
+                reader_benefit=f"확인된 사실과 내 계정에서 점검할 {risk_focus} 항목을 얻는다.",
+                urgency_reason="보안·데이터 이슈는 공지 직후 확인이 가장 유리하다.",
+                content_promise=f"확인된 {risk_focus} 사실, 사용자 점검 항목, 공식 확인 경로를 정리한다.",
+                angle_type="ai_risk_check",
+            )
+        if event == "model_release":
+            core = _dedupe_tokens(f"{product} 새 AI 모델 발표")
+            return angle(
+                search_demand_topic=core,
+                questions=[
+                    f"{product} 새 AI 모델은 무엇이 달라졌나요?",
+                    "기존 사용자는 무엇이 바뀌나요?",
+                    "지금 도구를 바꿀 필요가 있나요?",
+                ],
+                click_reason="새 모델 발표 직후에는 과장과 실제 변화가 섞여 판단이 어렵다.",
+                reader_benefit="확인된 변경점과 내 용도 기준의 선택 판단 기준을 얻는다.",
+                urgency_reason="적용 시점과 제공 범위는 계정·지역별로 순차 적용될 수 있다.",
+                content_promise="발표에서 확인된 것, 기존 사용자에게 달라지는 것, 선택 기준을 정리한다.",
+                angle_type="ai_model_release",
+            )
+        if event == "regulation":
+            core = _dedupe_tokens(f"{product} AI {focus} 규제 움직임" if focus else f"{product} AI 규제 움직임")
+            return angle(
+                search_demand_topic=core,
+                questions=[
+                    "이번 규제 논의에서 확정된 것은 무엇인가요?",
+                    "일반 사용자에게 당장 달라지는 것이 있나요?",
+                    "시행 시점과 적용 범위는 어떻게 되나요?",
+                ],
+                click_reason="규제 뉴스는 확정과 논의가 섞여 있어 당장 달라지는 것을 구분해야 한다.",
+                reader_benefit="확정 사항과 논의 단계를 구분하고 사용자 영향만 추려 확인한다.",
+                urgency_reason="시행 시점 전후로 서비스 약관과 기능이 바뀔 수 있다.",
+                content_promise="확정된 내용, 시행 시점, 사용자에게 달라지는 것을 구분해 정리한다.",
+                angle_type="ai_policy_impact",
+            )
+        if event == "business":
+            biz_focus = focus or "서비스"
+            core = _dedupe_tokens(f"{product} AI {biz_focus} 확대")
+            return angle(
+                search_demand_topic=core,
+                questions=[
+                    f"{product}의 이번 발표는 무엇을 하겠다는 건가요?",
+                    "사용자 화면과 기능에는 무엇이 달라지나요?",
+                    "내 데이터 사용 방식에 영향이 있나요?",
+                ],
+                click_reason="기업 발표는 사업 이야기지만 결국 사용자 화면과 데이터 정책이 바뀐다.",
+                reader_benefit=f"발표 내용 중 사용자에게 실제로 달라지는 것과 확인할 것을 얻는다.",
+                urgency_reason="적용 초기에 기본값과 안내가 바뀌는 경우가 많다.",
+                content_promise="발표의 확인된 사실과 사용자에게 달라지는 것만 추려 정리한다.",
+                angle_type="ai_service_change",
+            )
+        if event == "search":
+            core = _dedupe_tokens(f"{product} AI 검색 변화")
+            return angle(
+                search_demand_topic=core,
+                questions=[
+                    f"{product} AI 검색은 무엇이 달라졌나요?",
+                    "검색 결과 화면에서 어디가 바뀌나요?",
+                    "정보 확인 습관은 어떻게 바꿔야 하나요?",
+                ],
+                click_reason="AI 검색 변화는 매일 쓰는 검색 결과와 출처 확인 방식에 바로 영향을 준다.",
+                reader_benefit="바뀐 검색 화면의 확인 포인트와 출처 검증 습관을 얻는다.",
+                urgency_reason="검색 변화는 순차 적용되므로 내 계정 적용 여부 확인이 필요하다.",
+                content_promise="달라진 검색 화면, 확인 포인트, 출처 검증 방법을 정리한다.",
+                angle_type="ai_search_change",
+            )
+        if event == "comparison":
+            core = _dedupe_tokens(f"{product} AI 비교 선택 기준")
+            return angle(
+                search_demand_topic=core,
+                questions=[
+                    "어떤 기준으로 비교해야 하나요?",
+                    "내 용도에는 어느 쪽이 맞나요?",
+                    "요금과 한도 차이는 어떻게 확인하나요?",
+                ],
+                click_reason="스펙 나열 비교는 실제 선택에 도움이 안 되고 용도별 기준이 필요하다.",
+                reader_benefit="용도·요금·한도 기준의 선택 판단 기준을 얻는다.",
+                urgency_reason="요금과 제공 범위는 자주 바뀌어 최신 조건 확인이 필요하다.",
+                content_promise="용도별 선택 기준과 확인할 조건을 비교표로 정리한다.",
+                angle_type="ai_comparison",
+            )
+        if event == "feature":
+            # 설정·기능 신호가 실제로 있는 사건만 how-to 프레임 (기존 ai_setting 유지)
+            head = f"{product} AI {focus} 기능 설정" if focus else f"{product} AI 기능 설정"
+            demand_topic = _dedupe_tokens(head)
+            subject = _dedupe_tokens(f"{product} AI {focus}" if focus else f"{product} AI 기능")
+            benefit = (
+                f"{product} AI의 {focus} 관련 설정과 확인 기준을 알 수 있다."
+                if focus else "새 AI 기능의 기본 설정과 검수 기준을 알 수 있다."
+            )
+            return angle(
+                search_demand_topic=demand_topic,
+                questions=[
+                    f"{subject} 설정은 어디서 바꾸나요?",
+                    f"{product} AI 기능을 쓰기 전에 어떤 설정을 확인해야 하나요?",
+                    "AI 기능이 업무 흐름에 영향을 주는 부분은 무엇인가요?",
+                ],
+                click_reason="AI 기능의 설정과 데이터 사용 기준을 모르면 업무 흐름이 꼬일 수 있다.",
+                reader_benefit=benefit,
+                urgency_reason="새 기능 출시 직후에는 기본 설정과 사용 범위를 먼저 확인해야 한다.",
+                content_promise="AI 기능 설정, 업무 적용 기준, 주의점을 정리한다.",
+                angle_type="ai_setting",
+            )
+        # announcement — 신호 불명: 설정을 지어내지 않고 해설 프레임으로.
+        core = _dedupe_tokens(f"{product} AI {focus} 소식" if focus else f"{product} AI 소식")
         return angle(
-            search_demand_topic=demand_topic,
+            search_demand_topic=core,
             questions=[
-                first_question,
-                f"{product} AI 기능을 쓰기 전에 어떤 설정을 확인해야 하나요?",
-                "AI 기능이 업무 흐름에 영향을 주는 부분은 무엇인가요?",
+                f"{product} AI 소식에서 확인된 사실은 무엇인가요?",
+                "일반 사용자에게 달라지는 것이 있나요?",
+                "지금 해야 할 일이 있나요?",
             ],
-            click_reason="AI 기능의 설정과 데이터 사용 기준을 모르면 업무 흐름이 꼬일 수 있다.",
-            reader_benefit=benefit,
-            urgency_reason="새 기능 출시 직후에는 기본 설정과 사용 범위를 먼저 확인해야 한다.",
-            content_promise="AI 기능 설정, 업무 적용 기준, 주의점을 정리한다.",
-            angle_type="ai_setting",
+            click_reason="새 소식은 과장과 사실이 섞여 있어 확인된 것만 구분할 기준이 필요하다.",
+            reader_benefit="확인된 사실과 내게 영향 있는 부분만 추려 확인한다.",
+            urgency_reason="초기 보도는 조건이 바뀔 수 있어 공식 발표 기준 확인이 필요하다.",
+            content_promise="확인된 사실, 사용자 영향, 직접 확인할 것을 구분해 정리한다.",
+            angle_type="ai_service_change",
         )
 
     if _is_delivery_worker_platform_text(text):
@@ -1090,6 +1221,72 @@ def _ai_setting_focus(text: str) -> str:
         if noun in haystack:
             return noun
     return ""
+
+
+# 사건 유형 → 토픽 그룹 (그룹별 골든 패턴: ai_risk_security / ai_model_update /
+# ai_search_change / ai_comparison). 나머지 유형(요금·사업·규제·기능·소식)은
+# ai_work(ai_work_time_savings)로 — 프레임 어휘를 패턴 match_keywords와 정렬해 둔다.
+_AI_EVENT_TOPIC_GROUP = {
+    "risk": "ai_risk",
+    "model_release": "ai_model",
+    "search": "ai_search",
+    "comparison": "ai_compare",
+}
+
+# AI 제품명 — "AI"라는 단어 없이 제품명만 나오는 헤드라인("제미나이 3 공개…")도
+# AI 뉴스로 인식해야 한다 (실측: 문자열 "AI" 부재로 AI 분기 자체를 놓쳤음).
+_AI_PRODUCT_SIGNALS = (
+    "인공지능", "챗gpt", "chatgpt", "gpt", "제미나이", "gemini", "클로드", "claude",
+    "코파일럿", "copilot", "퍼플렉시티", "perplexity", "미스트랄", "mistral",
+    "클로바", "clova", "카나나", "kanana", "소라", "sora", "그록", "grok", "llm",
+)
+
+
+def _has_ai_signal(text: str) -> bool:
+    haystack = (text or "").lower()
+    if re.search(r"(?<![a-z0-9])ai(?![a-z0-9])", haystack):
+        return True
+    return any(signal in haystack for signal in _AI_PRODUCT_SIGNALS)
+
+
+def _classify_ai_event(text: str) -> str:
+    """AI 뉴스의 사건 유형 분류 — 앵글 프레임 라우팅의 기준 (2026-07-08).
+
+    배경: "AI" 단어만 있으면 광고 출시·요금 개편·규제·모델 발표까지 전부
+    "{제품} AI 기능 설정" how-to 하나로 뭉갰다. 설정이 없는 사건에 설정 글을
+    쓰니 제목↔본문 불일치·원문 이슈 소실 게이트에 걸렸고(5일 미발행 사건의
+    뿌리), 통과한 날에는 같은 모양의 글만 연속 발행됐다(네이버 AI 3연속).
+
+    순서 중요: 더 구체적인 신호를 먼저 본다. 어느 신호에도 안 걸리면
+    "announcement"(해설 프레임) — 근거 없이 설정 how-to로 보내지 않는다.
+    """
+    haystack = text or ""
+    lower = haystack.lower()
+    if re.search(r"\bvs\.?(?:\s|$)", lower) or "비교" in haystack:
+        return "comparison"
+    if any(t in haystack for t in ("요금", "가격", "구독료", "무료", "유료", "과금", "인상", "인하", "할인", "사용량 한도")):
+        return "pricing"
+    if any(t in haystack for t in ("보안", "유출", "해킹", "저작권", "환각", "리스크", "취약점", "딥페이크", "정보보호", "개인정보 침해")):
+        return "risk"
+    if any(t in haystack for t in ("모델", "버전", "파라미터", "벤치마크")) and any(
+        t in haystack for t in ("공개", "출시", "발표", "업데이트", "선보")
+    ):
+        return "model_release"
+    if any(t in haystack for t in ("규제", "법안", "기본법", "시행령", "소송", "제재", "가이드라인", "공정위", "법원")):
+        return "regulation"
+    if any(t in haystack for t in ("광고", "매출", "실적", "투자", "인수", "합병", "제휴", "협약", "상장", "수익화", "구조조정")):
+        return "business"
+    # 안전·거버넌스·윤리 체계는 "출시/발표"가 붙어도 사용자 설정이 없다 —
+    # feature(설정 how-to)로 보내면 없는 설정을 지어낸다. 해설(announcement)로.
+    # (실측: 같은 "네이버 AI 안전관리 2.0" 뉴스가 소스에 따라 "발표"→소식,
+    #  "출시"→설정으로 갈리던 불일치를 여기서 통일한다.)
+    if any(t in haystack for t in ("안전성", "안전관리", "안전 체계", "거버넌스", "윤리", "책임있는", "책임 있는")):
+        return "announcement"
+    if "검색" in haystack:
+        return "search"
+    if any(t in haystack for t in ("기능", "도입", "탑재", "지원", "업데이트", "출시", "개방", "적용", "추가")):
+        return "feature"
+    return "announcement"
 
 
 def _dedupe_tokens(text: str) -> str:

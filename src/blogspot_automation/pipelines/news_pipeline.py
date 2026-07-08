@@ -59,6 +59,7 @@ _HISTORY_RECORDABLE_STATUSES: frozenset[str] = frozenset({
     "trending_held_for_review",
     "trending_publish_failed",
     "failed",
+    "draft_saved_for_review",
 })
 
 
@@ -122,6 +123,15 @@ class NewsPipeline:
             os.getenv("AUTO_PUBLISH", "false").strip().lower() in {"1", "true", "yes", "on"}
             if auto_publish is None
             else bool(auto_publish)
+        )
+        # 수동 publish 리허설을 라이브 대신 Blogger 초안으로 보낸다.
+        # 배경: ai_blog.yml의 workflow_dispatch publish 모드는 스케줄과 똑같이
+        # 라이브에 발행한다. PR 개발 중 이 "리허설"들이 실제 글을 라이브에 쌓아
+        # 중복(예: 네이버 AI 3연속)을 만들었다. NEWS_PUBLISH_AS_DRAFT=true면
+        # 최종 발행 계약까지 동일하게 검증하되 글은 초안으로만 남아 라이브 오염 0.
+        # 스케줄 발행은 이 값을 세팅하지 않으므로 항상 라이브.
+        self.publish_as_draft = (
+            os.getenv("NEWS_PUBLISH_AS_DRAFT", "").strip().lower() in {"1", "true", "yes", "on"}
         )
         seed = os.getenv("NEWS_TOPIC_SELECTION_SEED", "").strip()
         self._selection_random_seed = seed or f"{datetime.now(timezone.utc).isoformat()}:{os.getpid()}:{id(self)}"
@@ -1633,43 +1643,35 @@ class NewsPipeline:
             if self.publish_service is None:
                 raise RuntimeError("NEWS_PUBLISH_MODE=publish requires a configured NewsPublishService.")
 
-            publish_outcome = self.publish_service.publish(
-                title=best_title.title,
-                article_html=prepare_blogspot_html(html, links=history_internal_links, strip_document=True),
-                labels=normalize_labels(plan.labels),
-                meta_description=meta_description,
-                selected_topic=selected.candidate.topic,
-                total_score=selected.total_score,
-                click_potential_score=click_potential_score,
-                topic_group=str(selected.candidate.raw.get("topic_group") or ""),
-                content_type=str(content_angle_summary.get("content_type") or ""),
-                hashtags=final_hashtags,
-                image_alt_text=image_plan.get("image_alt_text", ""),
-                is_draft=False,
+            flow = self._execute_publish_flow(
+                topic=selected.candidate.topic,
+                publish_args={
+                    "title": best_title.title,
+                    "article_html": prepare_blogspot_html(html, links=history_internal_links, strip_document=True),
+                    "labels": normalize_labels(plan.labels),
+                    "meta_description": meta_description,
+                    "selected_topic": selected.candidate.topic,
+                    "total_score": selected.total_score,
+                    "click_potential_score": click_potential_score,
+                    "topic_group": str(selected.candidate.raw.get("topic_group") or ""),
+                    "content_type": str(content_angle_summary.get("content_type") or ""),
+                    "hashtags": final_hashtags,
+                    "image_alt_text": image_plan.get("image_alt_text", ""),
+                },
             )
-            _pub_url = getattr(publish_outcome, "post_url", "") or ""
-            _publish_response = getattr(publish_outcome, "response_json", {}) or {}
-            post_publish_audit = self._post_publish_audit(
-                _pub_url,
-                expected_title=best_title.title,
-                expected_permalink_slug=str(_publish_response.get("permalink_slug") or ""),
-                expected_labels=normalize_labels(plan.labels),
-                content_type=str(content_angle_summary.get("content_type") or ""),
-                topic_group=str(selected.candidate.raw.get("topic_group") or ""),
-            )
-            fatal_issues = self._post_publish_fatal_issues(post_publish_audit)
-            if post_publish_audit and fatal_issues:
-                delete_result = False
-                try:
-                    delete_result = bool(self.publish_service.delete_post(getattr(publish_outcome, "post_id", "")))
-                except Exception as delete_exc:  # noqa: BLE001
-                    logger.warning("post publish audit cleanup failed: %s", delete_exc)
+            if flow["kind"] == "draft":
+                base_result.update(flow["draft_result"])
+                history_recorded = self._try_record_history(status="draft_saved_for_review", result=base_result)
+                return {**base_result, "history_recorded": history_recorded}
+            _pub_url = flow["post_url"]
+            post_publish_audit = flow["post_publish_audit"]
+            if flow["kind"] == "audit_blocked":
                 base_result.update({
                     "published_url": _pub_url,
                     "post_url": _pub_url,
-                    "post_id": getattr(publish_outcome, "post_id", ""),
+                    "post_id": flow["post_id"],
                     "post_publish_audit": post_publish_audit,
-                    "post_publish_audit_cleanup_deleted": delete_result,
+                    "post_publish_audit_cleanup_deleted": flow["cleanup_deleted"],
                     "publish_attempted": True,
                     "publish_succeeded": False,
                     "blogger_url": _pub_url,
@@ -1681,36 +1683,25 @@ class NewsPipeline:
                 return {
                     **base_result,
                     "status": "blocked_by_post_publish_audit",
-                    "blocking_issues": fatal_issues,
+                    "blocking_issues": flow["fatal_issues"],
                     "history_recorded": history_recorded,
                 }
-            if post_publish_audit and not bool(post_publish_audit.get("passed")):
-                # Advisory issues only (e.g. missing head meta description) — keep the
-                # live post; do NOT delete. Log so the operator can fix Blogger config.
-                logger.warning(
-                    "post publish audit advisory (post kept): url=%s issues=%s",
-                    _pub_url, list(post_publish_audit.get("issues") or []),
-                )
             base_result.update({
                 "published_url": _pub_url,
                 "post_url": _pub_url,
-                "post_id": getattr(publish_outcome, "post_id", ""),
+                "post_id": flow["post_id"],
                 "post_publish_audit": post_publish_audit,
                 "publish_attempted": True,
                 "publish_succeeded": True,
                 "blogger_url": _pub_url,
             })
             history_recorded = self._try_record_history(status="published", result=base_result)
-            logger.info(
-                "NewsPipeline: published → topic=%s url=%s",
-                selected.candidate.topic[:50], _pub_url,
-            )
             return {
                 **base_result,
                 "status": "published",
                 "published_url": _pub_url,
                 "post_url": _pub_url,
-                "post_id": getattr(publish_outcome, "post_id", ""),
+                "post_id": flow["post_id"],
                 "publish_attempted": True,
                 "publish_succeeded": True,
                 "post_publish_audit": post_publish_audit,
@@ -3669,24 +3660,47 @@ class NewsPipeline:
                 **base,
             }
         try:
-            outcome = self.publish_service.publish(  # type: ignore[union-attr]
-                title=result.title,
-                article_html=html,
-                labels=labels,
-                meta_description=result.meta_description,
-                selected_topic=topic,
-                topic_group=topic_group,
-                content_type=content_type,
-                hashtags=hashtags,
-                is_draft=False,
-                internal_links=internal_links,
-                permalink_slug_hint=result.slug,
+            flow = self._execute_publish_flow(
+                topic=topic,
+                publish_args={
+                    "title": result.title,
+                    "article_html": html,
+                    "labels": labels,
+                    "meta_description": result.meta_description,
+                    "selected_topic": topic,
+                    "topic_group": topic_group,
+                    "content_type": content_type,
+                    "hashtags": hashtags,
+                    "internal_links": internal_links,
+                    "permalink_slug_hint": result.slug,
+                },
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("clean_trending 발행 실패 → 다음 후보 (%s): %s", topic[:36], exc)
             return None
-        resp = getattr(outcome, "response_json", {}) or {}
-        url = getattr(outcome, "post_url", "") or str(resp.get("url") or "")
+        if flow["kind"] == "draft":
+            draft_result = flow["draft_result"]
+            self._try_record_history(status="draft_saved_for_review", result={**base, **draft_result})
+            return {**base, **draft_result}
+        if flow["kind"] == "audit_blocked":
+            # 통합 전 이 경로에는 발행 후 감사가 아예 없었다(경로 간 표류) —
+            # 이제 동일하게 감사·삭제하고, 기록 후 다음 후보로 넘어간다.
+            self._try_record_history(
+                status="blocked_by_post_publish_audit",
+                result={
+                    **base,
+                    "publish_attempted": True,
+                    "publish_succeeded": False,
+                    "post_publish_audit": flow["post_publish_audit"],
+                    "post_publish_audit_cleanup_deleted": flow["cleanup_deleted"],
+                },
+            )
+            logger.warning(
+                "clean_trending 발행 후 감사 차단 → 다음 후보 (%s): %s",
+                topic[:36], ",".join(flow["fatal_issues"]),
+            )
+            return None
+        url = flow["post_url"]
         logger.info("clean_trending 발행 성공 ✅ → %s", url)
         self._try_record_history(
             status="trending_published",
@@ -3842,6 +3856,8 @@ class NewsPipeline:
         blogger_url = ""
         publish_error = ""
         post_publish_audit: dict[str, Any] = {}
+        is_draft_saved = False
+        draft_review_note = ""
 
         publish_mode_active = (
             not self.dry_run
@@ -3855,53 +3871,44 @@ class NewsPipeline:
                 publish_attempted = True
                 _html_for_publish = result.article_html
                 _final_html = prepare_blogspot_html(_html_for_publish, links=history_internal_links, strip_document=True)
-                outcome = self.publish_service.publish(  # type: ignore[union-attr]
-                    title=result.title,
-                    article_html=_final_html,
-                    labels=normalize_labels(result.labels),
-                    meta_description=result.meta_description,
-                    selected_topic=topic,
-                    total_score=int(selected.total_score),
-                    click_potential_score=int(selected.candidate.raw.get("click_potential_score") or 0),
-                    topic_group="today_issue",
-                    content_type="today_issue_explainer",
-                    hashtags=result.hashtags,
-                    is_draft=False,
+                flow = self._execute_publish_flow(
+                    topic=topic,
+                    publish_args={
+                        "title": result.title,
+                        "article_html": _final_html,
+                        "labels": normalize_labels(result.labels),
+                        "meta_description": result.meta_description,
+                        "selected_topic": topic,
+                        "total_score": int(selected.total_score),
+                        "click_potential_score": int(selected.candidate.raw.get("click_potential_score") or 0),
+                        "topic_group": "today_issue",
+                        "content_type": "today_issue_explainer",
+                        "hashtags": result.hashtags,
+                    },
                 )
-                publish_succeeded = True
-                blogger_url = getattr(outcome, "post_url", "") or ""
-                _publish_response = getattr(outcome, "response_json", {}) or {}
-                post_publish_audit = self._post_publish_audit(
-                    blogger_url,
-                    expected_title=result.title,
-                    expected_permalink_slug=str(_publish_response.get("permalink_slug") or ""),
-                    expected_labels=normalize_labels(result.labels),
-                    content_type="today_issue_explainer",
-                    topic_group="today_issue",
-                )
-                fatal_issues = self._post_publish_fatal_issues(post_publish_audit)
-                if post_publish_audit and fatal_issues:
-                    try:
-                        self.publish_service.delete_post(getattr(outcome, "post_id", ""))  # type: ignore[union-attr]
-                    except Exception as delete_exc:  # noqa: BLE001
-                        logger.warning("Trending post-publish audit cleanup failed: %s", delete_exc)
+                post_publish_audit = flow["post_publish_audit"]
+                blogger_url = flow["post_url"]
+                if flow["kind"] == "draft":
+                    is_draft_saved = True
                     publish_succeeded = False
-                    publish_error = "post_publish_audit_failed:" + ",".join(fatal_issues)
+                    draft_review_note = flow["draft_result"].get("draft_review_note", "")
+                elif flow["kind"] == "audit_blocked":
+                    publish_succeeded = False
+                    publish_error = "post_publish_audit_failed:" + ",".join(flow["fatal_issues"])
                 else:
-                    if post_publish_audit and not bool(post_publish_audit.get("passed")):
-                        logger.warning(
-                            "Trending post publish audit advisory (post kept): url=%s issues=%s",
-                            blogger_url, list(post_publish_audit.get("issues") or []),
-                        )
-                    logger.info("Trending 발행 성공 → %s", blogger_url)
+                    publish_succeeded = True
             except Exception as exc:  # noqa: BLE001
                 publish_error = f"{type(exc).__name__}: {exc}"
                 logger.error("Trending 발행 실패: %s", publish_error)
 
+        _today_issue_status = (
+            "draft_saved_for_review" if is_draft_saved
+            else "trending_published" if publish_succeeded
+            else "trending_dry_run" if self.dry_run
+            else "trending_publish_failed"
+        )
         history_recorded = self._try_record_history(
-            status="trending_published" if publish_succeeded else (
-                "trending_dry_run" if self.dry_run else "trending_publish_failed"
-            ),
+            status=_today_issue_status,
             result={
                 "trending_engine": True,
                 "selected_topic": topic,
@@ -3911,10 +3918,12 @@ class NewsPipeline:
                 "sge_ready": True,
                 "publish_attempted": publish_attempted,
                 "publish_succeeded": publish_succeeded,
+                **({"published": False} if is_draft_saved else {}),
                 "blogger_url": blogger_url,
                 "post_url": blogger_url,
                 "published_url": blogger_url,
                 "post_publish_audit": post_publish_audit,
+                "draft_review_note": draft_review_note,
                 "html_length": len(result.article_html),
                 "labels": result.labels,
                 "hashtags_count": len(result.hashtags),
@@ -3932,7 +3941,8 @@ class NewsPipeline:
 
         return {
             "status": (
-                "trending_published" if publish_succeeded
+                "draft_saved_for_review" if is_draft_saved
+                else "trending_published" if publish_succeeded
                 else "trending_dry_run" if self.dry_run
                 else "trending_publish_failed" if publish_attempted
                 else "trending_held_for_review"
@@ -4601,6 +4611,116 @@ class NewsPipeline:
         "ai_topic_leaked_to_news_blog",
         "published_labels_mojibake",
     )
+
+    def _execute_publish_flow(self, *, topic: str, publish_args: dict[str, Any]) -> dict[str, Any]:
+        """발행 실행의 단일 경로: publish → 초안 분기 → 발행 후 감사 → 치명 시 삭제.
+
+        배경(2026-07-08 구조 감사 로드맵 5): 이 흐름이 세 발행 경로(main/
+        clean_trending/today_issue)에 3벌 복제돼 있었고, 경로별로 미묘하게 달라
+        (clean_trending은 발행 후 감사 자체가 없었음, 초안 처리도 각자 구현)
+        한 곳 수정이 세 곳 패치를 요구했으며 경로 간 표류가 곧 버그였다(초안
+        자멸 수정 때 실측). 이제 발행 메커니즘은 이 메서드 하나다 — 경로들은
+        결과의 상태 이름·이력 조립만 각자 한다.
+
+        감사 기대값(제목·라벨·타입)은 publish_args에서 직접 파생한다 — 발행에
+        보낸 값과 감사가 기대하는 값이 한 출처라 표류할 수 없다.
+
+        반환: {"kind": "draft"|"published"|"audit_blocked", "post_id", "post_url",
+               "post_publish_audit", "fatal_issues", "cleanup_deleted",
+               "draft_result"(초안일 때만)}
+        """
+        outcome = self.publish_service.publish(  # type: ignore[union-attr]
+            is_draft=self.publish_as_draft,
+            **publish_args,
+        )
+        post_id = str(getattr(outcome, "post_id", "") or "")
+        draft_result = self._draft_review_result(outcome, topic=topic)
+        if draft_result is not None:
+            logger.info(
+                "publish flow: draft saved for review → topic=%s dashboard=%s",
+                topic[:50], draft_result.get("blogger_url", ""),
+            )
+            return {
+                "kind": "draft",
+                "post_id": post_id,
+                "post_url": str(draft_result.get("blogger_url") or ""),
+                "post_publish_audit": draft_result.get("post_publish_audit") or {},
+                "fatal_issues": [],
+                "cleanup_deleted": False,
+                "draft_result": draft_result,
+            }
+        response = getattr(outcome, "response_json", {}) or {}
+        post_url = str(getattr(outcome, "post_url", "") or response.get("url") or "")
+        post_publish_audit = self._post_publish_audit(
+            post_url,
+            expected_title=str(publish_args.get("title") or ""),
+            expected_permalink_slug=str(response.get("permalink_slug") or ""),
+            expected_labels=list(publish_args.get("labels") or []),
+            content_type=str(publish_args.get("content_type") or ""),
+            topic_group=str(publish_args.get("topic_group") or ""),
+        )
+        fatal_issues = self._post_publish_fatal_issues(post_publish_audit)
+        if post_publish_audit and fatal_issues:
+            cleanup_deleted = False
+            try:
+                cleanup_deleted = bool(self.publish_service.delete_post(post_id))  # type: ignore[union-attr]
+            except Exception as delete_exc:  # noqa: BLE001
+                logger.warning("post publish audit cleanup failed: %s", delete_exc)
+            return {
+                "kind": "audit_blocked",
+                "post_id": post_id,
+                "post_url": post_url,
+                "post_publish_audit": post_publish_audit,
+                "fatal_issues": fatal_issues,
+                "cleanup_deleted": cleanup_deleted,
+            }
+        if post_publish_audit and not bool(post_publish_audit.get("passed")):
+            # Advisory issues only — keep the live post; log for operator follow-up.
+            logger.warning(
+                "post publish audit advisory (post kept): url=%s issues=%s",
+                post_url, list(post_publish_audit.get("issues") or []),
+            )
+        logger.info("publish flow: published → topic=%s url=%s", topic[:50], post_url)
+        return {
+            "kind": "published",
+            "post_id": post_id,
+            "post_url": post_url,
+            "post_publish_audit": post_publish_audit,
+            "fatal_issues": [],
+            "cleanup_deleted": False,
+        }
+
+    @staticmethod
+    def _draft_review_result(publish_outcome: Any, *, topic: str) -> dict[str, Any] | None:
+        """초안 발행이면 결과를 만들어 반환, 아니면 None(호출부가 평소 라이브 발행 흐름을 계속 진행).
+
+        배경: Blogger는 초안 post의 url로 블로그 홈 URL을 돌려준다(개별 초안 미리보기
+        URL이 아님). 그래서 이 URL로 라이브 fetch 감사(_post_publish_audit)를 돌리면
+        '홈페이지에 있던 이전 글'과 새 후보를 비교해 필연적으로 전부 불일치가 나고,
+        그 결과 방금 만든 초안이 매번 자동 삭제됐다(2026-07-08 실측). 초안은 원래
+        사람이 Blogger 대시보드에서 직접 열어 검토하는 용도라 라이브 fetch 감사
+        자체가 성립하지 않는다 — 그래서 초안일 때는 감사를 건너뛰고 대시보드
+        편집 링크만 남긴다. publish_succeeded/published는 정직하게 False로 둬서
+        dedup·이력이 이걸 실제 발행처럼 취급하지 않게 한다(엔티티 쿨다운도 미적용).
+        """
+        if not getattr(publish_outcome, "is_draft", False):
+            return None
+        dashboard_url = getattr(publish_outcome, "dashboard_url", "") or ""
+        return {
+            "status": "draft_saved_for_review",
+            "post_id": getattr(publish_outcome, "post_id", ""),
+            "post_url": dashboard_url,
+            "published_url": dashboard_url,
+            "blogger_url": dashboard_url,
+            "publish_attempted": True,
+            "publish_succeeded": False,
+            "published": False,
+            "post_publish_audit": {"skipped": True, "reason": "draft_not_live_fetchable"},
+            "draft_review_note": (
+                f"Blogger 대시보드에서 '{topic[:60]}' 초안을 열어 직접 검토하세요: {dashboard_url}"
+                if dashboard_url else "Blogger 초안 생성됨 — 대시보드에서 확인하세요."
+            ),
+        }
 
     @staticmethod
     def _post_publish_fatal_issues(post_publish_audit: dict[str, Any]) -> list[str]:

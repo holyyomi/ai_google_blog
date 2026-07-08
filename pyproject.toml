@@ -34,3 +34,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: fake Blogger 서버로 발행 파이프라인을 끝까지 통과시키는 통합 테스트",
+]

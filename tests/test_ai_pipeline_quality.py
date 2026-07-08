@@ -298,9 +298,21 @@ class TestAiBlogYml(unittest.TestCase):
         content = self._yml_content()
         if not content:
             self.skipTest("ai_blog.yml not found")
-        # 매일 아침 자동 발행 cron + schedule이면 publish(dry_run=false)
+        # 매일 아침 자동 발행 cron + schedule이면 publish(dry_run=false).
+        # DRY_RUN 표현식은 schedule 또는 수동 publish/publish_draft면 'false'.
         self.assertIn("cron:", content)
-        self.assertIn("github.event_name == 'schedule' && 'false'", content)  # DRY_RUN
+        self.assertIn("github.event_name == 'schedule'", content)
+        self.assertIn("&& 'false' || 'true'", content)  # DRY_RUN: 발행 경로면 false
+
+    def test_manual_publish_draft_mode(self):
+        content = self._yml_content()
+        if not content:
+            self.skipTest("ai_blog.yml not found")
+        # 수동 리허설은 Blogger 초안으로만(라이브 오염 0). 스케줄만 라이브.
+        self.assertIn("publish_draft", content)
+        self.assertIn("NEWS_PUBLISH_AS_DRAFT", content)
+        # 초안 플래그는 수동 publish_draft일 때만 true
+        self.assertIn("github.event.inputs.publish_mode == 'publish_draft' && 'true' || 'false'", content)
 
     def test_persists_dedup_state(self):
         content = self._yml_content()

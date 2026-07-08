@@ -37,6 +37,26 @@ Phase 3 + Completion Patch 1 (GoldenPattern, SlotFiller, TitleCandidate, GEO lay
 | `pipelines/news_pipeline.py` | 새 게이트/필터 추가는 가능. 기존 발행 경로/조건 변경은 별도 승인 필요 |
 | `services/news_quality_gate.py` | 게이트 강화는 가능. 기존 차단 조건 완화/제거는 별도 승인 필요 |
 
+### 보호의 진짜 의미 = 머지 조건 (2026-07-08 구조 감사로 재정의)
+감사 실측: 보호 정책은 변경을 막지 못했고(최근 60커밋에서 news_pipeline.py 6회 수정),
+"새 게이트 추가는 싸게, 구조 정리는 비싸게" 만들어 additive 패치만 쌓였다
+(5,270줄·게이트 24종·status 31종). 그래서 보호를 "수정 자제"가 아니라
+**"아래 검증 없이 머지 금지"**로 재정의한다:
+
+1. **통합 테스트 통과 필수**: 보호 파일(발행 경로·게이트·워크플로우)을 건드리는
+   모든 변경은 `tests/test_integration_fake_blogger.py`(fake Blogger로 발행
+   파이프라인 끝까지) + `tests/test_env_contract.py`(env 계약)를 포함한 전체
+   스위트 통과 후에만 머지.
+2. **발행 경로/최종 계약 변경 시 실측 리허설 필수**: `gh workflow run ai_blog.yml
+   --ref <branch> -f publish_mode=publish_draft`로 실제 GHA에서 1회 실행해
+   `draft_saved_for_review` 도달을 확인 후 머지. (`publish_mode=publish`는
+   라이브 발행이므로 검증용 사용 금지 — dry_run은 auto_publish_gate·최종
+   발행 계약을 실행하지 않아 검증으로 불충분.)
+3. **구조 정리(중복 제거·경로 통합·책임 분리)는 위 1·2를 통과하는 한 환영**:
+   "기존 경로를 건드리면 안 된다"가 아니라 "기존 동작을 통합 테스트가 지키는
+   상태에서 정리하라"가 규칙이다. 기존 차단 조건의 완화/제거만 여전히
+   사용자 승인 필요.
+
 ---
 
 ## 발행 정책 — 로컬 개발 모드 vs schedule 운영 모드
@@ -60,7 +80,7 @@ Phase 3 + Completion Patch 1 (GoldenPattern, SlotFiller, TitleCandidate, GEO lay
 - final publish HTML QA 통과 (hard blocking issue 없음)
 - AI 내부 라벨 노출 없음
 - `naver_blog_cta_present=true`
-- `DISABLE_IMAGE_GENERATION=true`, `DISABLE_IMAGE_UPLOAD=true` (이미지 파이프라인 비활성)
+- 커버 자동 생성 비활성은 `ENABLE_COVER_IMAGE_AUTOGEN=false`가 담당 (과거 문서의 `DISABLE_IMAGE_GENERATION`/`DISABLE_IMAGE_UPLOAD`는 어떤 코드도 읽지 않는 죽은 env였음 — 2026-07-08 env 계약 테스트로 확인)
 
 ---
 
@@ -149,6 +169,12 @@ publish_ready = (
 ```bash
 # 컴파일 검사
 python -m compileall src
+
+# 발행 경로 통합 테스트 (보호 파일 변경 시 필수 — fake Blogger로 끝까지)
+PYTHONPATH=src pytest tests/test_integration_fake_blogger.py tests/test_env_contract.py -q
+
+# 발행 경로/최종 계약 변경 시 실측 리허설 (라이브 오염 0 — Blogger 초안까지만)
+# gh workflow run ai_blog.yml --ref <branch> -f publish_mode=publish_draft
 
 # 전체 테스트 (핵심)
 PYTHONPATH=src pytest tests/test_golden_pattern_service.py \

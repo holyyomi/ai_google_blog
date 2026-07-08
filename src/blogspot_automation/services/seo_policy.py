@@ -47,13 +47,13 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .yomi-note,.yomi-judgment-box,.real-criterion,.core-message-box,.target-reader-box,
 .misconception-box,.quick-decision-table,
 .actions-box,.action-guide-box,.checklist,.quality-checklist,
-.yomi-faq .intent-qa-item,.faq-card,.intent-qa-item,
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,
 .yomi-paa-compact,.yomi-engine-support,
 .confirmed-section,.check-needed-section,
 .yomi-internal-links,.tool-summary,.pricing-table,
 .who-for-rec,.who-for-non,.risk-note,.verdict-box,.use-case-card{
   margin:26px 0;padding:18px 20px;border:1px solid var(--line);background:#fff;border-radius:10px;box-shadow:none}
-.yomi-faq .intent-qa-item,.faq-card,.intent-qa-item,.confirmed-section,.check-needed-section,.use-case-card{margin:0 0 12px}
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,.confirmed-section,.check-needed-section,.use-case-card{margin:0 0 12px}
 /* 강조 카드는 딱 두 곳: 도입(리드)과 결론 — 악센트 왼줄 3px */
 .yomi-lede,.preview-hook,.hero-summary-box{background:var(--soft);border-left:3px solid var(--a1)}
 .yomi-lede p,.preview-hook p,.hero-summary-box p{font-size:1.03em;color:var(--ink)}
@@ -97,8 +97,8 @@ YOMI_CLEAN_ARTICLE_STYLE = """<style>
 .yomi-tag.red,.yomi-tag.amber,.yomi-tag.blue{background:#eef2f7;color:var(--body)}
 /* ── FAQ ── */
 .yomi-faq,.faq-block{margin:30px 0}
-.yomi-faq h3,.faq-card h3,.intent-qa-item h3{margin-top:0;color:var(--ink);padding-left:12px;border-left:3px solid var(--a1)}
-.yomi-faq p:last-child,.faq-card p:last-child,.intent-qa-item p:last-child{margin-bottom:0}
+.yomi-faq h3,.faq-card h3,.faq-item h3,.intent-qa-item h3{margin-top:0;color:var(--ink);padding-left:12px;border-left:3px solid var(--a1)}
+.yomi-faq p:last-child,.faq-card p:last-child,.faq-item p:last-child,.intent-qa-item p:last-child{margin-bottom:0}
 .yomi-paa-compact h2{font-size:1.05rem;margin:0 0 10px;color:var(--ink);border:0;padding:0;background:none}
 .yomi-paa-compact ul{margin:0;padding-left:20px}
 .yomi-paa-compact li{margin:7px 0}
@@ -496,8 +496,14 @@ def append_hashtags_block(
         f"<p>{tag_text}</p>"
         "</section>"
     )
-    if re.search(r"</article>", content, flags=re.IGNORECASE):
-        return re.sub(r"</article>", f"{block}\n</article>", content, count=1, flags=re.IGNORECASE)
+    closes = list(re.finditer(r"</article>", content, flags=re.IGNORECASE))
+    if closes:
+        # 마지막 </article>(=최상위 본문 닫힘) 앞에 삽입한다. 과거의 "첫 번째
+        # </article> 앞" 기준은 FAQ가 중첩 <article class="faq-item">일 때
+        # 해시태그를 첫 FAQ 내부에 넣었고, 최종 계약의 답변 추출기가 해시태그를
+        # faq 답변으로 오인해 low_quality로 발행을 차단했다(2026-07-08 실측).
+        last = closes[-1]
+        return f"{content[:last.start()]}{block}\n{content[last.start():]}"
     return f"{content.rstrip()}\n{block}"
 
 
@@ -826,7 +832,9 @@ def _normalize_legacy_article_classes(html: str) -> str:
         "summary-card": "quick-decision-table",
         "info-box": "yomi-note",
         "faq-section": "yomi-faq",
-        "faq-item": "faq-card",
+        # "faq-item": "faq-card" 매핑은 제거(2026-07-08) — faq-item이 표준이며
+        # CSS가 직접 스타일한다. 이 매핑이 남아 있으면 prepare 경유 재렌더가
+        # 발행 직전 faq-card를 부활시켜 overstack 게이트·최종 계약과 충돌한다.
     }
     content = html or ""
     for old, new in replacements.items():

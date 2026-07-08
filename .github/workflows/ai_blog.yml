@@ -13,12 +13,13 @@ on:
   workflow_dispatch:
     inputs:
       publish_mode:
-        description: 'AI publish mode'
+        description: 'AI publish mode (publish_draft = 최종 계약까지 검증하되 Blogger 초안으로만 — 라이브 오염 0)'
         required: true
         default: 'dry_run'
         type: choice
         options:
           - dry_run
+          - publish_draft
           - publish
       force_topic:
         description: 'Optional: forced topic (blank = fresh AI/news discovery)'
@@ -63,10 +64,16 @@ jobs:
 
       - name: Run AI Topic Pipeline
         env:
-          # schedule(매일 아침)이면 무조건 발행, 수동(dispatch)이면 publish_mode 입력에 따름
-          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (github.event.inputs.publish_mode == 'publish' && 'false' || 'true') }}
-          AUTO_PUBLISH: ${{ github.event_name == 'schedule' && 'true' || (github.event.inputs.publish_mode == 'publish' && 'true' || 'false') }}
-          NEWS_PUBLISH_MODE: ${{ github.event_name == 'schedule' && 'publish' || github.event.inputs.publish_mode }}
+          # schedule(매일 아침·저녁)이면 무조건 라이브 발행, 수동(dispatch)이면 publish_mode 입력에 따름.
+          # publish_draft/publish 둘 다 실제 발행 경로(DRY_RUN=false)를 타되,
+          # publish_draft는 아래 NEWS_PUBLISH_AS_DRAFT=true로 Blogger 초안까지만 만든다.
+          # 배경: 과거 수동 publish "리허설"이 라이브에 실제 글을 쌓아 중복(네이버 AI 3연속)을
+          # 만들었음. 이제 수동 검증은 publish_draft로 하고, 라이브 발행은 스케줄만 한다.
+          DRY_RUN: ${{ (github.event_name == 'schedule' || github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'false' || 'true' }}
+          AUTO_PUBLISH: ${{ (github.event_name == 'schedule' || github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'true' || 'false' }}
+          NEWS_PUBLISH_MODE: ${{ (github.event_name == 'schedule' || github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'publish' || 'dry_run' }}
+          # 수동 publish_draft일 때만 초안. 스케줄·수동 publish는 라이브(빈 입력이면 자동으로 false).
+          NEWS_PUBLISH_AS_DRAFT: ${{ github.event.inputs.publish_mode == 'publish_draft' && 'true' || 'false' }}
           # news_blog.yml과 동일한 정책: PUBLISH_HOLD_PHASE2는 항상 false로 둔다.
           # (실제 발행 여부는 DRY_RUN/AUTO_PUBLISH가 따로 통제하므로 안전함.)
           # 이 값이 없으면 news_pipeline.py의 기본값이 "true"라 human_review_required가
@@ -94,8 +101,9 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: "gpt-5-mini"
           # Disable generated covers because image models often render broken Korean text.
-          DISABLE_IMAGE_GENERATION: "true"
-          DISABLE_IMAGE_UPLOAD: "true"
+          # (과거 DISABLE_IMAGE_GENERATION/DISABLE_IMAGE_UPLOAD는 어떤 코드도 읽지 않는
+          #  죽은 env였음 — 2026-07-08 env 계약 테스트로 확인 후 제거. 실제 비활성화는
+          #  아래 ENABLE_COVER_IMAGE_AUTOGEN=false가 담당.)
           ENABLE_COVER_IMAGE_AUTOGEN: "false"
           REQUIRE_NEWS_COVER_IMAGE: "false"
           # 커버 이미지 env — news_blog.yml과 동일. 이 두 줄이 없으면 발행 글에
@@ -164,22 +172,44 @@ jobs:
           if-no-files-found: warn
 
       # Keep publish history so recent-topic dedup works across scheduled runs.
-      - name: Persist Publish History
-        if: ${{ always() && github.ref_name == 'main' }}
+      # 발행 이력 원장은 "어느 브랜치의 런이든" main 원장에 병합-커밋한다 (감사 로드맵 3).
+      # 과거: main 런에서만 커밋(push HEAD:main이 브랜치 전체를 밀어버려 조건이 필요했음)
+      # → feature 브랜치 리허설 발행이 원장에 안 남아 dedup·엔티티 쿨다운이 장님이 됐고
+      # 같은 주제가 라이브에 연속으로 쌓였다(네이버 AI 3연속 사건 원인 b).
+      # 지금: origin/main으로 체크아웃한 뒤 merge 스크립트(합집합·시간순)로 원장 "파일만"
+      # 합류 → 브랜치 코드는 절대 main에 밀리지 않는다. 충돌은 rebase 대신 재병합 루프로
+      # 해소(합집합이라 구조적으로 무충돌).
+      - name: Persist Publish History (any branch -> main ledger)
+        if: ${{ always() }}
         run: |
-          CHANGED=""
-          for f in data/publish_history.json; do
-            if [ -f "$f" ] && ! git diff --quiet -- "$f" 2>/dev/null; then CHANGED="yes"; fi
-            if [ -f "$f" ] && ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then CHANGED="yes"; fi
-          done
-          if [ -n "$CHANGED" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git pull --rebase --autostash origin main
-            git add data/publish_history.json
-            git commit -m "chore: update publish history [skip ci]" || echo "nothing to commit"
-            git push origin HEAD:main
-          else
-            echo "Publish history unchanged, skipping commit"
+          if [ ! -f data/publish_history.json ]; then
+            echo "no ledger produced; skipping"
+            exit 0
           fi
+          cp data/publish_history.json /tmp/run_ledger.json
+          # 스크립트를 먼저 대피 — origin/main에 아직 없는 첫 배포 런에서도 동작해야 함
+          cp scripts/merge_publish_history.py /tmp/merge_publish_history.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          for attempt in 1 2 3; do
+            git checkout -f -B ledger-merge origin/main
+            python /tmp/merge_publish_history.py \
+              --base data/publish_history.json \
+              --incoming /tmp/run_ledger.json \
+              --out data/publish_history.json
+            if git diff --quiet -- data/publish_history.json; then
+              echo "ledger unchanged; skipping commit"
+              exit 0
+            fi
+            git add data/publish_history.json
+            git commit -m "chore: merge publish history from ${GITHUB_REF_NAME} run [skip ci]"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "push race detected; re-merging against fresh origin/main (attempt ${attempt})"
+            git fetch origin main
+          done
+          echo "failed to persist ledger after 3 attempts" >&2
+          exit 1
 
