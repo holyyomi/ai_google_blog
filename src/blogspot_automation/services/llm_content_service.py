@@ -194,7 +194,7 @@ HTML 태그 제외 순수 텍스트 1,800 ~ 2,600자.
 저장해두고 다시 꺼내 볼 만한 것 — 예: 설정 항목·경로 정리, 단계별 할 일, 상황별 선택 기준,
 적용 전/후 비교, 무료 한도 등. 표 앞뒤로 한두 문장을 붙여 흐름과 이어지게 한다.
 (주제와 무관한 ChatGPT/Claude 나열식 비교표는 금지 — 어디까지나 이 주제의 실용 정보를 담은 표)
-
+{asset_directive}
 [하지 않을 것]
 - 요약 카드 표(summary-card), 정형 카드 블록을 의무적으로 나열하지 않는다. 표는 위 1개면 충분.
 - 주제와 무관한 ChatGPT/Claude/Gemini 나열·비교, "프롬프트 5개" 나열, 마감 재촉 박스(deadline-box) 금지.
@@ -204,6 +204,41 @@ HTML 태그 제외 순수 텍스트 1,800 ~ 2,600자.
 - div.post-content 태그 없이 내부 HTML만 출력
 - 소제목은 <h2>, 세부는 <h3> (자연어 질문형)
 - Markdown 금지, HTML entity 코드(&#숫자;) 금지, 본문 해시태그 금지"""
+
+
+# 'AI 자동화 실험실' 유형(도구 비교·비용 계산·자동화 실전) 글에서만 켜지는 지시.
+# 일반 뉴스/정보 글은 담백하게 두고(양식화 방지), 이 유형에서만 저장용 '무기'를 요구한다.
+_ASSET_RICH_DIRECTIVE = """
+[이 글은 'AI 자동화 실험실' 유형 — 저장용 도구(무기)를 실제 수치로 채운다]
+이 주제는 도구 비교·비용·자동화 실전에 관한 것이다. 독자가 저장해 다시 꺼내 쓰는 '무기'를,
+주제에 맞는 것으로 1~2개만 골라 실제 항목·수치로 채운다(다섯 개를 다 넣어 양식처럼 만들지 말 것):
+ - 비용 계산: 공식(입력·출력 토큰 × 모델 단가)과 예시 계산을 <table>로. "YYYY년 M월 기준"과
+   "정확한 가격은 공식 페이지에서 확인" 문구를 붙인다. 팩트에 단가가 없으면 지어내지 말고 계산 '방법'만 제시한다.
+ - 도구 비교표: 이 주제의 도구/방식만 비교(범용 ChatGPT/Claude 나열 금지). 열은 독자의 선택 기준(속도·비용·한도·용도).
+ - 체크리스트: 발행 전·설정 전 점검 항목을 <ul>로. 일반론("검수하라") 금지, 이 주제에서만 통하는 항목.
+ - 재사용 템플릿: 그대로 복사해 쓰는 프롬프트·설정 예시를 <pre> 블록 1개로.
+이 유형에서는 표를 2개까지 허용한다(계산 1 + 비교 1). 그 외에는 여전히 표 남발 금지.
+[실험 로그·실패 사례 규칙 — 정직성 최우선]
+ - '내가 해보니 몇 초/몇 원' 같은 1인칭 실측·수익 주장 금지(검증 불가로 발행 차단). 대신 독자가 직접
+   돌려볼 '실험 설계'를 준다: 무엇을·어떤 조건으로·무엇을 측정할지. 결과 숫자는 독자가 채우도록 기준만 남긴다.
+"""
+
+# 이 키워드가 제목/주제/앵글에 있으면 위 지시를 켠다. 뉴스 글에 우연히 걸려도
+# 계산·표는 품질 게이트가 어차피 선호하므로 해가 없다(보수적일 필요 없음).
+_ASSET_RICH_KEYWORDS = (
+    "비용", "요금", "계산", "api", "토큰", "단가", "자동화", "파이프라인", "워크플로",
+    "도구 비교", "비교표", "cursor", "codex", "claude code", "제휴", "한도",
+    "임시저장", "자동발행", "자동 발행", "실험", "100개", "대체 루트", "프롬프트 템플릿",
+)
+
+
+def _asset_rich_directive(title: str, topic: str, category: str, raw: dict) -> str:
+    """도구·비용·자동화 유형이면 무기 지시를 반환, 아니면 빈 문자열."""
+    angle = str(
+        raw.get("angle_type") or (raw.get("search_angle") or {}).get("angle_type") or ""
+    ).lower()
+    blob = f"{title} {topic} {category} {angle}".lower()
+    return _ASSET_RICH_DIRECTIVE if any(k in blob for k in _ASSET_RICH_KEYWORDS) else ""
 
 
 class LlmContentService:
@@ -286,6 +321,7 @@ class LlmContentService:
             questions=questions_str,
             reader_interest_prompt=reader_interest_prompt,
             issue_profile_prompt=issue_profile_prompt,
+            asset_directive=_asset_rich_directive(title, topic, category, raw),
         )
 
         # 3. LLM 폴백 체인
