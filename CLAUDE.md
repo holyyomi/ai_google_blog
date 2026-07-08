@@ -60,7 +60,7 @@ Phase 3 + Completion Patch 1 (GoldenPattern, SlotFiller, TitleCandidate, GEO lay
 - final publish HTML QA 통과 (hard blocking issue 없음)
 - AI 내부 라벨 노출 없음
 - `naver_blog_cta_present=true`
-- `DISABLE_IMAGE_GENERATION=true`, `DISABLE_IMAGE_UPLOAD=true` (이미지 파이프라인 비활성)
+- 커버 자동 생성 비활성은 `ENABLE_COVER_IMAGE_AUTOGEN=false`가 담당 (과거 문서의 `DISABLE_IMAGE_GENERATION`/`DISABLE_IMAGE_UPLOAD`는 어떤 코드도 읽지 않는 죽은 env였음 — 2026-07-08 env 계약 테스트로 확인)
 
 ---
 
