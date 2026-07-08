@@ -3,7 +3,23 @@
 import re
 
 from blogspot_automation.config.settings import Settings
+from blogspot_automation.services.answer_engine_policy import (
+    ensure_answer_engine_optimized_html,
+)
 from blogspot_automation.services.news_publish_service import NewsPublishService
+
+
+def _finalized(html: str, *, title: str, topic: str, topic_group: str = "") -> str:
+    """파이프라인이 발행 전에 하는 GEO 확정을 테스트에서 재현.
+
+    단방향 계약(로드맵 4): publish는 본문을 재렌더하지 않고 검증만 한다 —
+    확정(ensure_answer_engine)은 호출자(파이프라인)의 책임이므로 테스트도
+    같은 책임을 진다.
+    """
+    return ensure_answer_engine_optimized_html(
+        html, title=title, topic=topic, topic_group=topic_group
+    )
+
 
 class CapturingBloggerClient:
     def __init__(self) -> None:
@@ -49,7 +65,12 @@ def test_news_publish_service_forces_permalink_and_search_description(tmp_path) 
     service.publish(
         title="추경호 46.1% 김부겸 41.9% 접전의 배경은?",
         selected_topic="대구 여론조사 접전",
-        article_html="<article><h1>제목</h1><p>현장 반응과 정치권 해석을 함께 정리했습니다.</p></article>",
+        article_html=_finalized(
+            "<article><h1>제목</h1><p>현장 반응과 정치권 해석을 함께 정리했습니다.</p></article>",
+            title="추경호 46.1% 김부겸 41.9% 접전의 배경은?",
+            topic="대구 여론조사 접전",
+            topic_group="politics",
+        ),
         labels=["정치", "여론조사", "AI활용"],
         topic_group="politics",
     )
@@ -83,11 +104,14 @@ def test_news_publish_service_removes_external_anchor_links(tmp_path) -> None:
     service.publish(
         title="CJ delivery schedule check",
         selected_topic="CJ delivery schedule",
-        article_html=(
+        article_html=_finalized(
             '<article><h1>CJ delivery schedule check</h1>'
             '<p><a href="https://external.example/news">external source</a></p>'
             '<p><a href="https://holyyomiai.blogspot.com/2026/05/related.html">related post</a></p>'
-            "</article>"
+            "</article>",
+            title="CJ delivery schedule check",
+            topic="CJ delivery schedule",
+            topic_group="general_life",
         ),
         labels=["news", "delivery"],
         topic_group="general_life",
@@ -110,13 +134,16 @@ def test_news_publish_service_preserves_official_source_links_for_consumer_posts
     service.publish(
         title="환불 지연 때 남길 증거 체크리스트",
         selected_topic="환불 지연 소비자 피해",
-        article_html=(
+        article_html=_finalized(
             '<article><h1>환불 지연 때 남길 증거 체크리스트</h1>'
             '<p>결제 내역과 접수 번호를 먼저 남겨야 합니다.</p>'
             '<section id="SOURCE_TRUST_BLOCK" class="yomi-source">'
             '<a href="https://www.kca.go.kr">한국소비자원</a>'
             '<a href="https://www.ftc.go.kr">공정거래위원회</a>'
-            "</section></article>"
+            "</section></article>",
+            title="환불 지연 때 남길 증거 체크리스트",
+            topic="환불 지연 소비자 피해",
+            topic_group="refund_consumer",
         ),
         labels=["환불", "소비자피해", "AI활용"],
         hashtags=["#환불", "#소비자피해", "#AI활용"],
@@ -142,7 +169,12 @@ def test_news_publish_service_inserts_cover_image_from_env(tmp_path, monkeypatch
     service.publish(
         title="UAE 바라카 원전 드론 공격 안전 확인",
         selected_topic="UAE 바라카 원전 드론 공격",
-        article_html="<article><h1>UAE 바라카 원전 드론 공격 안전 확인</h1><p>공식 확인과 영향 범위를 정리합니다.</p></article>",
+        article_html=_finalized(
+            "<article><h1>UAE 바라카 원전 드론 공격 안전 확인</h1><p>공식 확인과 영향 범위를 정리합니다.</p></article>",
+            title="UAE 바라카 원전 드론 공격 안전 확인",
+            topic="UAE 바라카 원전 드론 공격",
+            topic_group="platform_issue",
+        ),
         labels=["국제뉴스", "원전", "AI활용"],
         topic_group="platform_issue",
         image_alt_text="UAE 원전 안전 점검 이미지",

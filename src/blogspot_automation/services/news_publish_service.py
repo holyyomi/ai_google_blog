@@ -10,7 +10,6 @@ from typing import Any
 
 from blogspot_automation.config import Settings
 from blogspot_automation.publishing.client import BloggerClient
-from blogspot_automation.services.answer_engine_policy import ensure_answer_engine_optimized_html
 from blogspot_automation.services.indexnow_client import submit_urls as indexnow_submit_urls
 from blogspot_automation.services.cover_image_policy import cover_image_url_from_env, ensure_cover_image_html
 from blogspot_automation.services.final_html_audit_service import audit_final_html_quality
@@ -90,12 +89,12 @@ class NewsPublishService:
         # answer_engine tail 블록은 internal-links 섹션 앞에 삽입되므로 순서 안전.
         if internal_links:
             prepared_html = append_internal_links_block(prepared_html, links=internal_links)
-        prepared_html = ensure_answer_engine_optimized_html(
-            prepared_html,
-            title=title,
-            topic=selected_topic,
-            topic_group=topic_group,
-        )
+        # 단방향 계약(2026-07-08 구조 감사 로드맵 4): 본문 재렌더는 여기서 하지 않는다.
+        # 과거 이 지점의 ensure_answer_engine 2차 호출이 파이프라인 단계에서 확정한
+        # 본문(faq-item 정규화 등)을 다시 재렌더해 무효화했고, dry_run엔 없는 이
+        # 변형이 실발행에서만 최종 계약 크래시를 냈다(PR #29 사건). 이제 GEO 확정은
+        # 파이프라인(발행 전 단계)의 책임이고, 여기서는 아래 _validate_publish_contract가
+        # "검증만" 한다 — 확정 안 된 본문은 조용히 고쳐지는 대신 시끄럽게 거부된다.
         prepared_html = ensure_cover_image_html(
             prepared_html,
             image_url=cover_image_url_from_env(topic_group=topic_group),

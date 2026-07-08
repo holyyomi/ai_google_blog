@@ -3,8 +3,24 @@
 import re
 
 from blogspot_automation.config.settings import Settings
+from blogspot_automation.services.answer_engine_policy import (
+    ensure_answer_engine_optimized_html,
+)
 from blogspot_automation.services.news_publish_service import NewsPublishService
 from blogspot_automation.services.seo_policy import build_english_permalink_slug
+
+# 단방향 계약(2026-07-08 로드맵 4): publish는 검증만 하고 재렌더하지 않는다 —
+# GEO/레이아웃 확정은 호출자(파이프라인) 책임이므로 테스트도 상류에서 확정한다.
+_RAW_ARTICLE = "<article><h1>제목</h1><p>오늘 이슈의 배경과 영향 범위를 정리했습니다. 정의가 바뀌면 특보 기준과 대비 요령이 함께 달라질 수 있어 기준 변화를 먼저 확인하는 것이 좋다.</p></article>"
+
+
+def _finalized_article() -> str:
+    return ensure_answer_engine_optimized_html(
+        _RAW_ARTICLE,
+        title="장마 정의 개편, 기상학계가 다시 쓰는 기준",
+        topic="장마 정의 개편",
+        topic_group="today_issue",
+    )
 
 
 class CapturingBloggerClient:
@@ -72,7 +88,7 @@ def test_publish_appends_internal_links_inside_article(tmp_path) -> None:
     service.publish(
         title="장마 정의 개편, 기상학계가 다시 쓰는 기준",
         selected_topic="장마 정의 개편",
-        article_html="<article><h1>제목</h1><p>오늘 이슈의 배경과 영향 범위를 정리했습니다.</p></article>",
+        article_html=_finalized_article(),
         labels=["날씨", "AI활용"],
         topic_group="today_issue",
         internal_links=(
@@ -105,7 +121,7 @@ def test_publish_without_internal_links_keeps_existing_behavior(tmp_path) -> Non
     service.publish(
         title="장마 정의 개편, 기상학계가 다시 쓰는 기준",
         selected_topic="장마 정의 개편",
-        article_html="<article><h1>제목</h1><p>오늘 이슈의 배경과 영향 범위를 정리했습니다.</p></article>",
+        article_html=_finalized_article(),
         labels=["날씨", "AI활용"],
         topic_group="today_issue",
     )
