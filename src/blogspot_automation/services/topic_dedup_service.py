@@ -54,11 +54,63 @@ GENERIC_DEDUP_KEYWORDS = {
     "체크리스트",
 }
 
+# 회사/소재 쿨다운 (2026-07 운영 방침: 같은 회사·소재는 7일에 1회만 발행).
+# 서로 다른 뉴스가 같은 주체(네이버/구글/OpenAI 등)로 며칠 연속 발행되는
+# "주제 모양 중복"을 막는다. 제목·주제가 조금씩 달라 키워드 겹침 규칙을
+# 빠져나가더라도, 같은 주체면 쿨다운 기간 내 재발행을 차단한다.
+ENTITY_ALIASES: dict[str, tuple[str, ...]] = {
+    "naver": ("네이버", "naver", "클로바", "clova", "하이퍼클로바", "큐", "cue"),
+    "google": ("구글", "google", "제미나이", "gemini", "바드", "bard"),
+    "openai": ("오픈ai", "openai", "챗gpt", "chatgpt", "gpt", "소라", "sora"),
+    "anthropic": ("앤트로픽", "anthropic", "클로드", "claude"),
+    "microsoft": ("마이크로소프트", "microsoft", "코파일럿", "copilot", "빙", "bing"),
+    "meta": ("메타", "meta", "라마", "llama"),
+    "perplexity": ("퍼플렉시티", "perplexity"),
+    "mistral": ("미스트랄", "mistral"),
+    "kakao": ("카카오", "kakao", "카나나", "kanana"),
+    "apple": ("애플", "apple"),
+    "amazon": ("아마존", "amazon", "알렉사", "alexa"),
+    "xai": ("그록", "grok", "xai"),
+}
+# 짧거나 다른 단어에 섞여 오탐 위험이 큰 alias는 토큰 경계로만 매칭한다
+# (예: "메타"는 "메타버스"에, "gpt"는 "chatgpt"에 substring으로 걸리면 안 됨).
+_TOKEN_ONLY_ALIASES = {
+    "gpt",
+    "meta",
+    "메타",
+    "bard",
+    "바드",
+    "bing",
+    "빙",
+    "cue",
+    "큐",
+    "sora",
+    "소라",
+    "grok",
+    "그록",
+    "xai",
+    "ms",
+    "alexa",
+    "알렉사",
+    "llama",
+    "라마",
+}
+
 
 class TopicDedupService:
-    def __init__(self, *, state_dir: str | Path = "state", dedup_days: int = 7) -> None:
+    def __init__(
+        self,
+        *,
+        state_dir: str | Path = "state",
+        dedup_days: int = 7,
+        entity_cooldown_days: int | None = 7,
+    ) -> None:
         self.state_dir = Path(state_dir)
         self.dedup_days = max(0, dedup_days)
+        # 회사/소재 쿨다운 창. None이면 dedup_days를 따르고, 0이면 비활성.
+        self.entity_cooldown_days = (
+            self.dedup_days if entity_cooldown_days is None else max(0, entity_cooldown_days)
+        )
 
     def exclude_recent_duplicates(
         self,
@@ -108,11 +160,26 @@ class TopicDedupService:
         ]
         candidate_text = " ".join(candidate_texts).strip()
         candidate_keywords = self.extract_keywords(candidate_text)
+        candidate_entities = self.extract_entities(self._candidate_subject_text(candidate))
 
         for record in history_records:
             if not self.record_blocks_duplicate(record):
                 continue
-            if not self._is_within_dedup_window(record):
+
+            in_dedup_window = self._is_within_dedup_window(record)
+
+            # 회사/소재 쿨다운: 같은 주체(네이버/구글/OpenAI 등)를 쿨다운 창 안에
+            # 이미 발행했으면, 제목·주제가 달라도 재발행을 막는다.
+            if candidate_entities and self._is_within_window(
+                record, self.entity_cooldown_days
+            ):
+                history_entities = self.extract_entities(
+                    self._history_subject_text(record)
+                )
+                if candidate_entities & history_entities:
+                    return True
+
+            if not in_dedup_window:
                 continue
 
             history_texts = self._history_texts(record)
@@ -138,6 +205,59 @@ class TopicDedupService:
                 return True
 
         return False
+
+    def extract_entities(self, text: str) -> set[str]:
+        """텍스트에서 알려진 회사/소재 엔티티를 뽑는다.
+
+        오탐을 줄이려고 구별성 높은 브랜드명은 substring으로, 짧거나 다른
+        단어에 섞이기 쉬운 alias(_TOKEN_ONLY_ALIASES)는 토큰 경계로만 찾는다.
+        """
+        if not text:
+            return set()
+        lowered = text.lower()
+        cleaned = re.sub(r"[^0-9a-z가-힣\s]", " ", lowered)
+        cleaned = " ".join(cleaned.split())
+        if not cleaned:
+            return set()
+        tokens = set(cleaned.split())
+        found: set[str] = set()
+        for entity, aliases in ENTITY_ALIASES.items():
+            for alias in aliases:
+                normalized_alias = alias.lower()
+                if normalized_alias in _TOKEN_ONLY_ALIASES:
+                    matched = normalized_alias in tokens
+                elif " " in normalized_alias:
+                    matched = normalized_alias in cleaned
+                else:
+                    matched = normalized_alias in cleaned
+                if matched:
+                    found.add(entity)
+                    break
+        return found
+
+    def _candidate_subject_text(self, candidate: ScoredNewsCandidate) -> str:
+        """엔티티 판정용 텍스트 — 요약/근거는 빼고 '무엇에 관한 글인가'만 본다.
+
+        요약·근거에는 경쟁사 언급이 섞여 엔티티를 오검출할 수 있어 제외한다.
+        """
+        raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+        fields = (
+            candidate.candidate.topic,
+            raw.get("search_demand_topic"),
+            raw.get("original_topic"),
+            raw.get("transformed_topic"),
+            raw.get("title"),
+            raw.get("selected_title"),
+        )
+        return " ".join(str(value).strip() for value in fields if str(value or "").strip())
+
+    def _history_subject_text(self, record: dict[str, Any]) -> str:
+        fields = ("topic", "selected_topic", "search_demand_topic", "title", "selected_title")
+        return " ".join(
+            str(record.get(field, "")).strip()
+            for field in fields
+            if str(record.get(field, "") or "").strip()
+        )
 
     def normalize_text(self, text: str) -> str:
         lowered = text.lower()
@@ -237,7 +357,10 @@ class TopicDedupService:
         return len(shorter_compact) >= 6 and shorter_compact in longer_compact
 
     def _is_within_dedup_window(self, record: dict[str, Any]) -> bool:
-        if self.dedup_days <= 0:
+        return self._is_within_window(record, self.dedup_days)
+
+    def _is_within_window(self, record: dict[str, Any], window_days: int) -> bool:
+        if window_days <= 0:
             return False
         date_candidates = [
             record.get("date"),
@@ -255,7 +378,7 @@ class TopicDedupService:
             # 날짜를 알 수 없으면 보수적으로 비교 대상에 포함
             return True
 
-        cutoff = date.today() - timedelta(days=self.dedup_days)
+        cutoff = date.today() - timedelta(days=window_days)
         return parsed_date >= cutoff
 
     def _parse_date(self, value: Any) -> date | None:
