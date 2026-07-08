@@ -172,22 +172,44 @@ jobs:
           if-no-files-found: warn
 
       # Keep publish history so recent-topic dedup works across scheduled runs.
-      - name: Persist Publish History
-        if: ${{ always() && github.ref_name == 'main' }}
+      # 발행 이력 원장은 "어느 브랜치의 런이든" main 원장에 병합-커밋한다 (감사 로드맵 3).
+      # 과거: main 런에서만 커밋(push HEAD:main이 브랜치 전체를 밀어버려 조건이 필요했음)
+      # → feature 브랜치 리허설 발행이 원장에 안 남아 dedup·엔티티 쿨다운이 장님이 됐고
+      # 같은 주제가 라이브에 연속으로 쌓였다(네이버 AI 3연속 사건 원인 b).
+      # 지금: origin/main으로 체크아웃한 뒤 merge 스크립트(합집합·시간순)로 원장 "파일만"
+      # 합류 → 브랜치 코드는 절대 main에 밀리지 않는다. 충돌은 rebase 대신 재병합 루프로
+      # 해소(합집합이라 구조적으로 무충돌).
+      - name: Persist Publish History (any branch -> main ledger)
+        if: ${{ always() }}
         run: |
-          CHANGED=""
-          for f in data/publish_history.json; do
-            if [ -f "$f" ] && ! git diff --quiet -- "$f" 2>/dev/null; then CHANGED="yes"; fi
-            if [ -f "$f" ] && ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then CHANGED="yes"; fi
-          done
-          if [ -n "$CHANGED" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git pull --rebase --autostash origin main
-            git add data/publish_history.json
-            git commit -m "chore: update publish history [skip ci]" || echo "nothing to commit"
-            git push origin HEAD:main
-          else
-            echo "Publish history unchanged, skipping commit"
+          if [ ! -f data/publish_history.json ]; then
+            echo "no ledger produced; skipping"
+            exit 0
           fi
+          cp data/publish_history.json /tmp/run_ledger.json
+          # 스크립트를 먼저 대피 — origin/main에 아직 없는 첫 배포 런에서도 동작해야 함
+          cp scripts/merge_publish_history.py /tmp/merge_publish_history.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          for attempt in 1 2 3; do
+            git checkout -f -B ledger-merge origin/main
+            python /tmp/merge_publish_history.py \
+              --base data/publish_history.json \
+              --incoming /tmp/run_ledger.json \
+              --out data/publish_history.json
+            if git diff --quiet -- data/publish_history.json; then
+              echo "ledger unchanged; skipping commit"
+              exit 0
+            fi
+            git add data/publish_history.json
+            git commit -m "chore: merge publish history from ${GITHUB_REF_NAME} run [skip ci]"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "push race detected; re-merging against fresh origin/main (attempt ${attempt})"
+            git fetch origin main
+          done
+          echo "failed to persist ledger after 3 attempts" >&2
+          exit 1
 
