@@ -1276,6 +1276,12 @@ def _classify_ai_event(text: str) -> str:
         return "regulation"
     if any(t in haystack for t in ("광고", "매출", "실적", "투자", "인수", "합병", "제휴", "협약", "상장", "수익화", "구조조정")):
         return "business"
+    # 안전·거버넌스·윤리 체계는 "출시/발표"가 붙어도 사용자 설정이 없다 —
+    # feature(설정 how-to)로 보내면 없는 설정을 지어낸다. 해설(announcement)로.
+    # (실측: 같은 "네이버 AI 안전관리 2.0" 뉴스가 소스에 따라 "발표"→소식,
+    #  "출시"→설정으로 갈리던 불일치를 여기서 통일한다.)
+    if any(t in haystack for t in ("안전성", "안전관리", "안전 체계", "거버넌스", "윤리", "책임있는", "책임 있는")):
+        return "announcement"
     if "검색" in haystack:
         return "search"
     if any(t in haystack for t in ("기능", "도입", "탑재", "지원", "업데이트", "출시", "개방", "적용", "추가")):

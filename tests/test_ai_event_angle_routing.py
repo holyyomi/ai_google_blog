@@ -109,6 +109,21 @@ def test_ai_product_name_without_literal_ai_still_enters_ai_branch() -> None:
     assert classify_topic_group("구글, 제미나이 3 모델 공개…성능 대폭 향상") == "ai_model"
 
 
+def test_safety_governance_news_gets_explainer_not_setting() -> None:
+    """실측 회귀: AI 안전·거버넌스 체계 뉴스는 '출시'가 붙어도 설정 프레임 금지.
+
+    (같은 '네이버 AI 안전관리 2.0' 뉴스가 '발표'→소식, '출시'→설정으로 갈리던
+    불일치. 안전 체계는 사용자 설정이 없으므로 해설 프레임으로 통일한다.)
+    """
+    for headline in (
+        "네이버, AI 안전관리 'ASF 2.0' 출시…서비스 전 과정 관리",
+        "AI탭 만든 네이버, AI 안전성 체계 2.0 발표",
+        "카카오, 책임있는 AI 거버넌스 체계 도입",
+    ):
+        assert _classify_ai_event(headline) == "announcement", headline
+        assert "설정" not in build_search_angle(headline)["search_demand_topic"], headline
+
+
 def test_non_ai_news_unaffected_by_ai_routing() -> None:
     """비-AI 뉴스는 기존 분류 경로 그대로."""
     assert classify_topic_group("카카오톡 지원 종료, 구형폰 사용자 확인") == "platform_issue"
