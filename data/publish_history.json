@@ -16023,5 +16023,109 @@
       "53419cecea2c",
       "40a8dc797357"
     ]
+  },
+  {
+    "run_at": "2026-07-09T03:47:55+00:00",
+    "date": "2026-07-09",
+    "title": "구글 제미나이 3.5 코딩, 반복 업무 자동화로 30분→10분 단축법",
+    "selected_topic": "구글 제미나이 3.5 AI 코딩 소식",
+    "search_demand_topic": "구글 제미나이 3.5 AI 코딩 소식",
+    "topic_group": "ai_work",
+    "content_type": "ai_work_tip",
+    "url": "https://holyyomiai.blogspot.com/2026/07/ai-work-automation-productivity-f34f.html",
+    "post_id": "5041812418687034088",
+    "internal_link_targets": [
+      {
+        "anchor_text": "무료 AI 도구 업무 도입 전 반드시 체크할 5가지 한계",
+        "url": "https://holyyomiai.blogspot.com/2026/07/ai-work-automation-productivity-update.html"
+      }
+    ],
+    "source_type": "google_news_rss",
+    "evergreen_axis": "",
+    "fallback_reason": "",
+    "published": true,
+    "dry_run": false,
+    "quality_passed": true,
+    "reader_value_score": 90,
+    "article_focus_score": 90,
+    "ai_recommender_score": 100,
+    "shareability_score": 84,
+    "policy_specificity_score": 0,
+    "recommendation_policy_passed": true,
+    "recommendation_policy_signals": [
+      "table",
+      "faq",
+      "checklist",
+      "example",
+      "official_check",
+      "updated_date"
+    ],
+    "publish_preview_score": 100,
+    "publish_preview_status": "pass",
+    "quality_blocking_issues": [],
+    "quality_warnings": [
+      "issue_specificity_below_7:6",
+      "original_issue_preservation_below_7:6"
+    ],
+    "auto_publish_allowed": true,
+    "auto_publish_blocking_reasons": [],
+    "post_publish_audit_passed": false,
+    "post_publish_audit_issues": [
+      "og_description_not_post_specific",
+      "yomi_clean_layout_lede_count:0",
+      "yomi_clean_layout_lacks_adaptive_modules:0"
+    ],
+    "topic_engine_score": 53,
+    "topic_candidate_grade": "C",
+    "content_candidate_grade": "A",
+    "final_editorial_score": 83,
+    "golden_pattern_id": "ai_work_time_savings",
+    "golden_pattern_confidence": 100,
+    "golden_slot_fill_rate": 1.0,
+    "why_topic_selected": "topic_engine_score=53 + golden_matched=True + grade=C",
+    "why_topic_held": "",
+    "learning_signals": [
+      "post_publish_audit_failed",
+      "post_publish_issue:og_description_not_post_specific",
+      "post_publish_issue:yomi_clean_layout_lede_count:0",
+      "post_publish_issue:yomi_clean_layout_lacks_adaptive_modules:0"
+    ],
+    "hashtags": [
+      "#AI활용",
+      "#업무자동화",
+      "#생산성",
+      "#AI도구"
+    ],
+    "artifact_dir": "runs/news_20260709_034753",
+    "status": "published",
+    "retry_attempt": 0,
+    "max_publish_attempts": "",
+    "content_fingerprint": [
+      "54d4c8e07925",
+      "484a364d630b",
+      "d36d5907b6e3",
+      "f1bfd06c20f9",
+      "0ac2687f04d6",
+      "423c58197efe",
+      "f17ced2395c0",
+      "0dfe36f2a517",
+      "b2e7ce7a541a",
+      "53913bb9a0a8",
+      "f07698caa954",
+      "ce1894462a30",
+      "fece8f1abe66",
+      "9ea520976206",
+      "56377fcc1edc",
+      "614935118981",
+      "786ac5de0f55",
+      "1ed16c0af944",
+      "5eff75937133",
+      "917bf23acee1",
+      "1e69fbd151d0",
+      "0e1280b745f3",
+      "563eb7840845",
+      "53419cecea2c",
+      "40a8dc797357"
+    ]
   }
 ]
