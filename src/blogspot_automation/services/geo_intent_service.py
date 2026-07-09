@@ -341,11 +341,23 @@ class GeoIntentService:
             if not parts:
                 parts.append(hook[:80].strip() + ".")
 
-        # 독자 영향 (real_criterion 첫 줄)
+        # 독자 영향 (real_criterion 첫 줄) — 문장 경계 없이 100자에서 그냥 자르면
+        # 중간에 끊긴 단어가 다음 part와 공백 하나로 붙어 "...생성 3 제미나이 3.5..."
+        # 같은 글리치가 난다(2026-07-09 라이브 리허설 실측). hook과 같은 방식으로
+        # 문장 경계에서만 자르고, 경계가 없고 너무 길면 이 part는 통째로 건너뛴다.
         if real:
             first_line = real.split("\n")[0].strip()
             if first_line and first_line not in parts:
-                parts.append(first_line[:100])
+                sentence = ""
+                for sep in ("다. ", "요. ", "니다. ", "습니다. "):
+                    idx = first_line.find(sep)
+                    if idx > 10:
+                        sentence = first_line[: idx + len(sep)].strip()
+                        break
+                if not sentence and len(first_line) <= 100:
+                    sentence = first_line
+                if sentence and sentence not in parts:
+                    parts.append(sentence)
 
         # 판단 기준 (yomi 첫 문장)
         if yomi:
