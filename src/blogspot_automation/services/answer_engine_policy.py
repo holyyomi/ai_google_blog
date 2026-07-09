@@ -1069,7 +1069,10 @@ def _sentences(text: str, *, max_items: int = 4) -> list[str]:
     cleaned = " ".join((text or "").split())
     if not cleaned:
         return []
-    pattern = re.compile(r".+?(?:다\.|요\.|니다\.|습니다\.|[.!?。])")
+    # 숫자 사이의 "."(예: "제미나이 3.5")를 문장 끝으로 오인하면 "...3."/"5 소식에서..."
+    # 처럼 단어 중간에서 잘려 다음 문장과 이어붙는 글리치가 난다(2026-07-09 라이브
+    # 리허설 실측) — 소수점은 문장 구분자에서 제외.
+    pattern = re.compile(r".+?(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)")
     sentences: list[str] = []
     for match in pattern.finditer(cleaned):
         sentence = match.group(0).strip()
@@ -1086,7 +1089,7 @@ def _first_sentence(text: str, *, max_len: int) -> str:
     text = " ".join((text or "").split())
     if not text:
         return ""
-    for match in re.finditer(r"(?:다\.|요\.|니다\.|습니다\.|[.!?。])", text):
+    for match in re.finditer(r"(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)", text):
         end = match.end()
         if 20 <= end <= max_len:
             return text[:end]

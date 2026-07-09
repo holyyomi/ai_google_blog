@@ -1,9 +1,30 @@
 from __future__ import annotations
 
 from blogspot_automation.services.answer_engine_policy import (
+    _first_sentence,
+    _sentences,
     answer_engine_coverage,
     ensure_answer_engine_optimized_html,
 )
+
+
+def test_sentences_does_not_split_on_decimal_point() -> None:
+    # 2026-07-09 라이브 리허설 실측: "제미나이 3.5" 같은 소수점을 문장 끝으로 오인해
+    # "...3."/"5 소식에서..."로 잘리면 다음 sentence로 이어져 단어 중간이 끊긴다.
+    text = (
+        "작업 중 코드 생성을 AI에 맡겼다가 되돌리는 경우가 많습니다. "
+        "구글 제미나이 3.5 소식에서 지금 확인해야 할 것은 세 가지입니다."
+    )
+    sentences = _sentences(text, max_items=4)
+    assert any(s.startswith("구글 제미나이 3.5") for s in sentences)
+    assert not any(s.strip().endswith("3.") for s in sentences)
+
+
+def test_first_sentence_does_not_split_on_decimal_point() -> None:
+    text = "구글 제미나이 3.5 소식에서 지금 확인해야 할 것은 세 가지입니다."
+    result = _first_sentence(text, max_len=100)
+    assert result.endswith("세 가지입니다.")
+    assert not result.endswith("3.")
 
 
 def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
