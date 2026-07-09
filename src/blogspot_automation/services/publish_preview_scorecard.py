@@ -39,7 +39,6 @@ def build_publish_preview_scorecard(quality_gate: dict[str, Any]) -> dict[str, A
                     "ai_overview_target_answer_present",
                     "issue_context_present",
                     "intent_answer_present",
-                    "people_also_ask_present",
                     "source_trust_block_present",
                     "blogposting_json_ld_present",
                 )

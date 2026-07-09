@@ -146,12 +146,9 @@ def render_full_post(
         ht = " ".join(normalize_hashtags(hashtags))
         hashtags_html = f'<p class="source-note">{escape(ht)}</p>'
 
-    source_note = (
-        f'<p class="source-note">'
-        f'이 글은 {today} 기준으로 작성됐습니다. '
-        f'정책·서비스·가격 등은 변경될 수 있으니 최신 공식 안내를 확인하세요.'
-        f'</p>'
-    )
+    # 하단 기준일·면책 문구는 발행 시 SOURCE_TRUST_BLOCK(yomi-source)이 주제별로
+    # 더 자세히("...기준", "정책에 따라 바뀔 수 있으니 공식 페이지 확인") 넣어주므로
+    # 여기서 별도 source-note를 붙이면 같은 안내가 두 번 반복된다 → 붙이지 않는다.
 
     faq_ld_script = ""
     if schema_faq:
@@ -195,7 +192,7 @@ def render_full_post(
 {_CSS}
 {article_ld_script}
 {faq_ld_script}
-<div class="yomi-post">
+<article class="yomi-clean-post">
   <div class="post-meta">
     <span class="meta-tag meta-category">{category_esc}</span>
     <span class="meta-tag meta-type">유형: {escape(type_label)}</span>
@@ -207,8 +204,7 @@ def render_full_post(
   </div>
 {labels_html}
 {hashtags_html}
-{source_note}
-</div>""")
+</article>""")
 
 
 _TYPE_LABEL: dict[str, str] = {

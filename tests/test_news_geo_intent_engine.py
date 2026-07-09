@@ -357,6 +357,27 @@ class TestSgeAiOverviewBlock(unittest.TestCase):
             f"Tax overview should mention verification: {text[:100]}"
         )
 
+    def test_overview_does_not_glue_truncated_word_to_next_sentence(self) -> None:
+        # 2026-07-09 라이브 리허설 실측 사고: real_criterion 첫 줄이 문장 구분자 없이
+        # 100자에서 잘려 다음 part와 공백 하나로 붙으면 "...생성 3 제미나이 3.5..."처럼
+        # 단어 중간이 끊긴 채 이어진다. 문장 경계에서만 잘라야 한다.
+        from blogspot_automation.services.geo_intent_service import GeoIntentService
+        gi = GeoIntentService()
+        long_step_line = (
+            "1단계: Google AI Studio → 'Gemini 3.5 Flash' 모델 선택 → "
+            "'Agentic Execution' 토글 켜기 (약 5분 소요, 이후 반복 코드 생성 30분 → 8분)"
+        )
+        slots = {
+            "hook_opening": "매주 같은 리팩토링 작업에 시간을 쓰는 개발자가 많다.",
+            "real_criterion": long_step_line,
+            "yomi_judgment": "결론적으로 반복 업무부터 위임하는 것이 현실적이다.",
+        }
+        text = gi.generate_ai_overview_target_answer(
+            topic="제미나이 3.5 코딩", content_type="ai_work_tip", slots=slots,
+        )
+        self.assertNotIn("생성 3 결론", text)
+        self.assertNotIn(long_step_line[95:100], text)
+
     def test_policy_overview_uses_official_notice_not_hometax(self) -> None:
         from blogspot_automation.services.geo_intent_service import GeoIntentService
         from blogspot_automation.services.slot_filler_service import SlotFillerService

@@ -95,17 +95,6 @@ def ensure_answer_engine_optimized_html(
         content_type=resolved_type,
         hook=str(slots.get("hook_opening") or ""),
     )
-    people_also_ask = service.generate_people_also_ask(
-        questions=questions,
-        topic=topic_text,
-        content_type=resolved_type,
-    )
-    people_also_ask = _dedupe_people_also_ask(
-        people_also_ask,
-        intent_answers,
-        topic=topic_text,
-        content_type=resolved_type,
-    )
     confirmed_map = service.generate_confirmed_vs_check_needed(
         content_type=resolved_type,
         topic_group=topic_group,
@@ -178,8 +167,11 @@ def ensure_answer_engine_optimized_html(
                 _distinct.extend(_fallback_intent_answers(_extra_questions, topic_text)[: 3 - len(_distinct)])
             _intent_items = _distinct
         head_blocks.append(_intent_answer_block(_intent_items, label=_varied_label("intent", _seed)))
-    if 'id="PEOPLE_ALSO_ASK_BLOCK"' not in content and not _author_rich_today:
-        head_blocks.append(_people_also_ask_block(people_also_ask))
+    # PEOPLE_ALSO_ASK_BLOCK("이어서 찾아보면 좋은 것")는 더 이상 삽입하지 않는다
+    # (2026-07-09 사용자 결정) — 답 없는 검색어 나열이라 읽는 값이 없고, 순수 SEO용
+    # 필러였다. answer_engine_coverage()는 과거 발행물 감지를 위해 필드는 유지하되,
+    # 아래 게이트들에서 필수 요건으로 취급하지 않도록 news_quality_gate.py /
+    # publish_preview_scorecard.py / post_publish_audit_service.py도 함께 수정함.
 
     if head_blocks:
         head_bundle = "\n".join(head_blocks)
@@ -1077,7 +1069,10 @@ def _sentences(text: str, *, max_items: int = 4) -> list[str]:
     cleaned = " ".join((text or "").split())
     if not cleaned:
         return []
-    pattern = re.compile(r".+?(?:다\.|요\.|니다\.|습니다\.|[.!?。])")
+    # 숫자 사이의 "."(예: "제미나이 3.5")를 문장 끝으로 오인하면 "...3."/"5 소식에서..."
+    # 처럼 단어 중간에서 잘려 다음 문장과 이어붙는 글리치가 난다(2026-07-09 라이브
+    # 리허설 실측) — 소수점은 문장 구분자에서 제외.
+    pattern = re.compile(r".+?(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)")
     sentences: list[str] = []
     for match in pattern.finditer(cleaned):
         sentence = match.group(0).strip()
@@ -1094,7 +1089,7 @@ def _first_sentence(text: str, *, max_len: int) -> str:
     text = " ".join((text or "").split())
     if not text:
         return ""
-    for match in re.finditer(r"(?:다\.|요\.|니다\.|습니다\.|[.!?。])", text):
+    for match in re.finditer(r"(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)", text):
         end = match.end()
         if 20 <= end <= max_len:
             return text[:end]

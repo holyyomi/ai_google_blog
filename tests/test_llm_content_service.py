@@ -219,6 +219,97 @@ def test_call_with_fallback_uses_openai_when_both_free_models_fail(monkeypatch) 
     ]
 
 
+_VALID_CONTENT = (
+    "<p>구글 제미나이로 반복 작업을 줄이는 방법을 정리한다. 결론부터 말하면 검토 기준이 명확한 작업부터 맡기는 것이 가장 안정적이다.</p>"
+    "<h2>무엇부터 시작해야 하나요?</h2><p>처음에는 범위를 좁히는 것이 중요하다. 매일 반복되는 정리 작업이 첫 후보가 된다.</p>"
+    '<div class="quick-decision-table"><table><thead><tr><th>기준</th><th>작업</th></tr></thead>'
+    "<tbody><tr><td>반복 빈도</td><td>정리·변환</td></tr></tbody></table></div>"
+    '<div class="faq-section"><article class="faq-item"><h3 class="faq-q">무료로도 되나요?</h3>'
+    '<p class="faq-a">가능한 범위가 있으나 요금제 조건은 공식 페이지 확인이 필요하다.</p></article></div>'
+    '<section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">'
+    '<div class="confirmed-section"><h3>확인된 것</h3><ul><li>검토 기준이 핵심이라는 점</li></ul></div>'
+    '<div class="check-needed-section"><h3>확인할 것</h3><ul><li>사용 도구의 요금제 조건</li></ul></div></section>'
+)
+
+
+def test_validate_generated_content_accepts_clean_article() -> None:
+    # 정상 출력은 통과해야 무료 우선 정책(비용 0)이 유지된다.
+    module._validate_generated_content(_VALID_CONTENT)  # no raise
+
+
+def test_validate_generated_content_rejects_common_free_model_defects() -> None:
+    import pytest
+
+    # 1) 빈 응답
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content("")
+    # 2) 중간 절단 — 닫는 태그로 끝나지 않음 (2026-07-08 라이브 사고 유형)
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content("<p>중간에 잘린 문장인데 태그가 안 닫히고 여기서 제미나이 3")
+    # 3) 구조 태그 불균형 — 조립기가 못 살려 스크램블되는 유형
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content("<div><p>닫히지 않은 div가 있는 본문이다.</p>")
+    # 4) 영어 설명 문장 혼입 (어제 영어 도입부 유형)
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content(
+            "<p>Developer communities reported multiple production rollbacks after adoption last year.</p>"
+        )
+    # 5) 문장 반복 — 반복 루프 (도입부 문장이 뒤에서 재등장)
+    dup = "제미나이로 반복 작업을 줄이는 방법을 처음부터 끝까지 정리한다."
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content(f"<p>{dup}</p><h2>소제목</h2><p>{dup}</p>")
+    # 6) FAQ 답 미완성/빈 답
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content(
+            '<div class="faq-section"><article class="faq-item">'
+            '<h3 class="faq-q">질문?</h3><p class="faq-a"></p></article></div>'
+        )
+
+
+def test_broken_free_output_falls_back_to_paid(monkeypatch) -> None:
+    # 무료가 '중간 절단' 응답을 주면 validator가 걸러 유료로 폴백해야 한다.
+    calls: list[str] = []
+    truncated = "<p>" + ("잘린 본문 " * 40)  # 닫는 태그 없이 끝남 → validator 실패
+
+    class FakeResponse:
+        def __init__(self, content: str) -> None:
+            self._content = content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"choices": [{"message": {"content": self._content}}]}).encode("utf-8")
+
+    def fake_urlopen(req: urllib.request.Request, timeout: int):
+        del timeout
+        calls.append(req.full_url)
+        if "openrouter.ai" in req.full_url:
+            return FakeResponse(truncated)
+        return FakeResponse(_VALID_CONTENT)
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda *_: None)
+
+    result = LlmContentService().call_with_fallback(
+        "Write a post",
+        system_prompt=None,
+        min_chars=200,
+        validator=module._validate_generated_content,
+    )
+
+    assert result == _VALID_CONTENT
+    # 무료 1차·2차가 validator에 걸려(각 1회, 재시도 아님) 유료까지 내려감
+    assert calls[-1] == "https://api.openai.com/v1/chat/completions"
+    assert any("openrouter.ai" in c for c in calls)
+
+
 def test_call_with_fallback_stops_at_free_primary_when_it_succeeds(monkeypatch) -> None:
     calls: list[str] = []
 

@@ -1,9 +1,30 @@
 from __future__ import annotations
 
 from blogspot_automation.services.answer_engine_policy import (
+    _first_sentence,
+    _sentences,
     answer_engine_coverage,
     ensure_answer_engine_optimized_html,
 )
+
+
+def test_sentences_does_not_split_on_decimal_point() -> None:
+    # 2026-07-09 라이브 리허설 실측: "제미나이 3.5" 같은 소수점을 문장 끝으로 오인해
+    # "...3."/"5 소식에서..."로 잘리면 다음 sentence로 이어져 단어 중간이 끊긴다.
+    text = (
+        "작업 중 코드 생성을 AI에 맡겼다가 되돌리는 경우가 많습니다. "
+        "구글 제미나이 3.5 소식에서 지금 확인해야 할 것은 세 가지입니다."
+    )
+    sentences = _sentences(text, max_items=4)
+    assert any(s.startswith("구글 제미나이 3.5") for s in sentences)
+    assert not any(s.strip().endswith("3.") for s in sentences)
+
+
+def test_first_sentence_does_not_split_on_decimal_point() -> None:
+    text = "구글 제미나이 3.5 소식에서 지금 확인해야 할 것은 세 가지입니다."
+    result = _first_sentence(text, max_len=100)
+    assert result.endswith("세 가지입니다.")
+    assert not result.endswith("3.")
 
 
 def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
@@ -37,8 +58,9 @@ def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
     assert coverage["issue_context_present"]
     assert coverage["intent_answer_present"]
     assert coverage["intent_qa_count"] >= 3
-    assert coverage["people_also_ask_present"]
-    assert coverage["people_also_ask_count"] >= 5
+    # PEOPLE_ALSO_ASK_BLOCK("이어서 찾아보면 좋은 것")는 2026-07-09부터 생성하지 않는다
+    # — 답 없는 검색어 나열이라 읽는 값이 없는 순수 SEO 필러로 판단해 제거.
+    assert not coverage["people_also_ask_present"]
     assert coverage["confirmed_vs_check_needed_present"]
     assert coverage["source_trust_block_present"]
     assert coverage["ai_citation_summary_present"]
@@ -46,8 +68,6 @@ def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
     assert coverage["faqpage_json_ld_present"]
     assert coverage["blogposting_json_ld_present"]
     assert 'class="yomi-lede"' in result
-    assert 'class="yomi-paa-compact"' in result
-    assert 'class="paa-item"' in result
     # AI가 쓴 티 나는 기계적 라벨은 더 이상 노출되지 않아야 한다.
     assert "관련 검색어" not in result
     assert "검색용 빠른 정리" not in result
@@ -55,6 +75,7 @@ def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
     assert "추가로 확인할 검색 질문" not in result
     assert 'class="ai-overview-box"' not in result
     assert 'class="paa-block"' not in result
+    assert 'class="yomi-paa-compact"' not in result
 
 
 def test_ensure_answer_engine_optimized_html_is_idempotent_for_blocks() -> None:
@@ -79,7 +100,6 @@ def test_ensure_answer_engine_optimized_html_is_idempotent_for_blocks() -> None:
         'id="AI_OVERVIEW_TARGET_ANSWER"',
         'id="ISSUE_CONTEXT_BLOCK"',
         'id="INTENT_ANSWER_BLOCK"',
-        'id="PEOPLE_ALSO_ASK_BLOCK"',
         'id="CONFIRMED_VS_CHECK_NEEDED_BLOCK"',
         'id="SOURCE_TRUST_BLOCK"',
         'id="AI_CITATION_SUMMARY"',
@@ -113,39 +133,6 @@ def test_ensure_answer_engine_optimized_html_reuses_clean_lede_and_faq() -> None
     assert result.count('id="AI_OVERVIEW_TARGET_ANSWER"') == 1
     assert result.count('id="INTENT_ANSWER_BLOCK"') == 1
     assert result.count('<section class="yomi-engine-support"') <= 1
-
-
-def test_people_also_ask_does_not_repeat_answered_question_by_minor_ending() -> None:
-    html = """
-    <article>
-      <h1>무료배송인데 결제금액이 커질 때 확인할 것</h1>
-      <section class="yomi-faq">
-        <article class="intent-qa-item">
-          <h3>배달비 무료 조건은 어떻게 확인하나?</h3>
-          <p>앱 결제 화면에서 최소주문금액과 무료배달 조건을 확인합니다.</p>
-        </article>
-      </section>
-    </article>
-    """
-
-    result = ensure_answer_engine_optimized_html(
-        html,
-        title="무료배송인데 결제금액이 커질 때 확인할 것",
-        topic="무료배송인데 결제금액이 커질 때 확인할 것",
-        content_type="money_checklist",
-        topic_group="delivery_money",
-        reader_questions=[
-            "배달비 무료 조건은 어떻게 확인하나요?",
-            "최소주문금액 미달이면 어떻게 되나요?",
-            "앱별 결제금액 차이는 어떻게 비교하나요?",
-        ],
-    )
-
-    paa_start = result.find('id="PEOPLE_ALSO_ASK_BLOCK"')
-    assert paa_start >= 0
-    paa_html = result[paa_start:]
-    assert "배달비 무료 조건은 어떻게 확인하나요?" not in paa_html
-    assert paa_html.count('class="paa-item"') >= 5
 
 
 def test_visible_question_blocks_are_consolidated_to_intent_answers() -> None:
