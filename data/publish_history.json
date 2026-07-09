@@ -16127,5 +16127,113 @@
       "53419cecea2c",
       "40a8dc797357"
     ]
+  },
+  {
+    "run_at": "2026-07-09T23:45:21+00:00",
+    "date": "2026-07-09",
+    "title": "네이버 AI탭으로 반복 업무 30분→10분 단축하기",
+    "selected_topic": "AI탭 만든 네이버 AI 소식",
+    "search_demand_topic": "AI탭 만든 네이버 AI 소식",
+    "topic_group": "ai_work",
+    "content_type": "ai_work_tip",
+    "url": "https://holyyomiai.blogspot.com/2026/07/ai-work-automation-productivity-c6ee.html",
+    "post_id": "3227767980532873006",
+    "internal_link_targets": [
+      {
+        "anchor_text": "무료 AI 도구 업무 도입 전 반드시 체크할 5가지 한계",
+        "url": "https://holyyomiai.blogspot.com/2026/07/ai-work-automation-productivity-update.html"
+      }
+    ],
+    "source_type": "google_news_rss",
+    "evergreen_axis": "",
+    "fallback_reason": "",
+    "published": true,
+    "dry_run": false,
+    "quality_passed": true,
+    "reader_value_score": 90,
+    "article_focus_score": 90,
+    "ai_recommender_score": 100,
+    "shareability_score": 98,
+    "policy_specificity_score": 0,
+    "recommendation_policy_passed": true,
+    "recommendation_policy_signals": [
+      "table",
+      "faq",
+      "checklist",
+      "example",
+      "official_check",
+      "risk_or_mistake",
+      "updated_date"
+    ],
+    "publish_preview_score": 100,
+    "publish_preview_status": "pass",
+    "quality_blocking_issues": [],
+    "quality_warnings": [
+      "issue_specificity_below_7:6"
+    ],
+    "auto_publish_allowed": true,
+    "auto_publish_blocking_reasons": [],
+    "post_publish_audit_passed": false,
+    "post_publish_audit_issues": [
+      "og_description_not_post_specific",
+      "yomi_clean_layout_lede_count:0",
+      "yomi_clean_layout_lacks_adaptive_modules:0"
+    ],
+    "topic_engine_score": 51,
+    "topic_candidate_grade": "C",
+    "content_candidate_grade": "A",
+    "final_editorial_score": 83,
+    "golden_pattern_id": "ai_work_time_savings",
+    "golden_pattern_confidence": 100,
+    "golden_slot_fill_rate": 1.0,
+    "why_topic_selected": "topic_engine_score=51 + golden_matched=True + grade=C",
+    "why_topic_held": "",
+    "learning_signals": [
+      "post_publish_audit_failed",
+      "post_publish_issue:og_description_not_post_specific",
+      "post_publish_issue:yomi_clean_layout_lede_count:0",
+      "post_publish_issue:yomi_clean_layout_lacks_adaptive_modules:0"
+    ],
+    "hashtags": [
+      "#AI활용",
+      "#업무자동화",
+      "#생산성",
+      "#AI도구"
+    ],
+    "artifact_dir": "runs/news_20260709_234519",
+    "status": "published",
+    "retry_attempt": 0,
+    "max_publish_attempts": "",
+    "content_fingerprint": [
+      "6ada75458fd8",
+      "8e014812797d",
+      "2184a77bf891",
+      "f1bfd06c20f9",
+      "ed0c6041d8e7",
+      "72048d7dd38b",
+      "483a851a1fbd",
+      "636d7e3dba07",
+      "23f7a129a580",
+      "8c086a75cd5d",
+      "b75364f686dc",
+      "93f2cb882d14",
+      "f74afb9b1245",
+      "80c5d6421280",
+      "e61200cc1d4f",
+      "11c268412aaf",
+      "3c59a9a5d787",
+      "ec1e8a1efcff",
+      "93d6f242a235",
+      "7bd2f78e6dc0",
+      "75e4f3c11709",
+      "437228e4804b",
+      "8b62f91cef7a",
+      "6e059903d3fe",
+      "009704170740",
+      "0e1280b745f3",
+      "563eb7840845",
+      "53419cecea2c",
+      "40a8dc797357"
+    ]
   }
 ]
