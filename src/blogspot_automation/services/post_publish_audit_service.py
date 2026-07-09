@@ -117,8 +117,6 @@ def audit_post_html(
         bool(coverage.get("ai_overview_target_answer_present"))
         and bool(coverage.get("intent_answer_present"))
         and int(coverage.get("intent_qa_count") or 0) >= 3
-        and bool(coverage.get("people_also_ask_present"))
-        and int(coverage.get("people_also_ask_count") or 0) >= 5
         and bool(coverage.get("confirmed_vs_check_needed_present"))
         and bool(coverage.get("source_trust_block_present"))
         and bool(coverage.get("faqpage_json_ld_present"))

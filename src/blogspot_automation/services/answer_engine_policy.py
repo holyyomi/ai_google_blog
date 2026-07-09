@@ -95,17 +95,6 @@ def ensure_answer_engine_optimized_html(
         content_type=resolved_type,
         hook=str(slots.get("hook_opening") or ""),
     )
-    people_also_ask = service.generate_people_also_ask(
-        questions=questions,
-        topic=topic_text,
-        content_type=resolved_type,
-    )
-    people_also_ask = _dedupe_people_also_ask(
-        people_also_ask,
-        intent_answers,
-        topic=topic_text,
-        content_type=resolved_type,
-    )
     confirmed_map = service.generate_confirmed_vs_check_needed(
         content_type=resolved_type,
         topic_group=topic_group,
@@ -178,8 +167,11 @@ def ensure_answer_engine_optimized_html(
                 _distinct.extend(_fallback_intent_answers(_extra_questions, topic_text)[: 3 - len(_distinct)])
             _intent_items = _distinct
         head_blocks.append(_intent_answer_block(_intent_items, label=_varied_label("intent", _seed)))
-    if 'id="PEOPLE_ALSO_ASK_BLOCK"' not in content and not _author_rich_today:
-        head_blocks.append(_people_also_ask_block(people_also_ask))
+    # PEOPLE_ALSO_ASK_BLOCK("이어서 찾아보면 좋은 것")는 더 이상 삽입하지 않는다
+    # (2026-07-09 사용자 결정) — 답 없는 검색어 나열이라 읽는 값이 없고, 순수 SEO용
+    # 필러였다. answer_engine_coverage()는 과거 발행물 감지를 위해 필드는 유지하되,
+    # 아래 게이트들에서 필수 요건으로 취급하지 않도록 news_quality_gate.py /
+    # publish_preview_scorecard.py / post_publish_audit_service.py도 함께 수정함.
 
     if head_blocks:
         head_bundle = "\n".join(head_blocks)

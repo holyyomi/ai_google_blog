@@ -99,7 +99,6 @@ def test_publish_preserves_finalized_geo_blocks_verbatim_body(tmp_path) -> None:
     for block_id in (
         "AI_OVERVIEW_TARGET_ANSWER",
         "INTENT_ANSWER_BLOCK",
-        "PEOPLE_ALSO_ASK_BLOCK",
         "SOURCE_TRUST_BLOCK",
     ):
         assert f'id="{block_id}"' in sent, f"확정된 GEO 블록 유실: {block_id}"

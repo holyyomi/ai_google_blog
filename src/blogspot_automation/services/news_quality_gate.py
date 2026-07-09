@@ -526,10 +526,8 @@ class NewsQualityGate:
             blocking_issues.append("missing_intent_answer_block")
         if int(answer_coverage.get("intent_qa_count") or 0) < 3:
             blocking_issues.append("intent_qa_count_below_3")
-        if not bool(answer_coverage.get("people_also_ask_present")):
-            blocking_issues.append("missing_people_also_ask_block")
-        if int(answer_coverage.get("people_also_ask_count") or 0) < 5:
-            blocking_issues.append("people_also_ask_count_below_5")
+        # PEOPLE_ALSO_ASK_BLOCK 요건 제거(2026-07-09) — 답 없는 검색어 나열이라 읽는
+        # 값이 없는 순수 SEO 필러로 판단, 더 이상 생성/요구하지 않음(answer_engine_policy.py).
         if not bool(answer_coverage.get("confirmed_vs_check_needed_present")):
             blocking_issues.append("missing_confirmed_vs_check_needed_block")
         if not bool(answer_coverage.get("source_trust_block_present")):

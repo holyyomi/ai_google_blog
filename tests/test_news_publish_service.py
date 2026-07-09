@@ -88,7 +88,6 @@ def test_news_publish_service_forces_permalink_and_search_description(tmp_path) 
     assert str(call["meta_description"]) == description
     assert 'id="AI_OVERVIEW_TARGET_ANSWER"' in str(call["article_html"])
     assert 'id="INTENT_ANSWER_BLOCK"' in str(call["article_html"])
-    assert 'id="PEOPLE_ALSO_ASK_BLOCK"' in str(call["article_html"])
     assert 'id="SOURCE_TRUST_BLOCK"' in str(call["article_html"])
     assert '"@type": "BlogPosting"' in str(call["article_html"])
 
