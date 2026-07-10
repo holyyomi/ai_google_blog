@@ -1,11 +1,11 @@
 """고품질 블로그 포스트 HTML 템플릿 — 모바일 최적화, AdSense 친화적."""
 from __future__ import annotations
 
-from datetime import datetime
 from html import escape
 import json
 from typing import Any
 
+from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.seo_policy import normalize_hashtags, normalize_labels, prepare_blogspot_html
 
 _CSS = """
@@ -127,7 +127,7 @@ def render_full_post(
     schema_faq: list[dict] | None = None,
 ) -> str:
     """LLM이 생성한 content_html을 완성된 블로그 포스트 HTML로 감싼다."""
-    today = today or datetime.now().strftime("%Y.%m.%d")
+    today = today or kst_today("%Y.%m.%d")
     title_esc = escape(title)
     meta_desc_esc = escape(meta_description or title[:120])
 
@@ -176,8 +176,8 @@ def render_full_post(
         "@type": "BlogPosting",
         "headline": title,
         "description": meta_description or title,
-        "datePublished": datetime.now().strftime("%Y-%m-%d"),
-        "dateModified": datetime.now().strftime("%Y-%m-%d"),
+        "datePublished": kst_today("%Y-%m-%d"),
+        "dateModified": kst_today("%Y-%m-%d"),
         "author": {"@type": "Person", "name": "요미"},
         "mainEntityOfPage": {"@type": "WebPage"},
         "keywords": ", ".join(normalized_labels),

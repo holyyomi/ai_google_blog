@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Any
 
 from blogspot_automation.services.issue_content_profile_service import IssueContentProfileService
+from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.news_topic_service import _google_api_error_summary
 from blogspot_automation.services.reader_interest_brief_service import ReaderInterestBriefService
 from blogspot_automation.templates.blog_post_template import render_full_post
@@ -316,7 +317,7 @@ class LlmContentService:
         raw: dict | None = None,
     ) -> str | None:
         """LLM으로 블로그 HTML 생성. 실패 시 None 반환."""
-        today = datetime.now().strftime("%Y.%m.%d")
+        today = kst_today("%Y.%m.%d")
         raw = raw or {}
 
         # 1. Google Search로 실제 정보 수집

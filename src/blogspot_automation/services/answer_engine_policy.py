@@ -3,11 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
 from html import escape, unescape
 from typing import Any
 
 from blogspot_automation.services.geo_intent_service import GeoIntentService
+from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.news_taxonomy import content_type_for_topic_group
 
 
@@ -62,7 +62,7 @@ def ensure_answer_engine_optimized_html(
     content = _normalize_existing_clean_answer_sections(content)
     content = _collapse_visible_question_overstack(content)
     resolved_type = (content_type or content_type_for_topic_group(topic_group)).strip() or "general_life"
-    today = today or datetime.now().strftime("%Y-%m-%d")
+    today = today or kst_today("%Y-%m-%d")
     topic_text = " ".join((topic or title or "오늘 이슈").split()).strip()
     slots = _build_slots_from_html(content, title=title, topic=topic_text)
     has_author_answer_sections = _has_author_answer_sections(content)
