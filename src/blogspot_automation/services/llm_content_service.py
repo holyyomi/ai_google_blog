@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.error
 import urllib.request
 from datetime import datetime
+from html import unescape as _html_unescape
 from typing import Any
 
 from blogspot_automation.services.issue_content_profile_service import IssueContentProfileService
@@ -274,6 +275,12 @@ def _asset_rich_directive(title: str, topic: str, category: str, raw: dict) -> s
     return _ASSET_RICH_DIRECTIVE if any(k in blob for k in _ASSET_RICH_KEYWORDS) else ""
 
 
+def _strip_search_markup(text: str) -> str:
+    """Naver 검색 API 응답의 <b> 강조 태그·HTML 엔티티를 제거한다."""
+    cleaned = re.sub(r"</?b>", "", text or "")
+    return " ".join(_html_unescape(cleaned).split())
+
+
 class LlmContentService:
     """LLM 폴백 체인으로 고품질 블로그 HTML을 생성한다."""
 
@@ -301,6 +308,20 @@ class LlmContentService:
             if self._enable_custom_search
             else ""
         )
+        # 팩트 수집 소스 (2026-07-10 재편): Custom Search는 Google이 신규 고객에게
+        # 폐쇄해 전 호출 403 — 살아있는 키(Naver 뉴스 검색·Exa)를 팩트 소스로 승격.
+        # 키가 있고 ENABLE_*가 명시적 false가 아니면 사용 (settings.py 기본값과 동일 규칙).
+        self._naver_client_id = os.getenv("NAVER_CLIENT_ID", "").strip()
+        self._naver_client_secret = os.getenv("NAVER_CLIENT_SECRET", "").strip()
+        if os.getenv("ENABLE_NAVER_SEARCH", "").strip().lower() in {"0", "false", "no", "off"}:
+            self._naver_client_id = ""
+        self._exa_api_key = os.getenv("EXA_API_KEY", "").strip()
+        if os.getenv("ENABLE_EXA_SEARCH", "").strip().lower() in {"0", "false", "no", "off"}:
+            self._exa_api_key = ""
+        # Exa는 크레딧 과금 — 재시도 루프(최대 12회 × 시도당 1~2회 수집)에서
+        # 무제한 호출되지 않게 프로세스당 상한을 둔다.
+        self._exa_facts_calls = 0
+        self._exa_facts_max_calls = 6
 
     # ─── Public API ───────────────────────────────────────────────────────────
 
@@ -403,18 +424,115 @@ class LlmContentService:
         return self._gather_facts(topic)
 
     def _gather_facts(self, topic: str) -> str:
-        """실제 팩트 수집: Custom Search(키 있을 때) → Google News RSS(키 불필요) 폴백.
+        """실제 팩트 수집: Naver 뉴스 스니펫 + Exa 본문 발췌 병합 → 폴백 체인.
 
-        Gemini 그라운딩 폴백은 제거됨 — 운영 방침상 LLM은 OpenRouter/OpenAI만 쓰고
-        GOOGLE_AI_API_KEY는 더 이상 사용하지 않는다. RSS 폴백은 키가 전혀 필요
-        없어서 어떤 환경에서든 최신 헤드라인 근거를 확보할 수 있다.
+        2026-07-10 재편: Custom Search는 Google이 신규 고객에게 폐쇄(전 호출 403)돼
+        헤드라인만 있는 RSS 폴백으로만 돌던 것을, 실측으로 살아있음을 확인한
+        Naver 뉴스 검색(한국어 스니펫)과 Exa(본문 발췌)를 1차 소스로 승격.
+        두 소스는 상호 보완(국내 보도 + 글로벌/공식 문서)이라 병합해 주입한다.
+        전부 실패하면 기존대로 Custom Search(활성 시) → Google News RSS(키 불필요).
+        모든 실패는 비치명 — 빈 문자열이면 LLM이 보수적 서술로 폴백한다.
         """
+        sections: list[str] = []
+        naver = self._naver_news_facts(topic)
+        if naver:
+            sections.append(naver)
+        exa = self._exa_facts(topic)
+        if exa:
+            sections.append(exa)
+        if sections:
+            return "\n\n".join(sections)
         facts = ""
         if self._search_api_key and self._search_cx:
             facts = self._custom_search(topic)
         if not facts:
             facts = self._google_news_rss_facts(topic)
         return facts
+
+    def _naver_news_facts(self, topic: str) -> str:
+        """Naver 뉴스 검색 API로 주제 관련 기사 제목+요약 스니펫을 수집한다."""
+        if not (self._naver_client_id and self._naver_client_secret):
+            return ""
+        try:
+            query = urllib.parse.quote(topic)
+            url = f"https://openapi.naver.com/v1/search/news.json?query={query}&display=4&sort=sim"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "X-Naver-Client-Id": self._naver_client_id,
+                    "X-Naver-Client-Secret": self._naver_client_secret,
+                },
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            lines: list[str] = []
+            for item in body.get("items") or []:
+                title = _strip_search_markup(str(item.get("title") or ""))
+                desc = _strip_search_markup(str(item.get("description") or ""))
+                pub = str(item.get("pubDate") or "")[:16]
+                if not title:
+                    continue
+                line = f"- {title}"
+                if desc:
+                    line += f": {desc}"
+                if pub:
+                    line += f" ({pub})"
+                lines.append(line)
+                if len(lines) >= 4:
+                    break
+            if not lines:
+                return ""
+            logger.info("LlmContentService: Naver 뉴스 팩트 %d건", len(lines))
+            return "[네이버 뉴스 검색 결과]\n" + "\n".join(lines)
+        except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
+            logger.warning("LlmContentService: Naver 뉴스 팩트 수집 실패 — %s", exc)
+            return ""
+
+    def _exa_facts(self, topic: str) -> str:
+        """Exa 검색으로 주제 관련 웹 문서의 본문 발췌를 수집한다 (크레딧 과금 — 호출 상한)."""
+        if not self._exa_api_key or self._exa_facts_calls >= self._exa_facts_max_calls:
+            return ""
+        self._exa_facts_calls += 1
+        try:
+            payload = json.dumps({
+                "query": topic,
+                "type": "auto",
+                "numResults": 3,
+                "contents": {"text": {"maxCharacters": 400}},
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "https://api.exa.ai/search",
+                data=payload,
+                headers={
+                    "x-api-key": self._exa_api_key,
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            lines: list[str] = []
+            for item in body.get("results") or []:
+                title = " ".join(str(item.get("title") or "").split())
+                text = " ".join(str(item.get("text") or "").split())[:300]
+                pub = str(item.get("publishedDate") or "")[:10]
+                if not (title or text):
+                    continue
+                line = f"- {title}" if title else "-"
+                if text:
+                    line += f": {text}"
+                if pub:
+                    line += f" ({pub})"
+                lines.append(line)
+                if len(lines) >= 3:
+                    break
+            if not lines:
+                return ""
+            logger.info("LlmContentService: Exa 팩트 %d건", len(lines))
+            return "[웹 문서 발췌 (Exa)]\n" + "\n".join(lines)
+        except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
+            logger.warning("LlmContentService: Exa 팩트 수집 실패 — %s", exc)
+            return ""
 
     def _google_news_rss_facts(self, topic: str) -> str:
         """Google News RSS에서 주제 관련 최신 헤드라인을 수집한다 (API 키 불필요)."""
