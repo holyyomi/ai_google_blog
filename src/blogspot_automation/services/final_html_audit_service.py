@@ -105,7 +105,11 @@ def audit_final_html_quality(
         issues.append(f"repeated_summary_headings:{repeated_summary_headings}")
     elif repeated_summary_headings == 2:
         warnings.append("repeated_summary_headings:2")
-    visible_hashtags = re.findall(r"#[가-힣A-Za-z0-9_]{2,}", visible)
+    # 실사례: 본문에 `chrome://flags/#search-ai-overviews` 같은 URL 프래그먼트를
+    # 인용하면 '#'이 진짜 해시태그가 아닌데도 매칭돼 uncontrolled_visible_body_hashtags가
+    # 오탐으로 발행을 차단했다(2026-07-10). '#' 바로 앞이 단어문자·/·.·:·-면 URL/코드
+    # 조각으로 보고 제외한다.
+    visible_hashtags = re.findall(r"(?<![\w/:.\-])#[가-힣A-Za-z0-9_]{2,}", visible)
     controlled_hashtags = _controlled_hashtag_count(content)
     if visible_hashtags and controlled_hashtags != len(visible_hashtags):
         issues.append(f"uncontrolled_visible_body_hashtags:{len(visible_hashtags)}")

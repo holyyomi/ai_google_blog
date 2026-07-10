@@ -240,6 +240,24 @@ def test_audit_blocks_visible_internal_labels_and_body_hashtags() -> None:
     assert "uncontrolled_visible_body_hashtags:2" in result["issues"]
 
 
+def test_audit_ignores_url_fragment_hashtags() -> None:
+    """실사례(2026-07-10): chrome://flags/#search-ai-overviews 같은 URL 프래그먼트가
+    uncontrolled_visible_body_hashtags 오탐으로 발행을 차단했다. 실제 관리형 해시태그
+    섹션과 개수가 맞으면 URL '#'은 무시하고 통과해야 한다."""
+    html = """
+    <article class="yomi-clean-post">
+      <section class="yomi-lede"><p>크롬 주소창에서 chrome://flags/#search-ai-overviews 켜짐을 확인합니다.</p></section>
+      <div class="yomi-thesis"><div><b>핵심</b>설정 확인</div></div>
+      <ul class="yomi-list"><li data-step="1">설정을 확인합니다.</li></ul>
+      <section class="yomi-hashtags" data-yomi-block="hashtags"><p>#AI검색 #GEO</p></section>
+    </article>
+    """
+
+    result = audit_final_html_quality(html, topic="AI 검색 설정", content_type="ai_search_change")
+
+    assert "uncontrolled_visible_body_hashtags:2" not in "".join(result["issues"])
+
+
 def test_audit_allows_controlled_hashtag_footer() -> None:
     html = """
     <article class="yomi-clean-post">
