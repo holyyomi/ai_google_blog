@@ -90,6 +90,9 @@ jobs:
           TOPIC_CANDIDATE_LIMIT: "120"
           DEDUP_DAYS: "7"
           TITLE_CANDIDATE_COUNT: "10"
+          # 1등 후보가 발행 게이트에 막히면 다음 후보로 재시도 (news_blog.yml과 동일값).
+          # 이 값이 없으면 기본 1 → 첫 후보가 막히는 순간 그날 발행 자체가 스킵됨 (실측 확인, 2026-07-10).
+          NEWS_MAX_PUBLISH_ATTEMPTS: "12"
           # LLM 주제 특화 본문 생성
           ENABLE_AI_LLM_ENRICH: "true"
           ENABLE_GOOGLE_CUSTOM_SEARCH: "true"
