@@ -90,6 +90,89 @@ def test_google_news_rss_facts_parses_headlines(monkeypatch) -> None:
     assert "카카오 AI 요약 기능 출시" in facts
 
 
+def test_naver_news_facts_parses_snippets(monkeypatch) -> None:
+    # 2026-07-10 팩트 소스 재편: Custom Search 폐쇄로 Naver 뉴스 스니펫이 1차 소스.
+    body = json.dumps({
+        "items": [
+            {"title": "네이버 <b>AI탭</b> 출시", "description": "스마트렌즈 &amp; AI 브리핑 연동", "pubDate": "Sun, 05 Jul 2026 08:00:00 +0900"},
+            {"title": "AI탭 기술 공개", "description": "실행형 에이전트로 진화", "pubDate": "Sun, 05 Jul 2026 09:00:00 +0900"},
+        ]
+    }).encode("utf-8")
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return body
+
+    def fake_urlopen(req: urllib.request.Request, timeout: int):
+        assert "openapi.naver.com/v1/search/news.json" in req.full_url
+        return FakeResponse()
+
+    monkeypatch.setenv("NAVER_CLIENT_ID", "cid")
+    monkeypatch.setenv("NAVER_CLIENT_SECRET", "csec")
+    monkeypatch.delenv("ENABLE_NAVER_SEARCH", raising=False)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    facts = LlmContentService()._naver_news_facts("네이버 AI탭")
+
+    assert "네이버 뉴스 검색 결과" in facts
+    # <b> 태그·HTML 엔티티 제거 확인
+    assert "네이버 AI탭 출시" in facts
+    assert "<b>" not in facts
+    assert "&amp;" not in facts
+    assert "스마트렌즈 & AI 브리핑 연동" in facts
+
+
+def test_gather_facts_merges_naver_and_exa(monkeypatch) -> None:
+    monkeypatch.delenv("ENABLE_GOOGLE_CUSTOM_SEARCH", raising=False)
+    svc = LlmContentService()
+    monkeypatch.setattr(svc, "_naver_news_facts", lambda topic: "[네이버 뉴스 검색 결과]\n- a")
+    monkeypatch.setattr(svc, "_exa_facts", lambda topic: "[웹 문서 발췌 (Exa)]\n- b")
+    monkeypatch.setattr(svc, "_google_news_rss_facts", lambda topic: "RSS-SHOULD-NOT-BE-USED")
+
+    facts = svc._gather_facts("주제")
+
+    assert "네이버 뉴스 검색 결과" in facts
+    assert "웹 문서 발췌" in facts
+    assert "RSS-SHOULD-NOT-BE-USED" not in facts
+
+
+def test_gather_facts_falls_back_to_rss_when_all_sources_empty(monkeypatch) -> None:
+    monkeypatch.delenv("ENABLE_GOOGLE_CUSTOM_SEARCH", raising=False)
+    svc = LlmContentService()
+    monkeypatch.setattr(svc, "_naver_news_facts", lambda topic: "")
+    monkeypatch.setattr(svc, "_exa_facts", lambda topic: "")
+    monkeypatch.setattr(svc, "_google_news_rss_facts", lambda topic: "[최근 관련 뉴스 헤드라인]\n- rss")
+
+    facts = svc._gather_facts("주제")
+
+    assert "rss" in facts
+
+
+def test_exa_facts_respects_per_run_call_cap(monkeypatch) -> None:
+    # Exa는 크레딧 과금 — 재시도 루프에서 무제한 호출 방지 상한 검증
+    monkeypatch.setenv("EXA_API_KEY", "ekey")
+    monkeypatch.delenv("ENABLE_EXA_SEARCH", raising=False)
+    svc = LlmContentService()
+    svc._exa_facts_max_calls = 2
+    calls = {"n": 0}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: int):
+        calls["n"] += 1
+        raise RuntimeError("network blocked in test")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    for _ in range(5):
+        svc._exa_facts("주제")
+
+    assert calls["n"] == 2
+
+
 def test_openai_primary_uses_official_url_and_current_default_model(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
