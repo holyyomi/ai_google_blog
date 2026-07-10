@@ -16,6 +16,21 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# 앵글(사건 유형) → 글 초점. content_type(ai_work_tip)이 같아도 요금 개편 기사와
+# 기능 발표 기사는 다른 글이어야 한다 — content_type보다 우선 적용해 모든 AI 뉴스가
+# "업무 시간 단축" 한 프레임으로 쓰이는 것을 막는다 (2026-07-10 라이브 실측:
+# 발행 5건 제목이 전부 "반복 업무 자동화" 계열로 수렴).
+_ANGLE_FOCUS: dict[str, str] = {
+    "money_compare": "이 요금·무료 한도 변화가 사용자 비용에 주는 영향과 무료/유료 선택 기준",
+    "ai_service_change": "이 발표·변화에서 확인된 사실과 일반 사용자에게 실제로 달라지는 것",
+    "ai_policy_impact": "이 규제·정책 움직임에서 확정된 것과 사용자가 지금 확인할 것",
+    "ai_setting": "이 기능을 켜기 전 확인할 설정과 안전한 사용 기준",
+    "ai_risk_check": "이 보안·리스크 이슈에서 확인된 사실과 내 계정에서 점검할 것",
+    "ai_model_release": "이 발표로 새로 가능해진 것과 기존 사용자에게 달라지는 것",
+    "ai_search_change": "이 검색 변화가 검색 습관과 콘텐츠 노출에 주는 실제 영향",
+    "ai_comparison": "비교 대상들의 실제 차이와 상황별 선택 기준",
+}
+
 # content_type → 글 성격 힌트 (LLM 톤·초점 가이드)
 _CT_FOCUS: dict[str, str] = {
     "ai_work_tip": "직장인이 이 주제로 실제 업무 시간을 줄이는 구체적 방법",
@@ -66,7 +81,9 @@ _ENRICH_SPEC = {
         "대표 도구명으로(예: 'ChatGPT 무료 플랜…', 'ChatGPT·Claude 무료 한계…'). "
         "'무료 AI 도구'처럼 어떤 도구인지 알 수 없는 익명 제목 금지. "
         "비문 금지(조사·어미 정확히), '먼저 볼 N가지'·'~할 N가지'·'무료 도구' 같은 정형구/막연한 표현 금지, "
-        "낚시성·과장 금지. 구체적 이득이나 핵심 질문이 드러나게."
+        "낚시성·과장 금지. 구체적 이득이나 핵심 질문이 드러나게. "
+        "'반복 업무 자동화'·'업무 시간 단축'·'30분→10분' 같은 상투 프레임을 주제와 무관하게 "
+        "붙이지 말 것 — 요금 변화 기사면 요금이, 발표 기사면 달라지는 것이 제목의 중심이어야 한다."
     ),
     "hook_opening": "독자 상황에 공감하며 글의 가치를 제시하는 3~4문장. 짧고 밀도 높게. 인사말 금지.",
     "yomi_judgment": "핵심 관점·결론을 단정적으로 2~3문장. 라벨 금지.",
@@ -147,6 +164,7 @@ def enrich_slots_with_llm(
     topic: str,
     content_type: str,
     selected_title: str = "",
+    angle_type: str = "",
     llm_service: Any = None,
 ) -> dict[str, Any]:
     """LLM으로 주제 특화 본문을 생성해 slots의 텍스트형 슬롯을 교체한다.
@@ -164,7 +182,9 @@ def enrich_slots_with_llm(
         logger.warning("ai_slot_enricher: LLM 서비스 로드 실패(폴백): %s", exc)
         return slots
 
-    focus = _CT_FOCUS.get(content_type, "이 AI 주제의 실용적 핵심")
+    focus = _ANGLE_FOCUS.get((angle_type or "").strip()) or _CT_FOCUS.get(
+        content_type, "이 AI 주제의 실용적 핵심"
+    )
     spec_lines = "\n".join(f'- "{k}": {v}' for k, v in _ENRICH_SPEC.items())
     title_part = f"제목: {selected_title}\n" if selected_title else ""
 
@@ -202,8 +222,13 @@ def enrich_slots_with_llm(
         data = _parse_json(text)
         if not isinstance(data, dict):
             raise ValueError("not a dict")
-        # 최소한 hook/yomi/faq가 있어야 유효로 인정
-        if not (data.get("hook_opening") and data.get("yomi_judgment") and data.get("faq")):
+        # hook/yomi/faq에 더해 real_criterion·misconceptions도 필수 (2026-07-10):
+        # 이 둘이 빠진 채 부분 적용되면 정적 템플릿의 ChatGPT 전용 문구("반복 텍스트
+        # 업무에 우선 적용" 등)가 비ChatGPT 주제 글에 남아 발행 직전
+        # ai_generic_chatgpt_template_leaked 게이트에 걸린다(실측). 불합격 시
+        # 폴백 체인이 다음 provider(→유료)로 재시도하므로 전량 교체를 보장한다.
+        required = ("hook_opening", "yomi_judgment", "faq", "real_criterion", "misconceptions")
+        if not all(data.get(key) for key in required):
             raise ValueError("missing core keys")
 
     try:
@@ -277,12 +302,24 @@ def enrich_slots_with_llm(
         if len(keywords) >= 3:
             enriched["_llm_paa"] = keywords[:5]
 
-    # 제목: LLM이 만든 자연스러운 제목을 특수 키에 담아 파이프라인이 채택하게 한다
+    # 제목: LLM이 만든 자연스러운 제목을 특수 키에 담아 파이프라인이 채택하게 한다.
+    # 채택 전에 제목 무결성 검사(조사 오류·외국 문자·비문 패턴)를 여기서 먼저 돌린다 —
+    # TitleCandidateService 후보는 score_title이 걸러주지만 LLM 제목은 이 지점이
+    # 유일한 관문이라, 통과 못 하면 발행 직전 게이트(visible_title_integrity)가
+    # 후보를 통째로 버린다(2026-07-10 실측: bad_subject_particle로 발행 기회 소실).
     llm_title = data.get("title")
     if isinstance(llm_title, str):
         t = re.sub(r"\s+", " ", llm_title).strip().strip('"').strip()
         if 6 <= len(t) <= 60 and not re.search(r"먼저\s*(볼|확인할|정할|해야)\s*\d+\s*가지", t):
-            enriched["_llm_title"] = t
+            from blogspot_automation.services.title_integrity_policy import audit_title_integrity
+            integrity = audit_title_integrity(t, content_type=content_type)
+            if integrity.get("passed"):
+                enriched["_llm_title"] = t
+            else:
+                logger.info(
+                    "ai_slot_enricher: LLM 제목 무결성 불합격 → 템플릿 제목 유지 (%s: %s)",
+                    integrity.get("blocking_issues"), t[:50],
+                )
 
     logger.info("ai_slot_enricher: 주제 특화 본문 적용 완료 (topic=%s)", topic[:40])
     return enriched

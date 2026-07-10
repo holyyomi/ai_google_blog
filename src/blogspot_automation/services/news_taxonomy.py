@@ -450,6 +450,8 @@ def classify_topic_group(text: str, category: str = "", raw: dict[str, Any] | No
     haystack = f"{text or ''} category:{category or ''}".lower()
     if is_market_finance_text(haystack):
         return "general_life"
+    if is_rank_stats_text(haystack):
+        return "general_life"
     if is_privacy_security_text(haystack):
         return "privacy_security"
     if _is_delivery_worker_platform_text(haystack):
@@ -543,6 +545,24 @@ def is_tax_refund_text(text: str) -> bool:
     if any(keyword.replace(" ", "").lower() in compact for keyword in TAX_REFUND_KEYWORDS):
         return True
     return "환급금" in haystack and any(token in haystack for token in ("세금", "국세", "홈택스", "손택스", "연말정산", "종합소득세"))
+
+
+_RANK_STATS_RE = re.compile(r"\d+\s*위")
+_RANK_STATS_CONTEXT = ("이용자", "사용자 수", "다운로드", "mau", "wau", "증가", "감소", "점유율", "순위", "집계")
+
+
+def is_rank_stats_text(text: str) -> bool:
+    """앱 사용량 순위·이용자 통계 집계 보도인지 감지 (2026-07-10).
+
+    실측: "상반기 인기 앱 1위 유튜브...챗GPT 이용자 16.4% 증가하며 17위" 같은
+    순위 집계 기사가 AI 단어만으로 ai_work 최상위 후보로 뽑혀 how-to 틀에 강제
+    매칭됐고, 원문 보존/구체성 게이트에 막혀 발행 시도만 소모했다. 이런 기사엔
+    독자가 실행할 내용이 없다 — general_life로 보내 골든 자동발행 경로에서 제외.
+    """
+    haystack = (text or "").lower()
+    if not _RANK_STATS_RE.search(haystack):
+        return False
+    return any(token in haystack for token in _RANK_STATS_CONTEXT)
 
 
 def is_market_finance_text(text: str) -> bool:
