@@ -100,7 +100,12 @@ jobs:
           ALLOW_EVERGREEN_AUTO_PUBLISH: "true"
           # LLM 주제 특화 본문 생성
           ENABLE_AI_LLM_ENRICH: "true"
-          ENABLE_GOOGLE_CUSTOM_SEARCH: "true"
+          # Custom Search JSON API는 Google이 신규 고객에게 폐쇄(2026-07-10 확정:
+          # API 활성화·새 키 발급 후에도 전 호출 403 "This project does not have
+          # the access" — 콘솔 설정으로 해결 불가, 기존 고객도 2027-01 마이그레이션
+          # 공지). 매 실행 무의미한 403 호출을 없애고 Google News RSS 폴백을
+          # 직행 경로로 쓴다. 팩트 소스 업그레이드는 Tavily 크레딧 복구 후 재검토.
+          ENABLE_GOOGLE_CUSTOM_SEARCH: "false"
           GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
           GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
