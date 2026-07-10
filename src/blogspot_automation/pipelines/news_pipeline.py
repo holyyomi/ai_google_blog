@@ -146,6 +146,8 @@ class NewsPipeline:
         original_excluded = list(self._retry_excluded_topics)
         retry_attempts: list[dict[str, Any]] = []
         last_result: dict[str, Any] = {}
+        pool_exhausted = False
+        consecutive_no_candidate = 0
         try:
             self._retry_excluded_topics = list(dict.fromkeys(original_excluded))
             for attempt in range(1, attempts_limit + 1):
@@ -164,6 +166,25 @@ class NewsPipeline:
                     result["retry_attempts"] = retry_attempts
                     return result
 
+                # 후보 풀 소진 감지 (2026-07-10 실측): 제외 목록 누적 후 후보가 0이
+                # 되면 이후 시도는 전부 같은 빈 결과다 — 남은 시도를 공회전으로
+                # 소모하지 않는다(12회 한도에서 9회 낭비 실측). 수집 소스가 시도마다
+                # 미세하게 달라질 수 있어 1회는 봐주고, 연속 2회 비면 중단.
+                if str(result.get("status") or "") == "skipped" and not str(
+                    result.get("selected_topic") or ""
+                ).strip():
+                    consecutive_no_candidate += 1
+                    if consecutive_no_candidate >= 2:
+                        pool_exhausted = True
+                        logger.info(
+                            "NewsPipeline: candidate pool exhausted after attempt %d/%d — stopping retries early",
+                            attempt,
+                            attempts_limit,
+                        )
+                        break
+                else:
+                    consecutive_no_candidate = 0
+
                 retry_exclusions = self._retry_exclusion_keys_from_result(result)
                 for key in retry_exclusions:
                     if key not in self._retry_excluded_topics:
@@ -181,7 +202,9 @@ class NewsPipeline:
 
             final_result = {
                 "status": "skipped_after_retry_limit",
-                "reason": "max_publish_attempts_exhausted",
+                "reason": (
+                    "candidate_pool_exhausted" if pool_exhausted else "max_publish_attempts_exhausted"
+                ),
                 "retry_attempts": retry_attempts,
                 "max_publish_attempts": attempts_limit,
                 "publish_attempted": any(item.get("publish_attempted") for item in retry_attempts),
@@ -205,7 +228,7 @@ class NewsPipeline:
                     "mode": self.news_publish_mode,
                     "dry_run": self.dry_run,
                     "status": "skipped_after_retry_limit",
-                    "reason": "max_publish_attempts_exhausted",
+                    "reason": str(final_result.get("reason") or "max_publish_attempts_exhausted"),
                     "max_publish_attempts": attempts_limit,
                     "retry_attempts": retry_attempts,
                 },
@@ -2717,6 +2740,9 @@ class NewsPipeline:
                             topic=selected.candidate.topic or "",
                             content_type=_ct_e,
                             selected_title=_selected_title,
+                            angle_type=str(
+                                (_raw_e.get("search_angle") or {}).get("angle_type") or ""
+                            ),
                         )
                         _sr_e["slots"] = _enriched
                         golden_preview_result["slot_result"] = _sr_e

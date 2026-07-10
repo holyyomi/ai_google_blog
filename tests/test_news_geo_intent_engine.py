@@ -378,6 +378,21 @@ class TestSgeAiOverviewBlock(unittest.TestCase):
         self.assertNotIn("생성 3 결론", text)
         self.assertNotIn(long_step_line[95:100], text)
 
+    def test_overview_no_double_period(self) -> None:
+        # 2026-07-09 라이브 잔존 이슈 "위임받는다..": hook이 짧아 문장 구분자
+        # ("다. " 등 뒤공백 포함)를 못 찾으면 hook[:80] + "." 폴백이 이미 마침표로
+        # 끝난 문장에 또 마침표를 붙였다.
+        from blogspot_automation.services.geo_intent_service import GeoIntentService
+        gi = GeoIntentService()
+        slots = {
+            "hook_opening": "요미는 반복 업무를 AI에 위임받는다.",
+            "yomi_judgment": "핵심은 검수 기준을 먼저 정하는 것이다. 그 다음이 위임 범위다.",
+        }
+        text = gi.generate_ai_overview_target_answer(
+            topic="AI 업무 위임", content_type="ai_work_tip", slots=slots,
+        )
+        self.assertNotIn("..", text.replace("...", ""))
+
     def test_policy_overview_uses_official_notice_not_hometax(self) -> None:
         from blogspot_automation.services.geo_intent_service import GeoIntentService
         from blogspot_automation.services.slot_filler_service import SlotFillerService

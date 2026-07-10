@@ -37,6 +37,14 @@ _BASE_RESPONSE = {
         {"Q": "수식이 어렵지 않나?", "A": "dateBetween 등 기본 함수 3개면 시작할 수 있다."},
         {"Q": "팀 적용은?", "A": "권한 설정 후 템플릿 공유로 시작한다."},
     ],
+    # 검증기 필수 키(2026-07-10 강화): 이 둘이 빠지면 정적 템플릿의 ChatGPT 문구가
+    # 부분 잔존해 ai_generic_chatgpt_template_leaked 게이트에 걸린다.
+    "real_criterion": "1단계: 반복 입력 데이터베이스를 템플릿화한다.\n2단계: 수식으로 상태 필드를 자동 계산한다.\n3단계: 주간 리뷰 뷰를 저장해 재사용한다.",
+    "misconceptions": [
+        {"착각": "노션 자동화는 유료 플랜 전용이다", "실제": "무료 플랜에서도 템플릿·수식 자동화는 동작한다"},
+        {"착각": "수식은 개발자만 쓸 수 있다", "실제": "기본 함수 3개로 대부분의 반복 계산을 대체할 수 있다"},
+        {"착각": "자동화하면 검수가 필요 없다", "실제": "초기 2주는 수동 결과와 비교 검증이 필요하다"},
+    ],
 }
 
 
@@ -97,6 +105,53 @@ class TestFallbackUnchanged(unittest.TestCase):
         slots = _slots()
         out = enrich_slots_with_llm(slots=slots, topic="노션 자동화", content_type="ai_work_tip", llm_service=llm)
         self.assertEqual(out, slots)
+
+    def test_partial_response_missing_real_criterion_falls_back(self):
+        """real_criterion/misconceptions 누락 응답은 검증기에서 불합격 → 원본 슬롯 유지.
+
+        부분 적용을 허용하면 정적 템플릿의 ChatGPT 전용 문구가 비ChatGPT 주제 글에
+        남아 ai_generic_chatgpt_template_leaked 게이트에 걸린다 (2026-07-10 실측).
+        """
+        partial = {k: v for k, v in _BASE_RESPONSE.items() if k not in ("real_criterion", "misconceptions")}
+        llm = _FakeLlm(partial)
+        slots = _slots()
+        out = enrich_slots_with_llm(slots=slots, topic="네이버 AI 소식", content_type="ai_work_tip", llm_service=llm)
+        self.assertEqual(out, slots)
+
+
+class TestAngleFocus(unittest.TestCase):
+    def test_angle_type_overrides_content_type_focus(self):
+        llm = _FakeLlm(_BASE_RESPONSE)
+        enrich_slots_with_llm(
+            slots=_slots(), topic="챗GPT 요금 개편", content_type="ai_work_tip",
+            angle_type="money_compare", llm_service=llm,
+        )
+        self.assertIn("무료/유료 선택 기준", llm.prompts[0])
+        self.assertNotIn("업무 시간을 줄이는 구체적 방법", llm.prompts[0])
+
+    def test_unknown_angle_falls_back_to_content_type_focus(self):
+        llm = _FakeLlm(_BASE_RESPONSE)
+        enrich_slots_with_llm(
+            slots=_slots(), topic="노션 자동화", content_type="ai_work_tip",
+            angle_type="", llm_service=llm,
+        )
+        self.assertIn("업무 시간을 줄이는 구체적 방법", llm.prompts[0])
+
+
+class TestLlmTitleIntegrity(unittest.TestCase):
+    def test_bad_subject_particle_title_rejected(self):
+        """받침 있는 말 + '가' 조사 제목은 채택하지 않는다 — 게이트에서 후보가
+        통째로 버려지기 전에 이 지점(유일한 LLM 제목 관문)에서 걸러야 한다."""
+        response = dict(_BASE_RESPONSE, title="노션 자동화 설정법가 어려운 이유")
+        llm = _FakeLlm(response)
+        out = enrich_slots_with_llm(slots=_slots(), topic="노션 자동화", content_type="ai_work_tip", llm_service=llm)
+        self.assertNotIn("_llm_title", out)
+
+    def test_clean_title_accepted(self):
+        response = dict(_BASE_RESPONSE, title="노션 자동화, 반복 입력 줄이는 설정 순서")
+        llm = _FakeLlm(response)
+        out = enrich_slots_with_llm(slots=_slots(), topic="노션 자동화", content_type="ai_work_tip", llm_service=llm)
+        self.assertEqual(out.get("_llm_title"), "노션 자동화, 반복 입력 줄이는 설정 순서")
 
 
 if __name__ == "__main__":

@@ -368,6 +368,17 @@ class TestAiStructuredData(unittest.TestCase):
 class TestAiSlotEnricher(unittest.TestCase):
     """LLM 본문 보강: 성공 시 주제 특화 교체, 실패 시 템플릿 폴백."""
 
+    # 검증기 필수 키(2026-07-10 강화: real_criterion·misconceptions 누락 시 부분 적용으로
+    # 정적 템플릿의 ChatGPT 문구가 잔존 → ai_generic_chatgpt_template_leaked 게이트행).
+    _CORE = {
+        "real_criterion": "1단계: 대상 업무를 고른다.\n2단계: 초안을 생성한다.\n3단계: 결과를 검수한다.",
+        "misconceptions": [
+            {"착각": "유료여야 쓸 수 있다", "실제": "무료 범위로 시작할 수 있다"},
+            {"착각": "결과를 그대로 쓰면 된다", "실제": "검수 후 사용해야 한다"},
+            {"착각": "모든 업무에 맞는다", "실제": "반복 업무부터 맞는 범위를 고른다"},
+        ],
+    }
+
     def _fake(self, payload):
         import json
         class _F:
@@ -381,6 +392,7 @@ class TestAiSlotEnricher(unittest.TestCase):
     def test_enrich_replaces_slots(self):
         from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
         payload = {
+            **self._CORE,
             "hook_opening": "Perplexity는 출처를 함께 보여주는 검색형 AI입니다. 사실 조사에 강합니다. 무료는 제한이 있습니다. 리서치에 적합합니다.",
             "yomi_judgment": "검색·리서치에 최적화된 도구입니다. 무료로 시작해 한계에서 Pro를 고려하세요. 창작보다 조사에 강합니다.",
             "faq": [{"Q": "무료로 되나요?", "A": "기본 검색은 무료로 충분합니다. 고급 기능은 제한이 있습니다."},
@@ -404,7 +416,7 @@ class TestAiSlotEnricher(unittest.TestCase):
     def test_llm_title_adopted_and_filtered(self):
         from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
         # 정형구 제목은 거부, 자연스러운 제목은 채택
-        good = {"hook_opening": "x"*30, "yomi_judgment": "y"*30, "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
+        good = {**self._CORE, "hook_opening": "x"*30, "yomi_judgment": "y"*30, "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
                 "title": "미드저니 무료 대안, 실무에서 쓸 만한 3곳"}
         out = enrich_slots_with_llm(slots={"hook_opening": "o", "yomi_judgment": "o", "faq": [{"Q": "a", "A": "b"}]},
                                     topic="t", content_type="ai_tool_review", llm_service=self._fake(good))
@@ -416,7 +428,7 @@ class TestAiSlotEnricher(unittest.TestCase):
 
     def test_prompt_block_replaced_and_added(self):
         from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
-        payload = {"hook_opening": "x"*30, "yomi_judgment": "y"*30,
+        payload = {**self._CORE, "hook_opening": "x"*30, "yomi_judgment": "y"*30,
                    "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
                    "prompt_block": [{"label": "썸네일", "prompt": "flat illustration -> 16:9"}, {"label": "컨셉", "prompt": "product art"}]}
         # 템플릿에 prompt_block 있으면 교체
@@ -437,6 +449,7 @@ class TestAiSlotEnricher(unittest.TestCase):
         """pricing_table/checklist/quick_decision_table/actions 저장가치 슬롯 보강."""
         from blogspot_automation.services.ai_slot_enricher import enrich_slots_with_llm
         payload = {
+            **self._CORE,
             "hook_opening": "x"*30, "yomi_judgment": "y"*30,
             "faq": [{"Q": "q1", "A": "a1"}, {"Q": "q2", "A": "a2"}, {"Q": "q3", "A": "a3"}],
             "quick_decision_table": [

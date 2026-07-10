@@ -90,6 +90,43 @@ class TestContextualHookTitles(unittest.TestCase):
         )
         self.assertNotIn("확인할  전에", title)
 
+    def test_pricing_angle_gets_money_frame_not_work_savings_frame(self) -> None:
+        """앵글별 제목 다변화(2026-07-10): 요금 개편 기사가 '반복 업무/시간' 틀 대신
+        요금 프레임 제목을 받는지 — ai_work로 뭉치는 모든 사건이 같은 제목 틀을
+        쓰던 문제(라이브 실측: 발행 5건 제목 수렴)의 회귀 방지."""
+        topic = "챗GPT AI 요금 변화"
+        result = _svc.generate_candidates(
+            topic=topic,
+            content_type="ai_work_tip",
+            topic_group="ai_work",
+            pattern_id="ai_work_time_savings",
+            candidate_raw={
+                "search_demand_topic": topic,
+                "search_angle": {"angle_type": "money_compare", "search_demand_topic": topic},
+            },
+        )
+        titles = [item.get("title", "") for item in result["candidates"]]
+        self.assertTrue(
+            any(("무료 기준" in t or "내는 조건" in t or "먼저 볼 3가지" in t) for t in titles), titles
+        )
+
+    def test_service_change_angle_gets_fact_frame(self) -> None:
+        topic = "네이버 AI 발표 소식"
+        result = _svc.generate_candidates(
+            topic=topic,
+            content_type="ai_work_tip",
+            topic_group="ai_work",
+            pattern_id="ai_work_time_savings",
+            candidate_raw={
+                "search_demand_topic": topic,
+                "search_angle": {"angle_type": "ai_service_change", "search_demand_topic": topic},
+            },
+        )
+        titles = [item.get("title", "") for item in result["candidates"]]
+        self.assertTrue(
+            any(("확인된 것" in t or "핵심 포인트" in t) for t in titles), titles
+        )
+
     def test_delivery_money_loss_title_has_separator(self) -> None:
         topic = "배달앱 결제금액 비교 전에 확인할 조건"
         result = _svc.generate_candidates(

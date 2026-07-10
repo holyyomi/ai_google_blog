@@ -712,10 +712,12 @@ def _build_contextual_hook_titles(
     if not seeds:
         return []
 
+    _search_angle = raw.get("search_angle", {}) if isinstance(raw.get("search_angle"), dict) else {}
     templates = _contextual_title_templates(
         content_type=content_type,
         topic_group=topic_group,
         pattern_id=pattern_id,
+        angle_type=str(_search_angle.get("angle_type") or raw.get("angle_type") or ""),
     )
     titles: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -776,6 +778,7 @@ def _contextual_title_templates(
     content_type: str,
     topic_group: str,
     pattern_id: str,
+    angle_type: str = "",
 ) -> list[tuple[str, str]]:
     if pattern_id == "tax_refund_hometax_check" or content_type == "tax_refund":
         return [
@@ -802,6 +805,22 @@ def _contextual_title_templates(
             ("loss", "{core} 실패 전에 확인할 기준"),
         ]
     if pattern_id == "ai_work_time_savings" or content_type == "ai_work_tip" or topic_group == "ai_work":
+        # 앵글별 프레임(2026-07-10): pricing/발표/규제 사건까지 전부 ai_work로 모이는데
+        # 하나의 "반복 업무/시간 단축" 틀만 쓰면 피드가 같은 제목으로 도배된다(라이브 실측:
+        # 발행 5건 제목이 전부 같은 계열). 제목 어휘는 title_body_entity_mismatch 게이트의
+        # stop-token(확인된/것/조건/정리/기준/먼저 등) 위주로 구성해 본문에 없는 명사를
+        # 새로 만들지 않는다 — "켜기/확인할" 사건(PR #28)의 교훈.
+        if angle_type == "money_compare":
+            return [
+                ("save_money", "{core}, 무료 기준 먼저 확인"),
+                ("loss", "{core}, 놓치면 더 내는 조건"),
+                ("search", "{core} 조건, 먼저 볼 3가지"),
+            ]
+        if angle_type in {"ai_service_change", "ai_policy_impact"}:
+            return [
+                ("search", "{core}, 확인된 것 먼저 정리"),
+                ("howto", "{core} 핵심 포인트 3가지"),
+            ]
         return [
             ("reason", "{core}, 왜 오히려 시간이 더 걸릴까"),
             ("howto", "{core}, 반복 업무부터 맡겨야 하는 이유"),

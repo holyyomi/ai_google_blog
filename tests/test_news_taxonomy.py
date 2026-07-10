@@ -134,3 +134,17 @@ def test_viral_search_demand_uses_correct_subject_particle() -> None:
     assert angle["angle_type"] == "viral_issue_decode"
     assert angle["search_demand_topic"].startswith("티빙이 ")
     assert "티빙가" not in angle["search_demand_topic"]
+
+
+def test_rank_stats_article_routes_to_general_life() -> None:
+    """앱 순위·이용자 통계 집계 기사는 실행할 내용이 없다 — AI 단어가 있어도
+    ai_work how-to 틀로 보내지 않는다 (2026-07-10 실측: 발행 시도만 소모)."""
+    text = "상반기 인기 앱 1위 유튜브...챗GPT, 이용자 16.4% 증가하며 17위"
+
+    assert classify_topic_group(text) == "general_life"
+
+
+def test_ai_howto_news_is_not_rank_stats() -> None:
+    text = "네이버 AI탭 스마트렌즈 기능 출시, 설정 방법 공개"
+
+    assert classify_topic_group(text).startswith("ai_")

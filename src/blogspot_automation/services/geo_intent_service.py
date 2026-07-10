@@ -339,7 +339,10 @@ class GeoIntentService:
                     parts.append(hook[:idx + len(sep)].strip())
                     break
             if not parts:
-                parts.append(hook[:80].strip() + ".")
+                # hook이 이미 문장부호로 끝나면 '.'을 덧붙이지 않는다 — "위임받는다.."
+                # 이중 마침표 글리치의 원인(2026-07-09 라이브 잔존 이슈).
+                clipped = hook[:80].strip()
+                parts.append(clipped if clipped.endswith((".", "!", "?")) else clipped + ".")
 
         # 독자 영향 (real_criterion 첫 줄) — 문장 경계 없이 100자에서 그냥 자르면
         # 중간에 끊긴 단어가 다음 part와 공백 하나로 붙어 "...생성 3 제미나이 3.5..."
@@ -389,7 +392,17 @@ class GeoIntentService:
             )
 
         result = " ".join(s.strip() for s in parts[:5] if s.strip())
-        return result[:500] if result else f"{topic}에 대한 핵심 정보를 아래에 정리했습니다."
+        # 방어적 정규화: 어느 경로로든 남은 이중 마침표를 정리한다
+        # (말줄임표 "..."는 보존, 숫자 소수점 "3.5"는 뒤가 숫자라 매칭 안 됨).
+        result = re.sub(r"(?<=[가-힣A-Za-z\)\]])\.\.(?!\.)", ".", result)
+        # 슬롯이 빈약해 결과가 최종 계약 최소 길이(35자, low_quality_ai_overview_answer)에
+        # 못 미치면 주제 안내 문장으로 보강한다. (과거엔 이중 마침표 버그가 중복 제거를
+        # 무력화해 같은 문장이 두 번 들어가며 우연히 길이를 채웠다 — 버그 수정으로
+        # 드러난 경로라 정직한 폴백으로 대체.)
+        if len(result) < 35:
+            filler = f"{topic}에서 확인된 내용과 직접 확인할 것을 본문에서 구분해 정리했습니다."
+            result = f"{result} {filler}".strip()
+        return result[:500]
 
     def generate_people_also_ask(
         self,
