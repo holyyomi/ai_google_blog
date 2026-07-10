@@ -100,11 +100,11 @@ jobs:
           OPENROUTER_MODEL_FALLBACK: "openai/gpt-oss-120b:free"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: "gpt-5-mini"
-          # Disable generated covers because image models often render broken Korean text.
-          # (과거 DISABLE_IMAGE_GENERATION/DISABLE_IMAGE_UPLOAD는 어떤 코드도 읽지 않는
-          #  죽은 env였음 — 2026-07-08 env 계약 테스트로 확인 후 제거. 실제 비활성화는
-          #  아래 ENABLE_COVER_IMAGE_AUTOGEN=false가 담당.)
-          ENABLE_COVER_IMAGE_AUTOGEN: "false"
+          # 2026-07-10 재활성화: cover_image_service의 _STYLE_SUFFIX가 wordless/textless를
+          # 강제해 한글 텍스트 깨짐 문제를 완화했음 확인 후 재개. (과거 DISABLE_IMAGE_GENERATION/
+          # DISABLE_IMAGE_UPLOAD는 어떤 코드도 읽지 않는 죽은 env였음 — 2026-07-08 env 계약
+          # 테스트로 확인 후 제거. 실제 on/off는 아래 ENABLE_COVER_IMAGE_AUTOGEN이 담당.)
+          ENABLE_COVER_IMAGE_AUTOGEN: "true"
           REQUIRE_NEWS_COVER_IMAGE: "false"
           # 커버 이미지 env — news_blog.yml과 동일. 이 두 줄이 없으면 발행 글에
           # 이미지가 하나도 없어 홈피드/검색/공유 썸네일이 비어 나간다 (라이브 실측).
