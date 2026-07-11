@@ -95,6 +95,24 @@ def ensure_answer_engine_optimized_html(
         content_type=resolved_type,
         hook=str(slots.get("hook_opening") or ""),
     )
+    # 리드 재사용 금지(2026-07-11): overview/issue-context는 본문 hook에서
+    # 문장을 그대로 가져와, 같은 리드가 한 글에 4~5회 반복 노출됐다(라이브
+    # 실측·독자 밀도 저하). 본문에 이미 있는 문장은 걷어내고, 걷어낸 뒤
+    # 최소 길이(발행 계약 low_quality_ai_overview_answer 35자)에 못 미치면
+    # 주제 안내 문장으로 보강한다.
+    _body_norm_for_dup = _dupcheck_norm(_plain_text(content))
+    overview = _drop_sentences_already_in_body(overview, _body_norm_for_dup)
+    if len(overview) < 35:
+        overview = (
+            f"{overview} {topic_text}에서 확인된 내용과 직접 확인할 것을 "
+            "본문에서 구분해 정리했습니다."
+        ).strip()
+    issue_context = _drop_sentences_already_in_body(issue_context, _body_norm_for_dup)
+    if len(issue_context) < 20:
+        issue_context = (
+            f"{issue_context} {topic_text}의 배경과 영향 범위는 본문에서 "
+            "확인된 사실 기준으로 정리했습니다."
+        ).strip()
     confirmed_map = service.generate_confirmed_vs_check_needed(
         content_type=resolved_type,
         topic_group=topic_group,
@@ -185,7 +203,11 @@ def ensure_answer_engine_optimized_html(
 
     tail_blocks: list[str] = []
     if 'id="AI_CITATION_SUMMARY"' not in content:
-        tail_blocks.append(_citation_summary_block(title=title, topic=topic_text, slots=slots))
+        tail_blocks.append(
+            _citation_summary_block(
+                title=title, topic=topic_text, slots=slots, body_norm=_body_norm_for_dup
+            )
+        )
     if 'id="CONFIRMED_VS_CHECK_NEEDED_BLOCK"' not in content:
         tail_blocks.append(_confirmed_vs_check_needed_block(confirmed_map, label=_varied_label("confirmed", _seed)))
     if 'id="SOURCE_TRUST_BLOCK"' not in content:
@@ -276,12 +298,62 @@ def _build_slots_from_html(html: str, *, title: str, topic: str) -> dict[str, An
             second_sentence = sentence
             break
     hook = first_sentence or f"{topic}에 대해 독자가 먼저 확인해야 할 핵심을 정리했습니다."
+    # yomi_judgment: 제목이 아니라 topic을 쓴다 — 제목은 쉼표·후킹 구두점이
+    # 섞여 문장 중간에 넣으면 비문이 된다(라이브 실측: "핵심은 구글 AI 검색
+    # 변화가, 먼저 확인할 3가지을 단순 반응이 아니라…"). 목적격 조사도
+    # 받침에 맞춘다(하드코딩 "을"이 "3가지을"을 만들었다).
+    _subject = " ".join((topic or title or "이 이슈").split()).strip()
     return {
         "hook_opening": hook,
         "real_criterion": second_sentence or _first_sentence(plain, max_len=160) or hook,
-        "yomi_judgment": f"핵심은 {title or topic}을 단순 반응이 아니라 실제 영향과 확인 기준으로 나누어 보는 것입니다.",
+        "yomi_judgment": (
+            f"핵심은 {_subject}{_object_particle(_subject)} 단순 반응이 아니라 "
+            "실제 영향과 확인 기준으로 나누어 보는 것입니다."
+        ),
         "faq": faq,
     }
+
+
+def _object_particle(word: str) -> str:
+    """목적격 조사(을/를) — 마지막 글자의 받침 여부로 고른다."""
+    cleaned = (word or "").strip()
+    if not cleaned:
+        return "을"
+    last = cleaned[-1]
+    code = ord(last)
+    if 0xAC00 <= code <= 0xD7A3:
+        return "을" if (code - 0xAC00) % 28 else "를"
+    if last.isdigit():
+        # 숫자는 한국어 읽기 기준: 0,1,3,6,7,8은 받침 있음(영·일·삼·육·칠·팔)
+        return "을" if last in "013678" else "를"
+    return "을"
+
+
+def _dupcheck_norm(text: str) -> str:
+    """문장 중복 판정용 정규화 — 공백 차이를 무시하고 비교한다."""
+    return re.sub(r"\s+", "", text or "")
+
+
+def _drop_sentences_already_in_body(text: str, body_norm: str, *, min_sentence_len: int = 12) -> str:
+    """본문에 이미 그대로 있는 문장을 블록 텍스트에서 걷어낸다.
+
+    배경(2026-07-11 라이브 실측): overview/issue-context/citation 블록이
+    본문 리드(hook)를 그대로 재사용해 같은 문장이 한 글에서 4~5회 반복됐다.
+    GEO 블록 ID는 발행 계약 필수라 블록 자체는 유지하되, 문장 단위로
+    본문과 겹치는 부분만 제거한다.
+    """
+    if not text or not body_norm:
+        return text or ""
+    kept: list[str] = []
+    pattern = re.compile(r".+?(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)|.+$")
+    for match in pattern.finditer(" ".join(text.split())):
+        sentence = match.group(0).strip()
+        if not sentence:
+            continue
+        if len(sentence) >= min_sentence_len and _dupcheck_norm(sentence) in body_norm:
+            continue
+        kept.append(sentence)
+    return " ".join(kept).strip()
 
 
 def _merge_questions(
@@ -339,11 +411,17 @@ def _section(section_id: str, css_class: str, heading: str, text: str) -> str:
     )
 
 
-def _citation_summary_block(*, title: str, topic: str, slots: dict[str, Any]) -> str:
+def _citation_summary_block(
+    *, title: str, topic: str, slots: dict[str, Any], body_norm: str = ""
+) -> str:
     hook = _first_sentence(str(slots.get("hook_opening") or ""), max_len=140)
     criterion = _first_sentence(str(slots.get("real_criterion") or ""), max_len=140)
     basis = _first_sentence(str(slots.get("yomi_judgment") or ""), max_len=140)
     sentences = [item for item in (hook, criterion, basis) if item]
+    # 본문 문장을 그대로 재사용하지 않는다 — 리드 4~5회 반복 노출의 한 축.
+    # yomi_judgment는 슬롯에서 합성한 문장이라 본문에 없어 살아남는다.
+    if body_norm:
+        sentences = [s for s in sentences if _dupcheck_norm(s) not in body_norm]
     if len(sentences) < 3:
         fallback_topic = topic or title or "이 주제"
         sentences.extend([

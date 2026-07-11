@@ -287,3 +287,23 @@ def test_audit_blocks_empty_table_cells() -> None:
     result = audit_final_html_quality(html)
 
     assert "empty_table_cells:1" in result["issues"]
+
+
+def test_stale_evidence_dates_warns_when_newest_citation_over_a_year_old() -> None:
+    # 실사례(2026-07-11): 발행일 기준 14개월 전 조사("2025년 5월")가 글의
+    # 유일한 연·월 근거였다. 비차단 경고로 관측한다.
+    from blogspot_automation.services.final_html_audit_service import (
+        _stale_evidence_warning,
+    )
+    from blogspot_automation.services.kst_clock import kst_today
+
+    today_year = int(kst_today("%Y"))
+    stale = _stale_evidence_warning(f"{today_year - 2}년 5월 기준 직장인 조사에서 확인됐다.")
+    assert stale.startswith("stale_evidence_dates:")
+
+    fresh = _stale_evidence_warning(
+        f"{today_year}년 1월 발표에 따르면 달라졌다. {today_year - 2}년 5월 조사와 비교된다."
+    )
+    assert fresh == ""
+
+    assert _stale_evidence_warning("날짜 인용이 없는 본문.") == ""
