@@ -540,3 +540,40 @@ def test_dedup_ignores_ai_setting_template_boilerplate_overlap() -> None:
         "original_topic": "구글 지도 제미나이 AI 기능 켜기 전에 확인할 설정"
     }
     assert dedup_service.is_duplicate(genuinely_same, history) is True
+
+
+def test_dedup_ignores_ai_token_and_reader_boilerplate_overlap() -> None:
+    """실측 회귀(2026-07-11 두 번째 publish_draft 리허설): 이 블로그는
+    AI 전용이라 'ai'가 후보·이력 텍스트 거의 전부에 등장하는 사실상의
+    도메인 불용어다. candidate.reason(스코어링 근거)의 상투 독자 설명
+    "AI 서비스 변화는 직장인 생산성과 연결돼…"이 과거 "...직장인 업무에
+    미치는 영향" 글과 'ai'+'직장인' 두 단어만 우연히 겹쳐, 실제로는
+    전혀 무관한 오픈AI 챗GPT 보이스 뉴스가 dedup에 걸려 발행 후보 전체가
+    소진됐다(candidate_pool_exhausted)."""
+    dedup_service = TopicDedupService(dedup_days=7)
+    candidate = ScoredNewsCandidate(
+        candidate=NewsCandidate(
+            topic="오픈AI 공개 AI 소식",
+            category="tech",
+            summary="",
+            raw={"original_topic": "오픈AI, 맥락 이해 '챗GPT 보이스' 공개…실시간 통역 가능"},
+        ),
+        freshness_score=20,
+        search_demand_score=20,
+        contrarian_gap_score=20,
+        mass_impact_score=20,
+        adsense_value_score=10,
+        hook_score=10,
+        risk_penalty=0,
+        total_score=82,
+        reason="AI 서비스 변화는 직장인 생산성과 연결돼 후킹 가능성이 있습니다.",
+    )
+    history = [
+        {
+            "date": date.today().isoformat(),
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+            "published": True,
+            "status": "published",
+        }
+    ]
+    assert dedup_service.is_duplicate(candidate, history) is False
