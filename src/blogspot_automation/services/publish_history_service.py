@@ -41,6 +41,18 @@ class PublishHistoryService:
 
     @staticmethod
     def is_published_record(record: dict[str, Any]) -> bool:
+        """이 레코드가 '라이브 블로그에 실제 존재하는 글'인지 판정한다.
+
+        주의: 발행 후 감사(post_publish_audit) 결과로 판정하면 안 된다.
+        감사가 advisory 이슈로 passed=False여도 글은 라이브에 남는다
+        (news_pipeline._execute_publish_flow — 치명 이슈만 삭제 후
+        blocked_by_post_publish_audit로 기록). 과거에 여기서
+        post_publish_audit_passed=False를 미발행 취급해, 라이브 발행 전건이
+        만성 감사 이슈로 dedup·엔티티 쿨다운 이력에서 사라졌고 같은 주제가
+        연속 발행됐다(2026-07-10/11 "구글 AI 검색 변화" 동일 주제 2연속 실측).
+        감사 품질로 거르고 싶은 소비자(내부링크 후보 등)는 각자
+        post_publish_audit_passed를 따로 봐야 한다(seo_policy.py 참고).
+        """
         status = str(record.get("status") or "").strip().lower()
         live_verified = _record_has_live_verification(record)
         if _record_has_dead_post_note(record):
@@ -48,8 +60,6 @@ class PublishHistoryService:
         if _as_bool(record.get("dry_run")) is True and not live_verified:
             return False
         if _as_bool(record.get("published")) is False and not live_verified:
-            return False
-        if _as_bool(record.get("post_publish_audit_passed")) is False and not live_verified:
             return False
         return (
             status in _PUBLISHED_STATUSES

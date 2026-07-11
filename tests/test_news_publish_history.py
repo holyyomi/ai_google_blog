@@ -414,15 +414,66 @@ def test_recent_records_published_only_filters_dry_run_and_deleted_successes(tmp
     assert [record["selected_topic"] for record in recent] == ["live post"]
 
 
-def test_published_record_filter_rejects_post_publish_audit_failures() -> None:
-    assert not PublishHistoryService.is_published_record(
+def test_published_record_filter_keeps_live_post_with_advisory_audit_failure() -> None:
+    # 발행 후 감사가 advisory 이슈로 passed=False여도 글은 라이브에 남는다
+    # (치명 이슈만 삭제 후 blocked_by_post_publish_audit로 기록됨).
+    # 과거 이 케이스를 미발행 취급해 dedup·엔티티 쿨다운이 라이브 발행
+    # 전체를 못 보게 됐고 같은 주제가 2연속 발행됐다(2026-07-10/11 실측).
+    assert PublishHistoryService.is_published_record(
         {
             "status": "published",
             "published": True,
+            "dry_run": False,
             "post_publish_audit_passed": False,
+            "post_publish_audit_issues": ["yomi_clean_layout_lede_count:0"],
+            "post_id": "3708147104118723691",
+            "url": "https://holyyomiai.blogspot.com/2026/07/live-post.html",
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+        }
+    )
+
+
+def test_published_record_filter_rejects_audit_blocked_deleted_post() -> None:
+    # 치명 감사 이슈로 삭제된 글은 status=blocked_by_post_publish_audit,
+    # published=False로 기록된다 — post_id가 남아 있어도 라이브가 아니다.
+    assert not PublishHistoryService.is_published_record(
+        {
+            "status": "blocked_by_post_publish_audit",
+            "published": False,
+            "dry_run": False,
+            "post_publish_audit_passed": False,
+            "post_id": "temporary-post-id",
+            "url": "https://example.com/deleted",
             "selected_topic": "deleted after audit",
         }
     )
+
+
+def test_recent_records_published_only_sees_audit_failed_live_posts(tmp_path) -> None:
+    # 회귀: 라이브 발행 전건이 만성 감사 이슈로 audit_passed=False일 때도
+    # dedup이 참조하는 published_only 목록에 반드시 남아야 한다.
+    service = PublishHistoryService(history_path=tmp_path / "publish_history.json")
+    service.append_record(
+        {
+            "date": date.today().isoformat(),
+            "run_at": "2026-07-10T12:49:45+00:00",
+            "status": "published",
+            "published": True,
+            "dry_run": False,
+            "post_publish_audit_passed": False,
+            "post_id": "3708147104118723691",
+            "url": "https://holyyomiai.blogspot.com/2026/07/ai-work.html",
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+        }
+    )
+
+    recent = service.recent_records(limit=10, published_only=True)
+
+    assert len(recent) == 1
+
+    dedup_service = TopicDedupService(dedup_days=7)
+    candidate = _scored_topic("구글 AI 검색 변화가 직장인 업무에 미치는 영향")
+    assert dedup_service.is_duplicate(candidate, recent) is True
 
 
 def test_published_record_filter_accepts_live_verified_audit_failure() -> None:
