@@ -1444,6 +1444,28 @@ class NewsQualityGate:
         )
         hits = sum(1 for kw in specific_keywords if kw in all_text)
         score += min(5, hits)
+        # AI 뉴스 보정(2026-07-11): 기본 목록이 소비자·정책 위주라 "오픈AI
+        # GPT-5.6 공개" 같은 고유명사 가득한 AI 뉴스가 무적중 5점 안팎에
+        # 갇혔고(18건 중 16건 specificity 차단), 재탕 에버그린만 게이트를
+        # 통과하는 역선택이 벌어졌다. 단, 브랜드명 하나만으로("직장인 ChatGPT
+        # 활용법") 특정성을 인정하면 generic 에버그린까지 통과하므로,
+        # AI 엔티티는 구체적 사건 신호와 동반될 때만 가점한다. 임계값 불변.
+        ai_entity_keywords = (
+            "오픈AI", "OpenAI", "챗GPT", "ChatGPT", "GPT", "제미나이", "Gemini",
+            "클로드", "Claude", "앤트로픽", "Anthropic", "미토스", "코파일럿", "Copilot",
+            "마이크로소프트", "퍼플렉시티", "미스트랄", "하이퍼클로바", "클로바",
+            "카나나", "갤럭시", "그록", "Grok", "라마", "Llama", "소라", "Sora",
+            # 플랫폼사도 사건 동반 시에만 가점(단독 언급은 기본 목록의 +1뿐)
+            "네이버", "카카오", "구글", "삼성", "애플",
+        )
+        ai_event_keywords = (
+            "공개", "발표", "업데이트", "도입", "돌파", "추월", "확대", "해제",
+            "수출통제", "이용률", "가입자", "다운로드",
+        )
+        ai_entity_hits = sum(1 for kw in ai_entity_keywords if kw in all_text)
+        ai_event_hits = sum(1 for kw in ai_event_keywords if kw in all_text)
+        if ai_entity_hits and ai_event_hits:
+            score += min(5, ai_entity_hits + ai_event_hits)
         # 사용자 승인(2026-06-09): 트렌딩/실검 후보는 트렌드 키워드 자체가 고유
         # 인물·사건·작품 엔티티 → specificity 신호로 인정. 소비자/정책 키워드 위주
         # 평가가 연예·스포츠·게임 트렌딩을 구조적으로 5점에 가두던 문제 보정.

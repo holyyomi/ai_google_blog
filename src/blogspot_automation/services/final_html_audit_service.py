@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from datetime import date
 from html import unescape
 from typing import Any
 
@@ -154,6 +155,9 @@ def audit_final_html_quality(
         warnings.append("viral_issue_contains_problem_solution_terms")
     if content_type == "today_issue_explainer" and _has_forced_action_terms(visible):
         warnings.append("timeline_issue_contains_forced_action_terms")
+    stale_evidence = _stale_evidence_warning(visible)
+    if stale_evidence:
+        warnings.append(stale_evidence)
 
     return {
         "passed": not issues,
@@ -468,3 +472,31 @@ def _has_problem_solution_terms(text: str) -> bool:
 
 def _has_forced_action_terms(text: str) -> bool:
     return sum(1 for token in ("신청 방법", "환급", "대응 절차", "오늘 바로 할 체크리스트") if token in text) >= 2
+
+
+def _stale_evidence_warning(visible: str) -> str:
+    """본문이 인용한 연·월 근거가 전부 12개월 이상 묵었으면 경고(비차단).
+
+    실사례(2026-07-11): 발행일이 2026-07인데 도입부 핵심 근거가 "2025년 5월
+    기준 직장인 조사"뿐이었다 — 뉴스 블로그 글이 14개월 전 통계로 굴러갔다.
+    날짜 인용이 아예 없는 글은 신호가 없으므로 경고하지 않고, 최근 12개월
+    내 날짜가 하나라도 있으면 오래된 배경 인용은 허용한다.
+    """
+    from blogspot_automation.services.kst_clock import kst_today
+
+    try:
+        today = date.fromisoformat(kst_today("%Y-%m-%d"))
+    except Exception:
+        return ""
+    cited: list[tuple[int, int]] = []
+    for match in re.finditer(r"(20\d{2})년\s*(\d{1,2})월", visible or ""):
+        year, month = int(match.group(1)), int(match.group(2))
+        if 1 <= month <= 12 and 2015 <= year <= today.year + 1:
+            cited.append((year, month))
+    if not cited:
+        return ""
+    newest_year, newest_month = max(cited)
+    age_months = (today.year - newest_year) * 12 + (today.month - newest_month)
+    if age_months >= 12:
+        return f"stale_evidence_dates:newest_{newest_year}-{newest_month:02d}"
+    return ""

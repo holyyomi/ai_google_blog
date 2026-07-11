@@ -19,6 +19,13 @@ STOPWORDS = {
     "진짜",
     "알고보니",
     "갑자기",
+    # 이 블로그는 AI 전용(ai_blog.yml)이라 "ai"가 후보·이력 텍스트 거의
+    # 전부에 등장하는 사실상의 도메인 불용어다. 겹침 임계값(>=2)에서
+    # "ai"가 한 자리를 공짜로 채우면, 나머지 한 단어만 우연히 겹쳐도
+    # 무관한 후보가 오탐 차단된다(2026-07-11 publish_draft 리허설 실측:
+    # "오픈AI 공개 AI 소식"이 candidate.reason의 상투어 "직장인"과
+    # 과거 "...직장인 업무에 미치는 영향" 글의 "직장인"만 겹쳐 차단).
+    "ai",
 }
 GENERIC_DEDUP_KEYWORD_PREFIXES = (
     "신청",
@@ -52,6 +59,20 @@ GENERIC_DEDUP_KEYWORDS = {
     "공식",
     "안내",
     "체크리스트",
+    # AI 뉴스 템플릿 상투어(2026-07-11): "{회사} AI 기능 설정" / "{회사} AI 소식"
+    # 틀이 실제 사건과 무관하게 매주 반복돼, 서로 다른 회사·뉴스인 후보끼리도
+    # "ai"+"기능"+"설정" 2단어 겹침으로 오탐 dedup 차단됐다(라이브 리허설 실측:
+    # 삼성D 게이밍 OLED 뉴스가 "구글 지도 AI 기능 설정"과 겹침 판정). 겹침
+    # 판정은 실제 엔티티·사건 단어로만 이뤄져야 한다.
+    "기능",
+    "설정",
+    "소식",
+    "공개",
+    # ScoredNewsCandidate.reason(스코어링 근거 문구)이 _candidate_texts()에
+    # 포함되는데, "AI 서비스 변화는 직장인 생산성과 연결돼…" 같은 상투
+    # 독자층 설명이 거의 모든 후보에 반복돼 실제 주제와 무관하게 겹침을
+    # 만든다(2026-07-11 리허설 실측).
+    "직장인",
 }
 
 # 회사/소재 쿨다운 (2026-07 운영 방침: 같은 회사·소재는 7일에 1회만 발행).
@@ -277,6 +298,7 @@ class TopicDedupService:
             for token in normalized.split()
             if token not in STOPWORDS
             and len(token) > 1
+            and not token.isdigit()
             and not self._is_generic_keyword(token)
         }
 
@@ -303,6 +325,12 @@ class TopicDedupService:
         return list(dict.fromkeys(values))
 
     def _history_texts(self, record: dict[str, Any]) -> list[str]:
+        # "url" 포함 이유: 토픽 필드가 비어도 슬러그 단어("ai-work-automation-
+        # productivity")가 근사매칭 신호가 된다. 대가: url이 "/2026/07/..."를
+        # 항상 포함해 "2026" 같은 순수 숫자 토큰이 모든 레코드에 공통으로
+        # 섞여 들어간다 — extract_keywords()가 숫자만인 토큰을 걸러내
+        # 이 오염을 차단한다(2026-07-11 라이브 리허설 실측: "AI"+"2026" 우연
+        # 일치로 무관한 후보 9개 전부가 dedup에 걸림).
         fields = (
             "topic",
             "selected_topic",

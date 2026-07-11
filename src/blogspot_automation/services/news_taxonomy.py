@@ -996,7 +996,15 @@ def build_search_angle(
                 angle_type="ai_risk_check",
             )
         if event == "model_release":
-            core = _dedupe_tokens(f"{product} 새 AI 모델 발표")
+            # 모델명(GPT-5.6 등)이 헤드라인에 있으면 topic에 보존한다 —
+            # "{회사} 새 AI 모델 발표"만으로는 어떤 모델인지 특정되지 않아
+            # specificity·원문보존 게이트와 검색 수요 모두에서 손해다.
+            _model_tokens = _distinctive_issue_tokens(original_topic, product=product, limit=2)
+            core = _dedupe_tokens(
+                f"{product} {' '.join(_model_tokens)} 새 AI 모델 발표"
+                if _model_tokens
+                else f"{product} 새 AI 모델 발표"
+            )
             return angle(
                 search_demand_topic=core,
                 questions=[
@@ -1094,7 +1102,18 @@ def build_search_angle(
                 angle_type="ai_setting",
             )
         # announcement — 신호 불명: 설정을 지어내지 않고 해설 프레임으로.
-        core = _dedupe_tokens(f"{product} AI {focus} 소식" if focus else f"{product} AI 소식")
+        # focus가 없으면 원문 헤드라인의 고유 토큰(모델명·수치·사건 명사)을
+        # topic에 보존한다. "{회사} AI 소식"만 남기면 서로 다른 뉴스가 같은
+        # 모양이 되어 specificity·원문보존 게이트에 막히고 중복 위험도 커진다.
+        if focus:
+            core = _dedupe_tokens(f"{product} AI {focus} 소식")
+        else:
+            _issue_tokens = _distinctive_issue_tokens(original_topic, product=product)
+            core = _dedupe_tokens(
+                f"{product} {' '.join(_issue_tokens)} AI 소식"
+                if _issue_tokens
+                else f"{product} AI 소식"
+            )
         return angle(
             search_demand_topic=core,
             questions=[
@@ -1288,10 +1307,21 @@ def _classify_ai_event(text: str) -> str:
         return "pricing"
     if any(t in haystack for t in ("보안", "유출", "해킹", "저작권", "환각", "리스크", "취약점", "딥페이크", "정보보호", "개인정보 침해")):
         return "risk"
-    if any(t in haystack for t in ("모델", "버전", "파라미터", "벤치마크")) and any(
-        t in haystack for t in ("공개", "출시", "발표", "업데이트", "선보")
-    ):
-        return "model_release"
+    # 안전·거버넌스·윤리 체계는 버전 번호("ASF 2.0")나 "출시"가 붙어도 모델
+    # 발표가 아니다 — 아래 버전 토큰 규칙보다 먼저 가른다.
+    _is_governance = any(
+        t in haystack
+        for t in ("안전성", "안전관리", "안전 체계", "거버넌스", "윤리", "책임있는", "책임 있는")
+    )
+    # "GPT-5.6 전면 공개"처럼 버전 토큰만 있고 "모델"이라는 단어가 없는
+    # 헤드라인도 모델 발표다 — 단어 부재로 announcement로 흘러가 "{회사} AI
+    # 소식"으로 뭉개지던 케이스(2026-07-10 실측: GPT-5.6 후보 4회 전부).
+    _has_release_verb = any(t in haystack for t in ("공개", "출시", "발표", "업데이트", "선보"))
+    if not _is_governance:
+        if any(t in haystack for t in ("모델", "버전", "파라미터", "벤치마크")) and _has_release_verb:
+            return "model_release"
+        if _has_release_verb and _VERSION_TOKEN_RE.search(haystack) and _has_ai_signal(haystack):
+            return "model_release"
     if any(t in haystack for t in ("규제", "법안", "기본법", "시행령", "소송", "제재", "가이드라인", "공정위", "법원")):
         return "regulation"
     if any(t in haystack for t in ("광고", "매출", "실적", "투자", "인수", "합병", "제휴", "협약", "상장", "수익화", "구조조정")):
@@ -1318,6 +1348,60 @@ def _dedupe_tokens(text: str) -> str:
         seen.add(tok)
         result.append(tok)
     return " ".join(result)
+
+
+# 버전/모델명 토큰: GPT-5.6, 미토스5, 제미나이 3.5, Llama4 …
+_VERSION_TOKEN_RE = re.compile(r"[A-Za-z가-힣][A-Za-z가-힣]*\s?[-]?\d+(?:\.\d+)*")
+# 수치+단위 토큰: 160만, 87%, 3억 …
+_METRIC_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?(?:만|억|조|%|퍼센트)")
+# 헤드라인의 사건 명사 — 원문 이슈를 topic에 보존할 때 우선 살릴 단어.
+_DISTINCTIVE_EVENT_NOUNS = (
+    "수출통제", "해제", "다운로드", "돌파", "추월", "이용률", "가입자",
+    "공개", "발표", "출시", "적용", "확대", "제휴", "인수", "합병",
+    "소송", "판결", "합의", "출범", "통합", "개편", "전환",
+)
+
+
+def _distinctive_issue_tokens(original_topic: str, *, product: str = "", limit: int = 3) -> list[str]:
+    """원문 헤드라인에서 이슈를 특정하는 토큰(모델명·수치·사건 명사)을 뽑는다.
+
+    배경(2026-07-11): announcement 폴백이 "{회사} AI 소식"(9자 안팎)으로
+    뭉개면서 GPT-5.6·수출통제 해제·160만 다운로드 같은 고유 맥락이 전부
+    소실됐다. 그 결과 issue_specificity(15자 미만 감점·키워드 무적중)와
+    original_issue_preservation(원문 토큰 0 보존)이 동시에 바닥나
+    신선 뉴스 18건 중 16건이 게이트에 막히고, 재탕 에버그린만 살아남는
+    역선택이 벌어졌다. 원문 토큰을 topic에 보존해 근원을 고친다.
+    """
+    text = (original_topic or "").strip()
+    if not text:
+        return []
+    product_compact = (product or "").replace(" ", "").lower()
+    picked: list[str] = []
+
+    def _add(token: str) -> None:
+        cleaned = token.strip(" ,.·'\"“”‘’[]()")
+        if not cleaned or len(cleaned) > 20:
+            return
+        compact = cleaned.replace(" ", "").lower()
+        if product_compact and compact in product_compact:
+            return
+        if any(compact == p.replace(" ", "").lower() for p in picked):
+            return
+        picked.append(cleaned)
+
+    for match in _VERSION_TOKEN_RE.finditer(text):
+        token = match.group(0)
+        # 글자부가 "AI"뿐이면 모델명이 아니라 "AI 160만" 같은 우연 결합이다.
+        letters = re.match(r"[A-Za-z가-힣]+", token)
+        if letters and letters.group(0).lower() in {"ai", "인공지능"}:
+            continue
+        _add(token)
+    for match in _METRIC_TOKEN_RE.finditer(text):
+        _add(match.group(0))
+    for noun in _DISTINCTIVE_EVENT_NOUNS:
+        if noun in text:
+            _add(noun)
+    return picked[: max(0, limit)]
 
 
 def _subject_particle(word: str) -> str:

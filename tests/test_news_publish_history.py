@@ -414,15 +414,66 @@ def test_recent_records_published_only_filters_dry_run_and_deleted_successes(tmp
     assert [record["selected_topic"] for record in recent] == ["live post"]
 
 
-def test_published_record_filter_rejects_post_publish_audit_failures() -> None:
-    assert not PublishHistoryService.is_published_record(
+def test_published_record_filter_keeps_live_post_with_advisory_audit_failure() -> None:
+    # 발행 후 감사가 advisory 이슈로 passed=False여도 글은 라이브에 남는다
+    # (치명 이슈만 삭제 후 blocked_by_post_publish_audit로 기록됨).
+    # 과거 이 케이스를 미발행 취급해 dedup·엔티티 쿨다운이 라이브 발행
+    # 전체를 못 보게 됐고 같은 주제가 2연속 발행됐다(2026-07-10/11 실측).
+    assert PublishHistoryService.is_published_record(
         {
             "status": "published",
             "published": True,
+            "dry_run": False,
             "post_publish_audit_passed": False,
+            "post_publish_audit_issues": ["yomi_clean_layout_lede_count:0"],
+            "post_id": "3708147104118723691",
+            "url": "https://holyyomiai.blogspot.com/2026/07/live-post.html",
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+        }
+    )
+
+
+def test_published_record_filter_rejects_audit_blocked_deleted_post() -> None:
+    # 치명 감사 이슈로 삭제된 글은 status=blocked_by_post_publish_audit,
+    # published=False로 기록된다 — post_id가 남아 있어도 라이브가 아니다.
+    assert not PublishHistoryService.is_published_record(
+        {
+            "status": "blocked_by_post_publish_audit",
+            "published": False,
+            "dry_run": False,
+            "post_publish_audit_passed": False,
+            "post_id": "temporary-post-id",
+            "url": "https://example.com/deleted",
             "selected_topic": "deleted after audit",
         }
     )
+
+
+def test_recent_records_published_only_sees_audit_failed_live_posts(tmp_path) -> None:
+    # 회귀: 라이브 발행 전건이 만성 감사 이슈로 audit_passed=False일 때도
+    # dedup이 참조하는 published_only 목록에 반드시 남아야 한다.
+    service = PublishHistoryService(history_path=tmp_path / "publish_history.json")
+    service.append_record(
+        {
+            "date": date.today().isoformat(),
+            "run_at": "2026-07-10T12:49:45+00:00",
+            "status": "published",
+            "published": True,
+            "dry_run": False,
+            "post_publish_audit_passed": False,
+            "post_id": "3708147104118723691",
+            "url": "https://holyyomiai.blogspot.com/2026/07/ai-work.html",
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+        }
+    )
+
+    recent = service.recent_records(limit=10, published_only=True)
+
+    assert len(recent) == 1
+
+    dedup_service = TopicDedupService(dedup_days=7)
+    candidate = _scored_topic("구글 AI 검색 변화가 직장인 업무에 미치는 영향")
+    assert dedup_service.is_duplicate(candidate, recent) is True
 
 
 def test_published_record_filter_accepts_live_verified_audit_failure() -> None:
@@ -437,3 +488,92 @@ def test_published_record_filter_accepts_live_verified_audit_failure() -> None:
             "selected_topic": "live but older structure",
         }
     )
+
+
+def test_dedup_ignores_url_year_token_false_positive_overlap() -> None:
+    """실측 회귀(2026-07-11 publish_draft 리허설): history record의 url이
+    항상 '/2026/07/...'를 포함해, extract_keywords가 숫자 토큰 "2026"을
+    유효 키워드로 뽑아냈다. 그 결과 "빌리빌리 월드 2026" 같은 무관한
+    후보가 'ai'+'2026' 두 단어 겹침만으로 아무 과거 글과도 dedup 오탐이
+    났다(9개 발행 가능 후보 전부 차단 → 발행 0건). 순수 숫자 토큰은
+    키워드로 인정하지 않아야 한다."""
+    dedup_service = TopicDedupService(dedup_days=7)
+    candidate = _scored_topic("삼성D AI 기능 설정")
+    candidate.candidate.raw = {
+        "original_topic": "삼성D, '빌리빌리 월드 2026' 참가…게이밍 OLED 공략 外"
+    }
+    history = [
+        {
+            "date": date.today().isoformat(),
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+            "url": "https://holyyomiai.blogspot.com/2026/07/ai-work.html",
+            "published": True,
+            "status": "published",
+        }
+    ]
+    assert dedup_service.is_duplicate(candidate, history) is False
+
+
+def test_dedup_ignores_ai_setting_template_boilerplate_overlap() -> None:
+    """실측 회귀: "{회사} AI 기능 설정" / "{회사} AI 소식" 템플릿이 실제
+    사건과 무관하게 반복돼, 완전히 다른 회사 뉴스끼리도 '기능'+'설정' 또는
+    'ai'+'소식' 겹침만으로 근거 없이 dedup 차단됐다. 상투어는 키워드
+    겹침 판정에서 제외해야 하고, 실제 겹치는 회사/사건이면 여전히
+    차단돼야 한다(음성 대조군)."""
+    dedup_service = TopicDedupService(dedup_days=7)
+    history = [
+        {
+            "date": date.today().isoformat(),
+            "selected_topic": "구글 지도+제미나이 AI 기능 켜기 전에 확인할 설정",
+            "published": True,
+            "status": "published",
+        }
+    ]
+    unrelated = _scored_topic("저커버그 AI 기능 설정")
+    unrelated.candidate.raw = {
+        "original_topic": "저커버그, 스레드 놔두고 3년 만에 머스크의 X에 게시글…메타 새 AI 공"
+    }
+    assert dedup_service.is_duplicate(unrelated, history) is False
+
+    genuinely_same = _scored_topic("구글 지도 제미나이 AI 기능 설정 확인")
+    genuinely_same.candidate.raw = {
+        "original_topic": "구글 지도 제미나이 AI 기능 켜기 전에 확인할 설정"
+    }
+    assert dedup_service.is_duplicate(genuinely_same, history) is True
+
+
+def test_dedup_ignores_ai_token_and_reader_boilerplate_overlap() -> None:
+    """실측 회귀(2026-07-11 두 번째 publish_draft 리허설): 이 블로그는
+    AI 전용이라 'ai'가 후보·이력 텍스트 거의 전부에 등장하는 사실상의
+    도메인 불용어다. candidate.reason(스코어링 근거)의 상투 독자 설명
+    "AI 서비스 변화는 직장인 생산성과 연결돼…"이 과거 "...직장인 업무에
+    미치는 영향" 글과 'ai'+'직장인' 두 단어만 우연히 겹쳐, 실제로는
+    전혀 무관한 오픈AI 챗GPT 보이스 뉴스가 dedup에 걸려 발행 후보 전체가
+    소진됐다(candidate_pool_exhausted)."""
+    dedup_service = TopicDedupService(dedup_days=7)
+    candidate = ScoredNewsCandidate(
+        candidate=NewsCandidate(
+            topic="오픈AI 공개 AI 소식",
+            category="tech",
+            summary="",
+            raw={"original_topic": "오픈AI, 맥락 이해 '챗GPT 보이스' 공개…실시간 통역 가능"},
+        ),
+        freshness_score=20,
+        search_demand_score=20,
+        contrarian_gap_score=20,
+        mass_impact_score=20,
+        adsense_value_score=10,
+        hook_score=10,
+        risk_penalty=0,
+        total_score=82,
+        reason="AI 서비스 변화는 직장인 생산성과 연결돼 후킹 가능성이 있습니다.",
+    )
+    history = [
+        {
+            "date": date.today().isoformat(),
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+            "published": True,
+            "status": "published",
+        }
+    ]
+    assert dedup_service.is_duplicate(candidate, history) is False

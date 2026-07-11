@@ -174,3 +174,53 @@ def test_visible_question_blocks_are_consolidated_to_intent_answers() -> None:
     assert "관련 검색어" in result
     assert "젠슨 황 방한은 왜 AI 반도체 이슈로 이어지나요?" not in result
     assert "젠슨 황 방한은 AI 반도체 이슈로 이어지" in result
+
+
+def test_geo_blocks_do_not_repeat_body_lede_verbatim() -> None:
+    # 실사례(2026-07-11): overview/issue-context/citation 블록이 본문 리드를
+    # 그대로 재사용해 같은 문장이 한 글에서 4~5회 노출됐다. 블록 ID는
+    # 유지하되 본문과 문장 단위 중복은 없어야 한다.
+    import re
+    from html import unescape
+
+    from blogspot_automation.services.answer_engine_policy import (
+        ensure_answer_engine_optimized_html,
+    )
+
+    lede = "구글 검색 결과 상단에 AI 개요가 자리 잡으면서 클릭 없이 답을 보는 방식이 일상이 됐다."
+    body = f"""
+    <article class="yomi-clean-post">
+    <h1>구글 AI 검색 변화, 업무에 쓰기 전 확인할 것</h1>
+    <p>{lede} 검토 없이 AI 요약을 복사해 쓰면 수정 시간이 길어진다.</p>
+    <h2>업무 유형별 기준</h2>
+    <p>번역과 자료 조사처럼 패턴이 정해진 작업은 초안 시간을 줄일 수 있다.</p>
+    </article>
+    """
+    out = ensure_answer_engine_optimized_html(
+        body,
+        title="구글 AI 검색 변화, 업무에 쓰기 전 확인할 것",
+        topic="구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+        content_type="ai_work_tip",
+        topic_group="ai_work",
+    )
+    visible = unescape(re.sub(r"<script\b.*?</script>", " ", out, flags=re.S | re.I))
+    visible = re.sub(r"<[^>]+>", " ", visible)
+    compact = re.sub(r"\s+", "", visible)
+    assert compact.count(re.sub(r"\s+", "", lede)) == 1
+    for block_id in (
+        "AI_OVERVIEW_TARGET_ANSWER",
+        "ISSUE_CONTEXT_BLOCK",
+        "INTENT_ANSWER_BLOCK",
+        "SOURCE_TRUST_BLOCK",
+    ):
+        assert f'id="{block_id}"' in out
+
+
+def test_yomi_judgment_uses_correct_object_particle() -> None:
+    # 실사례: 하드코딩 "을"이 "3가지을" 비문을 만들었다.
+    from blogspot_automation.services.answer_engine_policy import _object_particle
+
+    assert _object_particle("영향") == "을"
+    assert _object_particle("확인할 3가지") == "를"  # '지'는 받침 없음
+    assert _object_particle("기준") == "을"
+    assert _object_particle("GPT-5.6") == "을"  # 6=육, 받침 있음

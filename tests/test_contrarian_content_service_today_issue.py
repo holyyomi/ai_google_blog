@@ -16,7 +16,10 @@ def test_today_issue_explainer_fallback_uses_context_not_problem_solution() -> N
     plan = _today_issue_plan()
     html = ContrarianContentService().generate_html(plan)
 
-    assert "today_issue_explainer" in html
+    # today_issue 템플릿 사용 증거는 구조 마커로 확인한다. 과거에는
+    # "유형: today_issue_explainer" 내부 라벨 노출 라인이 이 역할을 겸했는데,
+    # 그 라벨은 독자에게 보이면 안 되는 정보라 제거됐다.
+    assert "variant-timeline" in html
     assert "확인된" in html
     assert "아직 확인" in html
     assert "관전 포인트" in html
