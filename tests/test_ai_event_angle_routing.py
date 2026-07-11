@@ -130,3 +130,28 @@ def test_non_ai_news_unaffected_by_ai_routing() -> None:
     assert build_search_angle("환불 지연 피해 급증, 소비자원 주의보")["angle_type"] in (
         "refund_action", "consumer_warning",
     )
+
+
+def test_model_release_detected_from_version_token_without_model_word() -> None:
+    """실측 회귀(2026-07-10): 'GPT-5.6 전면 공개'는 '모델' 단어가 없어
+    announcement로 흘러 '{회사} AI 소식'으로 뭉개졌다. 버전 토큰+발표 동사면
+    model_release로 라우팅하고 모델명을 topic에 보존한다."""
+    angle = build_search_angle("오픈AI, GPT-5.6 전면 공개…솔·테라·루나 3종")
+    assert angle["angle_type"] == "ai_model_release"
+    assert "GPT-5.6" in angle["search_demand_topic"]
+
+
+def test_announcement_fallback_preserves_distinctive_issue_tokens() -> None:
+    """실측 회귀(2026-07-10): announcement 폴백이 '{회사} AI 소식'(9자)으로
+    뭉개 서로 다른 뉴스가 같은 모양이 되고 specificity·원문보존 게이트에
+    막혔다. 원문의 모델명·수치·사건 명사를 topic에 보존해야 한다."""
+    angle = build_search_angle("앤트로픽 미토스5 수출통제 해제…중국 견제는 계속")
+    topic = angle["search_demand_topic"]
+    assert "미토스5" in topic
+    assert "수출통제" in topic or "해제" in topic
+
+    angle2 = build_search_angle("카카오 카나나 AI 160만 다운로드 돌파")
+    topic2 = angle2["search_demand_topic"]
+    assert "160만" in topic2 or "다운로드" in topic2
+    # "AI 160" 같은 우연 결합은 모델명으로 보존하지 않는다
+    assert "AI 160 " not in topic2 + " "
