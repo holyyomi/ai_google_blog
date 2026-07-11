@@ -52,6 +52,15 @@ GENERIC_DEDUP_KEYWORDS = {
     "공식",
     "안내",
     "체크리스트",
+    # AI 뉴스 템플릿 상투어(2026-07-11): "{회사} AI 기능 설정" / "{회사} AI 소식"
+    # 틀이 실제 사건과 무관하게 매주 반복돼, 서로 다른 회사·뉴스인 후보끼리도
+    # "ai"+"기능"+"설정" 2단어 겹침으로 오탐 dedup 차단됐다(라이브 리허설 실측:
+    # 삼성D 게이밍 OLED 뉴스가 "구글 지도 AI 기능 설정"과 겹침 판정). 겹침
+    # 판정은 실제 엔티티·사건 단어로만 이뤄져야 한다.
+    "기능",
+    "설정",
+    "소식",
+    "공개",
 }
 
 # 회사/소재 쿨다운 (2026-07 운영 방침: 같은 회사·소재는 7일에 1회만 발행).
@@ -277,6 +286,7 @@ class TopicDedupService:
             for token in normalized.split()
             if token not in STOPWORDS
             and len(token) > 1
+            and not token.isdigit()
             and not self._is_generic_keyword(token)
         }
 
@@ -303,6 +313,12 @@ class TopicDedupService:
         return list(dict.fromkeys(values))
 
     def _history_texts(self, record: dict[str, Any]) -> list[str]:
+        # "url" 포함 이유: 토픽 필드가 비어도 슬러그 단어("ai-work-automation-
+        # productivity")가 근사매칭 신호가 된다. 대가: url이 "/2026/07/..."를
+        # 항상 포함해 "2026" 같은 순수 숫자 토큰이 모든 레코드에 공통으로
+        # 섞여 들어간다 — extract_keywords()가 숫자만인 토큰을 걸러내
+        # 이 오염을 차단한다(2026-07-11 라이브 리허설 실측: "AI"+"2026" 우연
+        # 일치로 무관한 후보 9개 전부가 dedup에 걸림).
         fields = (
             "topic",
             "selected_topic",

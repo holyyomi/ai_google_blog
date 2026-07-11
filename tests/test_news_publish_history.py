@@ -488,3 +488,55 @@ def test_published_record_filter_accepts_live_verified_audit_failure() -> None:
             "selected_topic": "live but older structure",
         }
     )
+
+
+def test_dedup_ignores_url_year_token_false_positive_overlap() -> None:
+    """실측 회귀(2026-07-11 publish_draft 리허설): history record의 url이
+    항상 '/2026/07/...'를 포함해, extract_keywords가 숫자 토큰 "2026"을
+    유효 키워드로 뽑아냈다. 그 결과 "빌리빌리 월드 2026" 같은 무관한
+    후보가 'ai'+'2026' 두 단어 겹침만으로 아무 과거 글과도 dedup 오탐이
+    났다(9개 발행 가능 후보 전부 차단 → 발행 0건). 순수 숫자 토큰은
+    키워드로 인정하지 않아야 한다."""
+    dedup_service = TopicDedupService(dedup_days=7)
+    candidate = _scored_topic("삼성D AI 기능 설정")
+    candidate.candidate.raw = {
+        "original_topic": "삼성D, '빌리빌리 월드 2026' 참가…게이밍 OLED 공략 外"
+    }
+    history = [
+        {
+            "date": date.today().isoformat(),
+            "selected_topic": "구글 AI 검색 변화가 직장인 업무에 미치는 영향",
+            "url": "https://holyyomiai.blogspot.com/2026/07/ai-work.html",
+            "published": True,
+            "status": "published",
+        }
+    ]
+    assert dedup_service.is_duplicate(candidate, history) is False
+
+
+def test_dedup_ignores_ai_setting_template_boilerplate_overlap() -> None:
+    """실측 회귀: "{회사} AI 기능 설정" / "{회사} AI 소식" 템플릿이 실제
+    사건과 무관하게 반복돼, 완전히 다른 회사 뉴스끼리도 '기능'+'설정' 또는
+    'ai'+'소식' 겹침만으로 근거 없이 dedup 차단됐다. 상투어는 키워드
+    겹침 판정에서 제외해야 하고, 실제 겹치는 회사/사건이면 여전히
+    차단돼야 한다(음성 대조군)."""
+    dedup_service = TopicDedupService(dedup_days=7)
+    history = [
+        {
+            "date": date.today().isoformat(),
+            "selected_topic": "구글 지도+제미나이 AI 기능 켜기 전에 확인할 설정",
+            "published": True,
+            "status": "published",
+        }
+    ]
+    unrelated = _scored_topic("저커버그 AI 기능 설정")
+    unrelated.candidate.raw = {
+        "original_topic": "저커버그, 스레드 놔두고 3년 만에 머스크의 X에 게시글…메타 새 AI 공"
+    }
+    assert dedup_service.is_duplicate(unrelated, history) is False
+
+    genuinely_same = _scored_topic("구글 지도 제미나이 AI 기능 설정 확인")
+    genuinely_same.candidate.raw = {
+        "original_topic": "구글 지도 제미나이 AI 기능 켜기 전에 확인할 설정"
+    }
+    assert dedup_service.is_duplicate(genuinely_same, history) is True
