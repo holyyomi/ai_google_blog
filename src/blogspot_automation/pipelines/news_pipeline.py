@@ -3062,14 +3062,23 @@ class NewsPipeline:
         history_records: list[dict[str, Any]],
         recent_evergreen_axes: list[str] | None = None,
     ) -> list[ScoredNewsCandidate]:
-        preferred_axis = EvergreenTopicService.preferred_axis_by_weekday()
+        ai_blog_mode = self._ai_blog_mode_enabled()
+        preferred_axis = "ai_automation" if ai_blog_mode else EvergreenTopicService.preferred_axis_by_weekday()
         for item in scored:
             topic_group = self._candidate_topic_group(item)
             if str(item.candidate.raw.get("source_type") or "").lower() == "evergreen_fallback":
                 axis = str(item.candidate.raw.get("evergreen_axis") or "")
-                penalty = self._evergreen_axis_rotation_penalty(axis, recent_evergreen_axes or [])
-                if axis and axis == preferred_axis:
-                    penalty = max(-10, penalty - 5)
+                if ai_blog_mode:
+                    # ai_blog_mode restricts evergreen fallback to a single axis
+                    # (ai_automation, see _collect_evergreen_publish_fallback_candidates),
+                    # so there is no rotation to penalize — the weekday-based preferred_axis
+                    # rarely matches "ai_automation", which left the full repetition penalty
+                    # in place and silently zeroed out the evergreen fallback pool on most days.
+                    penalty = 0
+                else:
+                    penalty = self._evergreen_axis_rotation_penalty(axis, recent_evergreen_axes or [])
+                    if axis and axis == preferred_axis:
+                        penalty = max(-10, penalty - 5)
                 item.candidate.raw["evergreen_rotation_penalty"] = penalty
             else:
                 penalty = self._cooldown_penalty(topic_group, history_records)
