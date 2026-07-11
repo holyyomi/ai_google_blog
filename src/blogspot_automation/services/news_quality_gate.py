@@ -9,7 +9,7 @@ from blogspot_automation.models.news_models import ScoredNewsCandidate
 from blogspot_automation.services.answer_engine_policy import answer_engine_coverage
 from blogspot_automation.services.cover_image_policy import cover_image_coverage, cover_image_required_from_env
 from blogspot_automation.services.final_html_audit_service import audit_final_html_quality
-from blogspot_automation.services.news_focus_policy import evaluate_news_focus
+from blogspot_automation.services.news_focus_policy import ai_blog_mode_from_env, evaluate_news_focus
 from blogspot_automation.services.news_recommendation_policy import evaluate_news_recommendation_policy
 from blogspot_automation.services.news_taxonomy import is_delivery_money_text, is_tax_refund_text
 from blogspot_automation.services.publish_preview_scorecard import build_publish_preview_scorecard
@@ -234,12 +234,16 @@ class NewsQualityGate:
 
         axis_consecutive_count = int(raw.get("axis_consecutive_count") or 0)
         tax_refund_consecutive_count = int(raw.get("tax_refund_consecutive_count") or 0)
-        if evergreen_candidate and axis_consecutive_count >= 2:
+        # ai_blog_mode restricts evergreen fallback to a single axis (ai_automation) by
+        # design, so axis repetition is guaranteed and intentional, not a diversity risk —
+        # this warning/block was written for the multi-axis hybrid blog and would otherwise
+        # permanently block evergreen publishing after 2 consecutive uses of the one allowed axis.
+        if evergreen_candidate and axis_consecutive_count >= 2 and not ai_blog_mode_from_env():
             if publish_mode_active:
                 blocking_issues.append(f"evergreen_axis_repeated_3x:{evergreen_axis}")
             else:
                 warnings.append(f"evergreen_axis_repeated_3x:{evergreen_axis}")
-        elif evergreen_candidate and axis_consecutive_count == 1:
+        elif evergreen_candidate and axis_consecutive_count == 1 and not ai_blog_mode_from_env():
             warnings.append(f"evergreen_axis_repeated_twice:{evergreen_axis}")
         if evergreen_candidate and evergreen_axis == "tax_refund_support" and tax_refund_consecutive_count >= 1:
             warnings.append("tax_refund_axis_repeated_in_recent_runs")
