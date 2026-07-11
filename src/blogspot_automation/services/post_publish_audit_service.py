@@ -218,16 +218,42 @@ def _head_html(html: str) -> str:
 
 
 def _extract_post_article_html(html: str) -> str:
-    for pattern in (
-        r'<article\b[^>]*class=["\'][^"\']*\byomi-clean-post\b[^"\']*["\'][^>]*>.*?</article>',
-        r'<article\b[^>]*>.*?</article>',
-        r'<div\b[^>]*class=["\'][^"\']*\bpost-body\b[^"\']*["\'][^>]*>.*?</div>',
+    """감사 대상인 발행 본문 스코프를 추출한다.
+
+    주의: 본문은 FAQ(faq-item)·intent-qa 카드 등에 <article>을 중첩해서 쓴다.
+    과거 비탐욕 `.*?</article>` 매칭이 첫 중첩 닫힘 태그에서 스코프를 잘라
+    132KB 페이지 중 3KB만 감사했고, 리드·적응형 모듈이 전부 스코프 밖으로
+    밀려 라이브 발행 전건이 yomi_clean_layout_lede_count:0 등으로 만성
+    감사 실패했다(2026-07-11 실측 — 그 실패가 다시 dedup 원장을 오염시킴).
+    같은 태그가 중첩되는 컨테이너는 깊이 추적으로 닫힘 짝을 찾는다.
+    """
+    content = html or ""
+    for open_pattern, tag in (
+        (r'<article\b[^>]*class=["\'][^"\']*\byomi-clean-post\b[^"\']*["\'][^>]*>', "article"),
+        (r"<article\b[^>]*>", "article"),
+        (r'<div\b[^>]*class=["\'][^"\']*\bpost-body\b[^"\']*["\'][^>]*>', "div"),
     ):
-        match = re.search(pattern, html or "", flags=re.IGNORECASE | re.DOTALL)
+        match = re.search(open_pattern, content, flags=re.IGNORECASE | re.DOTALL)
         if match:
-            return match.group(0)
-    body_match = re.search(r"<body\b[^>]*>(.*?)</body>", html or "", flags=re.IGNORECASE | re.DOTALL)
-    return body_match.group(1) if body_match else (html or "")
+            scoped = _slice_to_matching_close(content, open_end=match.end(), tag=tag)
+            return content[match.start() : scoped]
+    body_match = re.search(r"<body\b[^>]*>(.*?)</body>", content, flags=re.IGNORECASE | re.DOTALL)
+    return body_match.group(1) if body_match else content
+
+
+def _slice_to_matching_close(html: str, *, open_end: int, tag: str) -> int:
+    """open_end(여는 태그 직후)부터 같은 태그의 짝이 맞는 닫힘 태그 끝 위치를 반환.
+
+    닫힘 짝을 못 찾으면(잘린 HTML 등) 문서 끝 — 스코프가 넓은 쪽이
+    좁게 잘리는 쪽보다 감사 누락이 없다.
+    """
+    token_re = re.compile(rf"<(/?){re.escape(tag)}\b[^>]*>", flags=re.IGNORECASE)
+    depth = 1
+    for token in token_re.finditer(html, open_end):
+        depth += -1 if token.group(1) else 1
+        if depth == 0:
+            return token.end()
+    return len(html)
 
 
 def _body_meta_description_present(html: str) -> bool:

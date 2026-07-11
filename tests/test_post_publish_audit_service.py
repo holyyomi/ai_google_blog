@@ -165,3 +165,44 @@ def test_audit_post_html_prefers_blogger_post_title_over_site_header_h1() -> Non
 
     assert result.actual_title == "젠슨 황 방한 보도, AI 반도체 이슈에서 먼저 볼 3가지"
     assert result.title_matches_expected
+
+
+def test_extract_post_article_scope_survives_nested_article_tags() -> None:
+    # 회귀: FAQ 카드가 <article class="faq-item">를 중첩하면, 비탐욕
+    # `.*?</article>` 매칭이 첫 중첩 닫힘에서 스코프를 잘라 리드·적응형
+    # 모듈이 전부 감사 밖으로 밀렸다(라이브 전건 만성
+    # yomi_clean_layout_lede_count:0 원인, 2026-07-11 실측).
+    from blogspot_automation.services.post_publish_audit_service import (
+        _extract_post_article_html,
+    )
+
+    html = """
+    <html><body>
+    <article class="yomi-clean-post">
+      <h1>제목</h1>
+      <div class="yomi-faq">
+        <article class="faq-item"><p class="faq-a">첫 답변</p></article>
+        <article class="faq-item"><p class="faq-a">둘째 답변</p></article>
+      </div>
+      <div class="yomi-note"><p>포인트</p></div>
+      <div class="confirmed-needed-box"><p>확인</p></div>
+      <div class="yomi-lede"><p>리드 문단</p></div>
+    </article>
+    <footer>테마 푸터</footer>
+    </body></html>
+    """
+
+    scope = _extract_post_article_html(html)
+
+    assert "yomi-lede" in scope
+    assert "confirmed-needed-box" in scope
+    assert "테마 푸터" not in scope
+
+    from blogspot_automation.services.final_html_audit_service import (
+        _clean_layout_metrics,
+    )
+
+    metrics = _clean_layout_metrics(scope)
+    assert metrics["present"] is True
+    assert metrics["lede_count"] == 1
+    assert metrics["adaptive_module_count"] >= 2
