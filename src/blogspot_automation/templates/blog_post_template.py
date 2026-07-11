@@ -23,13 +23,6 @@ _CSS = """
 .yomi-post a{color:#2563eb;text-decoration:none;font-weight:600;transition:all 0.2s ease}
 .yomi-post a:hover{color:#1d4ed8;text-decoration:underline;text-underline-offset:4px}
 
-/* Post Meta (Sleek Badges) */
-.post-meta{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.meta-tag{display:inline-flex;align-items:center;padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase}
-.meta-category{background:linear-gradient(135deg, #eff6ff, #dbeafe);color:#1e40af;border:1px solid rgba(59,130,246,0.2)}
-.meta-type{background:linear-gradient(135deg, #f0fdf4, #dcfce7);color:#166534;border:1px solid rgba(34,197,94,0.2)}
-.meta-date{font-size:0.8rem;color:#6b7280;margin-left:auto;font-weight:500}
-
 /* Summary Card (Dark Premium Glassmorphism) */
 .summary-card{background:linear-gradient(145deg, #111827, #1f2937);color:#fff;border-radius:16px;padding:24px;margin:24px 0;box-shadow:0 12px 32px -4px rgba(15,23,42,0.2), inset 0 1px 0 rgba(255,255,255,0.1);position:relative;overflow:hidden}
 .summary-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899)}
@@ -126,13 +119,13 @@ def render_full_post(
     today: str = "",
     schema_faq: list[dict] | None = None,
 ) -> str:
-    """LLM이 생성한 content_html을 완성된 블로그 포스트 HTML로 감싼다."""
-    today = today or kst_today("%Y.%m.%d")
+    """LLM이 생성한 content_html을 완성된 블로그 포스트 HTML로 감싼다.
+
+    category/content_type/today 인자는 post-meta 라벨 제거 후 본문 렌더에는
+    쓰이지 않지만, 호출부 호환을 위해 시그니처는 유지한다.
+    """
     title_esc = escape(title)
     meta_desc_esc = escape(meta_description or title[:120])
-
-    type_label = _TYPE_LABEL.get(content_type, content_type or "이슈")
-    category_esc = escape(category or "AI활용")
 
     normalized_labels = normalize_labels(labels or [])
 
@@ -188,16 +181,16 @@ def render_full_post(
         f'</script>'
     )
 
+    # post-meta 내부 라벨(카테고리/유형/기준일)은 독자용 정보가 아니다.
+    # 최종 발행의 yomi-clean 재렌더 CSS에 .post-meta 규칙이 없어 글 맨 위에
+    # 스타일 없는 생 텍스트("tech 유형: AI 활용 기준일: ...")로 노출됐다
+    # (2026-07-11 라이브 실측, 사용자 제거 요청). 기준일 안내는 하단
+    # SOURCE_TRUST_BLOCK이 "(YYYY-MM-DD 기준)"으로 이미 제공한다.
     return prepare_blogspot_html(f"""<meta name="description" content="{meta_desc_esc}">
 {_CSS}
 {article_ld_script}
 {faq_ld_script}
 <article class="yomi-clean-post">
-  <div class="post-meta">
-    <span class="meta-tag meta-category">{category_esc}</span>
-    <span class="meta-tag meta-type">유형: {escape(type_label)}</span>
-    <span class="meta-date">기준일: {today}</span>
-  </div>
   <h1>{title_esc}</h1>
   <div class="post-content">
 {content_html}

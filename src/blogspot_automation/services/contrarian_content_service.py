@@ -2061,7 +2061,6 @@ class ContrarianContentService:
 <body>
   <article class="wrap visual-article variant-{variant}">
     <h1>{title}</h1>
-    <p class="meta">카테고리: AI활용 · 유형: {render_type} · 기준일: {today}</p>
 {hero_html}
 {target_reader_html}
 {core_message_html}
@@ -2191,7 +2190,6 @@ class ContrarianContentService:
 <body>
   <article class="wrap visual-article variant-{variant}">
     <h1>{title}</h1>
-    <p class="meta">카테고리: AI활용 · 유형: {content_type} · 기준일: {today}</p>
 {hero_html}
 {target_reader_html}
 {core_message_html}
@@ -2373,7 +2371,6 @@ class ContrarianContentService:
 <body>
   <article class="wrap visual-article variant-timeline">
     <h1>{title}</h1>
-    <p class="meta">카테고리: AI뉴스해석 · 유형: today_issue_explainer · 기준일: {today}</p>
 {hero_html}
 {target_reader_html}
 {core_message_html}
@@ -2495,7 +2492,6 @@ class ContrarianContentService:
 <body>
   <article class="wrap visual-article variant-viral">
     <h1>{title}</h1>
-    <p class="meta">카테고리: 연예·스포츠·OTT · 유형: viral_issue_decode · 기준일: {today}</p>
 {hero_html}
 {target_reader_html}
 {core_message_html}
@@ -2600,7 +2596,6 @@ class ContrarianContentService:
 <body>
   <article class="wrap visual-article variant-{variant}">
     <h1>{title}</h1>
-    <p class="meta">카테고리: 생활비 · 유형: money_checklist · 기준일: {today}</p>
 {hero_html}
 {target_reader_html}
 {core_message_html}
@@ -2771,7 +2766,6 @@ class ContrarianContentService:
 <body>
   <article class="wrap">
     <h1>{title}</h1>
-    <p class="meta">카테고리: AI활용 · 유형: policy_benefit · 기준일: {today}</p>
 
     <p>{safe_display_topic}은 단순히 돈을 준다는 이야기가 아니라 대상 조건, 신청 기간, 증빙 기준에서 갈리는 문제다. 핵심은 누가 받을 수 있느냐보다, 내가 조건을 놓치지 않았는지 확인하는 것이다.</p>
     <p>특히 청년 지원금이나 정부 지원 사업은 이름이 비슷해도 소득 기준, 거주 요건, 신청 마감, 필요 서류가 다르면 결과가 달라진다. 환급 성격의 사업인지, 새로 신청해야 하는 지원금인지도 먼저 구분해야 한다.</p>
@@ -2925,7 +2919,6 @@ class ContrarianContentService:
 <body>
   <article class="wrap">
     <h1>{title}</h1>
-    <p class="meta">카테고리: 생활비 · 유형: delivery_money · 기준일: {today}</p>
 
     <p>{safe_display_topic}은 단순히 라이더 비용 문제가 아니라 소비자 결제금액, 자영업자 수수료, 플랫폼 쿠폰 정책이 한 번에 얽힌 문제다.</p>
     <p>핵심은 누가 더 받느냐보다, 비용이 어떤 이름으로 이동하느냐다. 배달료가 오르는 것처럼 보이는 순간에도 실제 부담은 메뉴 가격, 배달비, 쿠폰 조건, 무료배달 기준, 최소주문금액으로 나뉘어 표시된다.</p>
@@ -3062,7 +3055,6 @@ class ContrarianContentService:
 
         # -- 전체 본문 조립 --
         return f"""    <h1>{title}</h1>
-    <p class="meta">📍 카테고리: {category} · 유형: {profile_type} · 기준일: {today}</p>
 
     <p>{self._safe_text(hook_opener)}</p>
     <p>{self._safe_text(p1)}</p>
