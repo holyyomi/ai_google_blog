@@ -23632,5 +23632,96 @@
       "53419cecea2c",
       "40a8dc797357"
     ]
+  },
+  {
+    "run_at": "2026-07-13T23:26:51+00:00",
+    "date": "2026-07-13",
+    "title": "카카오 AI 카나나 기능 설정, 반복 업무부터 맡겨야 하는 이유",
+    "selected_topic": "카카오 AI 카나나 기능 설정",
+    "search_demand_topic": "카카오 AI 카나나 기능 설정",
+    "topic_group": "ai_work",
+    "content_type": "ai_work_tip",
+    "url": "https://holyyomiai.blogspot.com/2026/07/ai-work-automation-productivity-d7e6b.html",
+    "post_id": "3420556449493978891",
+    "internal_link_targets": [],
+    "source_type": "naver_news_search",
+    "evergreen_axis": "",
+    "fallback_reason": "",
+    "published": true,
+    "dry_run": false,
+    "quality_passed": true,
+    "reader_value_score": 100,
+    "article_focus_score": 100,
+    "ai_recommender_score": 100,
+    "shareability_score": 98,
+    "policy_specificity_score": 0,
+    "recommendation_policy_passed": true,
+    "recommendation_policy_signals": [
+      "table",
+      "faq",
+      "checklist",
+      "example",
+      "official_check",
+      "risk_or_mistake",
+      "updated_date"
+    ],
+    "publish_preview_score": 100,
+    "publish_preview_status": "pass",
+    "quality_blocking_issues": [],
+    "quality_warnings": [
+      "issue_specificity_below_7:6",
+      "original_issue_preservation_below_7:6"
+    ],
+    "auto_publish_allowed": true,
+    "auto_publish_blocking_reasons": [],
+    "post_publish_audit_passed": false,
+    "post_publish_audit_issues": [
+      "og_description_not_post_specific"
+    ],
+    "topic_engine_score": 55,
+    "topic_candidate_grade": "C",
+    "content_candidate_grade": "A",
+    "final_editorial_score": 83,
+    "golden_pattern_id": "ai_work_time_savings",
+    "golden_pattern_confidence": 100,
+    "golden_slot_fill_rate": 1.0,
+    "why_topic_selected": "topic_engine_score=55 + golden_matched=True + grade=C",
+    "why_topic_held": "",
+    "learning_signals": [
+      "post_publish_audit_failed",
+      "post_publish_issue:og_description_not_post_specific"
+    ],
+    "hashtags": [
+      "#AI활용",
+      "#업무자동화",
+      "#생산성",
+      "#AI도구"
+    ],
+    "artifact_dir": "runs/news_20260713_232648",
+    "status": "published",
+    "retry_attempt": 1,
+    "max_publish_attempts": "",
+    "content_fingerprint": [
+      "711de39714b4",
+      "2de1819ed6d9",
+      "f1bfd06c20f9",
+      "79a9e8431fe8",
+      "059bb9fab486",
+      "7ebe9b8282f2",
+      "314305e35892",
+      "1ad36cab425c",
+      "46a9182230ff",
+      "76f6f7560260",
+      "43523471e245",
+      "b2ad8c57c2d3",
+      "507f5bdc017f",
+      "3d53f4e41a3a",
+      "82c2aa132574",
+      "a7ebed4c0dcd",
+      "0e1280b745f3",
+      "563eb7840845",
+      "53419cecea2c",
+      "40a8dc797357"
+    ]
   }
 ]
