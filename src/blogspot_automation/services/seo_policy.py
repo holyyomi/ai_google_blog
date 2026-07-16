@@ -468,14 +468,30 @@ def strip_hashtag_sections(html: str) -> str:
     return trailing_hashtag_run.sub(r"\1", cleaned)
 
 
-def count_external_anchor_links(html: str, *, allowed_hosts: tuple[str, ...] = _ALLOWED_LINK_HOSTS) -> int:
+def count_external_anchor_links(
+    html: str,
+    *,
+    allowed_hosts: tuple[str, ...] = _ALLOWED_LINK_HOSTS,
+    extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
+) -> int:
+    """Count outbound anchors that would be stripped by strip_external_anchor_links.
+
+    extra_allowed_urls mirrors strip_external_anchor_links: exact-match citation
+    URLs the caller vouches for (fetched this run, not LLM-generated) don't count
+    as blockable external anchors here either — keeps the gate and the stripper
+    in agreement about which links are "real citations" vs. arbitrary outbound links.
+    """
     if not html:
         return 0
-    return sum(
-        1
-        for match in _ANCHOR_WITH_HREF_RE.finditer(html)
-        if _is_external_anchor_href(unescape(str(match.group("href") or "")).strip(), allowed_hosts=allowed_hosts)
-    )
+    extra_set = frozenset(extra_allowed_urls)
+    count = 0
+    for match in _ANCHOR_WITH_HREF_RE.finditer(html):
+        href = unescape(str(match.group("href") or "")).strip()
+        if href in extra_set:
+            continue
+        if _is_external_anchor_href(href, allowed_hosts=allowed_hosts):
+            count += 1
+    return count
 
 
 def strip_document_shell(html: str) -> str:

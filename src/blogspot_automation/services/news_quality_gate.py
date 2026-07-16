@@ -175,6 +175,7 @@ class NewsQualityGate:
         hashtags: list[str] | None = None,
         dry_run: bool = True,
         news_publish_mode: str = "dry_run",
+        extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
     ) -> dict[str, object]:
         blocking_issues: list[str] = []
         warnings: list[str] = []
@@ -715,7 +716,7 @@ class NewsQualityGate:
         if content_type == "tax_refund" and related_ai_box_match and "지원금" in related_ai_box_match.group():
             warnings.append("tax_refund_cta_contains_지원금")
 
-        external_anchor_count = count_external_anchor_links(html)
+        external_anchor_count = count_external_anchor_links(html, extra_allowed_urls=extra_allowed_urls)
         if external_anchor_count and publish_mode_active:
             blocking_issues.append("external_outbound_anchor_present")
         elif external_anchor_count:
