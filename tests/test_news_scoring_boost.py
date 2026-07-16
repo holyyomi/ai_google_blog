@@ -84,6 +84,35 @@ class TestFreshNewsCandidateBoost(unittest.TestCase):
         # base +5 + consumer_warning +3 = at least 8
         self.assertGreaterEqual(sb["fresh_news_candidate_boost"], 8)
 
+    def test_ai_pricing_candidate_is_not_routed_to_delivery_money_checklist(self):
+        """실측 회귀(GHA run 29464514437): "gpt-image-1·Grok Imagine 요금 폭등,
+        무료 한도 확인" 같은 AI 가격 뉴스가 topic_group=delivery_money,
+        content_type=money_checklist로 강제 분류되어 배달앱 전용 게이트
+        (money_checklist_missing_example_box/final_payment_amount,
+        delivery_money_specific_terms_missing)에 구조적으로 막혔다.
+
+        원인: news_taxonomy.build_search_angle이 AI "pricing" 이벤트와 배달앱/
+        생활비 비교 이벤트에 동일한 angle_type="money_compare"를 부여하는데,
+        NewsScoringService._topic_group_from_search_angle/_build_content_angle이
+        이 값만 보고 무조건 delivery_money/money_checklist로 강제했다. AI 신호가
+        있으면 ai_work(_tip)로 라우팅되어야 한다."""
+        sc = NewsScoringService()
+        cand = _candidate(
+            topic="gpt-image-1·Grok Imagine 요금 폭등, 무료 한도 확인",
+            summary="OpenAI와 xAI가 이미지 생성 API 요금을 잇따라 인상하면서 무료 한도 축소 우려가 커졌다.",
+            category="ai",
+            source_type="google_news_rss",
+        )
+
+        scored = sc.score_candidates([cand])[0]
+        raw = scored.candidate.raw
+
+        self.assertEqual(raw["search_angle"]["angle_type"], "money_compare")
+        self.assertEqual(raw["topic_group"], "ai_work")
+        self.assertEqual(raw["content_angle"]["content_type"], "ai_work_tip")
+        self.assertNotEqual(raw["topic_group"], "delivery_money")
+        self.assertNotEqual(raw["content_angle"]["content_type"], "money_checklist")
+
     def test_privacy_warning_does_not_become_money_compare(self):
         sc = NewsScoringService()
         cand = _candidate(
