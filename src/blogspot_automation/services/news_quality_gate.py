@@ -175,6 +175,7 @@ class NewsQualityGate:
         hashtags: list[str] | None = None,
         dry_run: bool = True,
         news_publish_mode: str = "dry_run",
+        extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
     ) -> dict[str, object]:
         blocking_issues: list[str] = []
         warnings: list[str] = []
@@ -715,7 +716,7 @@ class NewsQualityGate:
         if content_type == "tax_refund" and related_ai_box_match and "지원금" in related_ai_box_match.group():
             warnings.append("tax_refund_cta_contains_지원금")
 
-        external_anchor_count = count_external_anchor_links(html)
+        external_anchor_count = count_external_anchor_links(html, extra_allowed_urls=extra_allowed_urls)
         if external_anchor_count and publish_mode_active:
             blocking_issues.append("external_outbound_anchor_present")
         elif external_anchor_count:
@@ -1461,14 +1462,50 @@ class NewsQualityGate:
             "카나나", "갤럭시", "그록", "Grok", "라마", "Llama", "소라", "Sora",
             # 플랫폼사도 사건 동반 시에만 가점(단독 언급은 기본 목록의 +1뿐)
             "네이버", "카카오", "구글", "삼성", "애플",
+            # AI 반도체/로봇/제조 밸류체인 대기업(2026-07-16, GHA run
+            # 29468907597 회귀 대응): "엔비디아·도요타·화낙 AI 동맹" 같은
+            # 하드웨어/피지컬 AI 제휴 뉴스가 소비자용 AI 서비스명 목록에만
+            # 없어 오차단됐다. 개별 회사 하나씩 반응형으로 늘리는 대신
+            # AI 밸류체인에서 반복 등장하는 카테고리를 한 번에 채운다.
+            "엔비디아", "NVIDIA", "인텔", "Intel", "퀄컴", "Qualcomm",
+            "TSMC", "브로드컴", "Broadcom", "ARM", "도요타", "Toyota",
+            "화낙", "Fanuc", "테슬라", "Tesla", "아마존", "Amazon",
+            "메타", "Meta", "화웨이", "Huawei", "IBM", "소프트뱅크", "SoftBank",
         )
         ai_event_keywords = (
             "공개", "발표", "업데이트", "도입", "돌파", "추월", "확대", "해제",
             "수출통제", "이용률", "가입자", "다운로드",
+            # 가격/요금 변동 이벤트(2026-07-16, GHA run 29464514437 회귀 대응):
+            # "요금 폭등", "무료 한도" 같은 정당하고 구체적인 AI 가격 뉴스에
+            # 대응하는 이벤트 키워드가 없어 generic 취급되어 issue_specificity
+            # 게이트에 오차단됐다.
+            "요금", "가격", "인상", "폭등", "무료", "유료", "한도", "요금제",
+            # 사고/보안/제휴 이벤트(2026-07-16, GHA run 29468907597 회귀
+            # 대응): "그록 소스코드 무단수집 논란" 같은 사고성 뉴스와
+            # "AI 협력 확대" 같은 제휴 뉴스가 이벤트 목록에 없어 오차단됐다.
+            "논란", "유출", "해킹", "보안", "취약점", "소송", "제재",
+            "협력", "동맹", "파트너십", "제휴",
         )
-        ai_entity_hits = sum(1 for kw in ai_entity_keywords if kw in all_text)
+        # 실측 사건(2026-07-16): 스크랩된 토픽 문자열에 "gpt-image-1",
+        # "claude-4"처럼 소문자/하이픈 표기가 섞여 대소문자 구분 매칭("GPT")이
+        # 실제 AI 제품명을 놓쳤다. 엔티티 매칭만 대소문자 무시로 바꾼다
+        # (이벤트 키워드 매칭은 기존 그대로 유지 — 스코프 최소화).
+        all_text_lower = all_text.lower()
+        ai_entity_matches = [kw for kw in ai_entity_keywords if kw.lower() in all_text_lower]
+        # 부분 문자열 중복 제거: "GPT"는 "ChatGPT"/"챗GPT"의 부분 문자열이라 같은
+        # 언급 하나가 엔티티 2개로 잡혔다 — 아래 entity_hits>=2(복수 개체 동시
+        # 언급) 신호가 "ChatGPT" 단독 언급 하나에도 오발동하는 원인이었다.
+        distinct_entity_matches = [
+            kw for kw in ai_entity_matches
+            if not any(kw != other and kw.lower() in other.lower() for other in ai_entity_matches)
+        ]
+        ai_entity_hits = len(distinct_entity_matches)
         ai_event_hits = sum(1 for kw in ai_event_keywords if kw in all_text)
-        if ai_entity_hits and ai_event_hits:
+        # 서로 다른 개체 2개 이상이 함께 언급되면(예: "엔비디아·도요타·화낙")
+        # 그 자체로 구체적 사건/관계를 시사하므로, 고정 이벤트 단어가 없어도
+        # 특정성으로 인정한다 — 매번 새 이벤트 단어를 추가하는 대신 "복수
+        # 개체 동시 언급"이라는 더 일반적인 신호로 대응(2026-07-16 재검토).
+        if ai_entity_hits and (ai_event_hits or ai_entity_hits >= 2):
             score += min(5, ai_entity_hits + ai_event_hits)
         # 사용자 승인(2026-06-09): 트렌딩/실검 후보는 트렌드 키워드 자체가 고유
         # 인물·사건·작품 엔티티 → specificity 신호로 인정. 소비자/정책 키워드 위주

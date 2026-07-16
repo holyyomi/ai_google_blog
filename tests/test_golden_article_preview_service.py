@@ -199,6 +199,70 @@ class TestGoldenArticlePreviewService(unittest.TestCase):
         self.assertNotIn("보기 전에 확인할 핵심 포인트", html)
 
     # ------------------------------------------------------------------ #
+    # 2026-07-16 회귀 — 실제 검색 인용 URL이 official_sources.py의 빈 매핑을 대체 #
+    # ------------------------------------------------------------------ #
+
+    def test_ai_pattern_without_llm_citations_has_no_source_links(self) -> None:
+        # ai_work_time_savings는 official_sources.py에 빈 튜플로 매핑돼 있어
+        # (한국 정부기관 URL이 있을 수 없는 AI 뉴스이므로) 실제 인용 URL이 없으면
+        # SOURCE_TRUST_BLOCK에 링크가 생기지 않는 것이 맞다(조작 링크 금지).
+        from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+        from blogspot_automation.services.slot_filler_service import SlotFillerService
+
+        ps = GoldenPatternService()
+        sf = SlotFillerService()
+        topic = "직장인이 ChatGPT를 써도 시간이 안 줄어드는 이유"
+        pattern_match = ps.match_pattern(topic=topic, content_type="ai_work_tip", topic_group="ai_work")
+        slot_result = sf.fill_slots(pattern_id=str(pattern_match.get("pattern_id")), topic=topic)
+
+        html = self.svc.render_article_candidate_html(pattern_match, slot_result, selected_title=topic)
+
+        source_block = html.split('id="SOURCE_TRUST_BLOCK"')[1].split("</section>")[0]
+        self.assertNotIn("<a href=", source_block)
+
+    def test_ai_pattern_with_llm_citations_gets_real_source_links(self) -> None:
+        # ai_slot_enricher가 Naver/Exa에서 실제로 얻은 인용 URL을
+        # slots["_llm_source_citations"]에 담아 넘기면, official_sources.py의
+        # 빈 매핑 대신 그 실제 링크가 SOURCE_TRUST_BLOCK에 렌더링돼야 한다.
+        from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+        from blogspot_automation.services.slot_filler_service import SlotFillerService
+
+        ps = GoldenPatternService()
+        sf = SlotFillerService()
+        topic = "직장인이 ChatGPT를 써도 시간이 안 줄어드는 이유"
+        pattern_match = ps.match_pattern(topic=topic, content_type="ai_work_tip", topic_group="ai_work")
+        slot_result = sf.fill_slots(pattern_id=str(pattern_match.get("pattern_id")), topic=topic)
+        slot_result["slots"]["_llm_source_citations"] = [
+            {"name": "관련 보도 A", "url": "https://news.example.com/a"},
+            {"name": "관련 보도 B", "url": "https://news.example.com/b"},
+        ]
+
+        html = self.svc.render_article_candidate_html(pattern_match, slot_result, selected_title=topic)
+
+        source_block = html.split('id="SOURCE_TRUST_BLOCK"')[1].split("</section>")[0]
+        self.assertIn('href="https://news.example.com/a"', source_block)
+        self.assertIn('href="https://news.example.com/b"', source_block)
+
+    def test_llm_citations_with_bad_scheme_are_ignored(self) -> None:
+        from blogspot_automation.services.golden_pattern_service import GoldenPatternService
+        from blogspot_automation.services.slot_filler_service import SlotFillerService
+
+        ps = GoldenPatternService()
+        sf = SlotFillerService()
+        topic = "직장인이 ChatGPT를 써도 시간이 안 줄어드는 이유"
+        pattern_match = ps.match_pattern(topic=topic, content_type="ai_work_tip", topic_group="ai_work")
+        slot_result = sf.fill_slots(pattern_id=str(pattern_match.get("pattern_id")), topic=topic)
+        slot_result["slots"]["_llm_source_citations"] = [
+            {"name": "잘못된 스킴", "url": "javascript:alert(1)"},
+            {"name": "", "url": "https://news.example.com/no-name"},
+        ]
+
+        html = self.svc.render_article_candidate_html(pattern_match, slot_result, selected_title=topic)
+
+        source_block = html.split('id="SOURCE_TRUST_BLOCK"')[1].split("</section>")[0]
+        self.assertNotIn("<a href=", source_block)
+
+    # ------------------------------------------------------------------ #
     # 작업 F — 빈 슬롯은 섹션 미출력                                        #
     # ------------------------------------------------------------------ #
 

@@ -176,6 +176,79 @@ class TestIssueSpecificity(unittest.TestCase):
 
         self.assertGreaterEqual(score, 6)
 
+    def test_lowercase_ai_product_name_matches_entity_case_insensitively(self):
+        # 회귀 테스트(2026-07-16, GHA run 29464514437): 스크랩된 토픽에 섞인
+        # 소문자/하이픈 표기("gpt-image-1")가 대소문자 구분 매칭("GPT")에
+        # 걸리지 않아 이벤트 키워드("공개")가 있어도 combined 가점이 전혀
+        # 붙지 않고 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="gpt-image-1 공개 이후 사용자 반응 정리",
+            original_topic="",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"소문자 AI 제품명이 포함된 후보 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
+    def test_pricing_surge_ai_topic_scores_as_specific(self):
+        # 회귀 테스트(2026-07-16, GHA run 29464514437): "요금 폭등", "무료
+        # 한도" 같은 정당하고 구체적인 AI 가격 뉴스가 ai_event_keywords에
+        # 가격/요금 어휘가 전혀 없어 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="클로드 요금제 유료 전환, 무료 한도 폐지",
+            original_topic="",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"AI 가격/요금 인상 뉴스 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
+    def test_ai_hardware_alliance_multi_entity_scores_as_specific(self):
+        # 회귀 테스트(2026-07-16, GHA run 29468907597): "엔비디아·도요타·화낙
+        # AI 협력 확대" 같은 반도체/제조 밸류체인 제휴 뉴스가 소비자용 AI
+        # 서비스명 위주 엔티티 목록에 안 걸려 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="재팬 패싱 지우기 확대 AI 소식",
+            original_topic="‘재팬 패싱’ 지우기 나선 엔비디아… 도요타·화낙과 AI 협력 확대 - 조선비즈",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"엔비디아·도요타·화낙 제휴 뉴스 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
+    def test_ai_incident_controversy_scores_as_specific(self):
+        # 회귀 테스트(2026-07-16, GHA run 29468907597): "그록 빌드 소스코드
+        # 무단수집 논란" 같은 사고/보안 뉴스가 ai_event_keywords에 사고성
+        # 어휘가 없어 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="그록 빌드 AI 데이터 소식",
+            original_topic="'그록 빌드', 소스코드·인증키 무단 수집 논란...머스크 \"업로드 데이터 전면 삭제\" - AI타임스",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"그록 소스코드 무단수집 논란 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
+    def test_generic_book_column_with_ai_mention_stays_low_specificity(self):
+        # 가드 테스트(2026-07-16): 같은 리허설에서 세 번째로 막힌 후보는
+        # 실제로는 "AI 반도체 경쟁" 검색어로 잘못 걸려든 주간 서평 칼럼
+        # ("흔들리지 않는 투자자 外[이주의 책")이었다 — issue_specificity가
+        # 이 후보를 막은 건 올바른 동작이었다. 엔티티/이벤트 키워드를
+        # 늘리면서 이런 일반 콘텐츠까지 통과시키지 않는지 확인한다.
+        scored = _make_scored(
+            topic="흔들리지 않는 투자자 AI 데이터 확대",
+            original_topic="흔들리지 않는 투자자 外[이주의 책",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertLess(
+            score, 6,
+            f"AI와 무관한 서평 칼럼 issue_specificity가 {score}로 통과 임계값을 넘었음(과도한 완화 회귀)",
+        )
+
     def test_ai_evergreen_low_issue_specificity_warns_not_blocks(self):
         gate = NewsQualityGate()
         title = "직장인 ChatGPT, 시간 줄이려면 먼저 볼 3가지"

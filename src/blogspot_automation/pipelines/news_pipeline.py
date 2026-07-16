@@ -1033,6 +1033,7 @@ class NewsPipeline:
             # LLM 기반 고품질 생성 우선 시도, 실패 시 기존 서비스 폴백
             html = None
             _llm_used = False
+            _llm_source_citations: list[dict[str, str]] = []
             if self.llm_content_service:
                 try:
                     _raw = selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
@@ -1050,6 +1051,11 @@ class NewsPipeline:
                     )
                     if html:
                         _llm_used = True
+                        # generate_html이 내부적으로 수집한 실제 인용 URL(Naver/Exa) —
+                        # SOURCE_TRUST_BLOCK에 실제 <a href> 근거로 전달한다.
+                        _llm_source_citations = list(
+                            getattr(self.llm_content_service, "last_source_citations", None) or []
+                        )
                         logger.info("NewsPipeline: LLM 콘텐츠 생성 성공 (%d자)", len(html))
                     else:
                         logger.warning("NewsPipeline: LLM 반환 None — ContrarianContentService 폴백")
@@ -1075,6 +1081,7 @@ class NewsPipeline:
                 content_type=str(content_angle_summary.get("content_type") or ""),
                 topic_group=str(selected.candidate.raw.get("topic_group") or ""),
                 reader_questions=list(selected.candidate.raw.get("reader_search_questions") or []),
+                source_citations=_llm_source_citations,
             )
             meta_description = normalize_search_description(
                 title=best_title.title,
@@ -1124,6 +1131,14 @@ class NewsPipeline:
                 1 for _ax in recent_evergreen_axes[:2] if _ax == "tax_refund_support"
             )
             publish_mode_active = (not self.dry_run) or self.news_publish_mode == "publish"
+            # _llm_source_citations는 실제 Naver/Exa API 응답에서 나온 URL이라
+            # SOURCE_TRUST_BLOCK에 <a href>로 남아있다 — 게이트의 외부 앵커 차단이
+            # 이 URL까지 잡지 않도록 같은 예외를 넘긴다(strip_external_anchor_links와 동일 계약).
+            _llm_citation_urls = tuple(
+                str(c.get("url", "")).strip()
+                for c in _llm_source_citations
+                if isinstance(c, dict) and str(c.get("url", "")).strip()
+            )
             publish_quality_gate = self.quality_gate.evaluate(
                 selected=selected,
                 selected_title=best_title.title,
@@ -1134,6 +1149,7 @@ class NewsPipeline:
                 hashtags=final_hashtags,
                 dry_run=self.dry_run,
                 news_publish_mode=self.news_publish_mode,
+                extra_allowed_urls=_llm_citation_urls,
             )
             # 콘텐츠 품질: LLM 서술형 본문이 자체 품질 게이트를 통과했는지 여기서 캡처한다.
             # 통과했다면 아래 golden_preview promotion에서 발행 가부·플래그는 그대로 두되
@@ -1279,10 +1295,23 @@ class NewsPipeline:
                 and _sge_ready
                 and _grade in ("A", "B")
             ):
+                # render_article_candidate_html이 이미 SOURCE_TRUST_BLOCK에 실제
+                # 인용 URL을 넣고 prepare_blogspot_html의 외부 링크 제거를 한 번
+                # 통과시켰다 — 이 두 번째 prepare_blogspot_html 호출에서 같은
+                # extra_allowed_urls를 넘기지 않으면 그 URL이 다시 벗겨진다.
+                _candidate_slots = (
+                    _gpr.get("slot_result") if isinstance(_gpr.get("slot_result"), dict) else {}
+                ) or {}
+                _candidate_citation_urls = tuple(
+                    str(c.get("url", "")).strip()
+                    for c in (_candidate_slots.get("slots") or {}).get("_llm_source_citations") or []
+                    if isinstance(c, dict) and str(c.get("url", "")).strip()
+                )
                 _candidate_publish_html = prepare_blogspot_html(
                     _candidate_html,
                     links=history_internal_links,
                     strip_document=True,
+                    extra_allowed_urls=_candidate_citation_urls,
                 )
                 _candidate_publish_html = ensure_answer_engine_optimized_html(
                     _candidate_publish_html,
@@ -1316,6 +1345,7 @@ class NewsPipeline:
                     hashtags=final_hashtags,
                     dry_run=self.dry_run,
                     news_publish_mode=self.news_publish_mode,
+                    extra_allowed_urls=_candidate_citation_urls,
                 )
                 if bool(_candidate_publish_gate.get("passed")):
                     # 템플릿 candidate가 게이트를 통과했다 — 발행 가부 판정·플래그는 이 기준을
@@ -1440,6 +1470,7 @@ class NewsPipeline:
                 hashtags=final_hashtags,
                 content_angle_summary=content_angle_summary,
                 artifact_dir=artifact_dir,
+                extra_allowed_urls=_llm_citation_urls,
             )
             if _title_repair:
                 html = str(_title_repair["html"])
@@ -2092,6 +2123,7 @@ class NewsPipeline:
         hashtags: list[str],
         content_angle_summary: dict[str, Any],
         artifact_dir: Path,
+        extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
     ) -> dict[str, Any] | None:
         blocking = [str(issue) for issue in publish_quality_gate.get("blocking_issues", [])]
         if bool(publish_quality_gate.get("passed")) or not self._quality_title_repairable(blocking):
@@ -2135,6 +2167,7 @@ class NewsPipeline:
             hashtags=hashtags,
             dry_run=self.dry_run,
             news_publish_mode=self.news_publish_mode,
+            extra_allowed_urls=extra_allowed_urls,
         )
         if not self._quality_title_repair_improved(
             before=publish_quality_gate,
@@ -2761,6 +2794,7 @@ class NewsPipeline:
                     pattern_match=_pm_for_cand,
                     slot_result=golden_preview_result.get("slot_result") or {},
                     selected_title=_selected_title,
+                    cover_image_url=str(image_plan.get("cover_image_url") or ""),
                 )
             except Exception as _rce:
                 logger.warning("render_article_candidate_html failed: %s", _rce)

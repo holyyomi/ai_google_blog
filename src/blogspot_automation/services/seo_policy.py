@@ -376,18 +376,34 @@ def strip_naver_ctas(html: str) -> str:
     return cleaned.strip()
 
 
-def strip_external_anchor_links(html: str, *, allowed_hosts: tuple[str, ...] = _ALLOWED_LINK_HOSTS) -> str:
+def strip_external_anchor_links(
+    html: str,
+    *,
+    allowed_hosts: tuple[str, ...] = _ALLOWED_LINK_HOSTS,
+    extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
+) -> str:
     """Remove arbitrary outbound anchors while preserving verified source links.
 
     The visible anchor text stays in place for attribution/context, but the
     external href itself is removed. Internal Blogspot links, relative links,
     and official authority sources used for citations are preserved.
+
+    extra_allowed_urls (2026-07-16): exact-match allowlist for citation links
+    that were actually fetched this run (Naver news originallink/link, Exa
+    result url) and threaded through by the caller — NOT a host allowlist, so
+    an LLM hallucinating a random-looking anchor elsewhere in the body still
+    gets stripped by the normal host check. Only URLs the caller explicitly
+    vouches for (because they came straight out of a real API response, not
+    from generated text) survive here.
     """
     if not html:
         return html
+    extra_set = frozenset(extra_allowed_urls)
 
     def _replace(match: re.Match[str]) -> str:
         href = unescape(str(match.group("href") or "")).strip()
+        if href in extra_set:
+            return match.group(0)
         if _is_external_anchor_href(href, allowed_hosts=allowed_hosts):
             return str(match.group("body") or "")
         return match.group(0)
@@ -452,14 +468,30 @@ def strip_hashtag_sections(html: str) -> str:
     return trailing_hashtag_run.sub(r"\1", cleaned)
 
 
-def count_external_anchor_links(html: str, *, allowed_hosts: tuple[str, ...] = _ALLOWED_LINK_HOSTS) -> int:
+def count_external_anchor_links(
+    html: str,
+    *,
+    allowed_hosts: tuple[str, ...] = _ALLOWED_LINK_HOSTS,
+    extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
+) -> int:
+    """Count outbound anchors that would be stripped by strip_external_anchor_links.
+
+    extra_allowed_urls mirrors strip_external_anchor_links: exact-match citation
+    URLs the caller vouches for (fetched this run, not LLM-generated) don't count
+    as blockable external anchors here either — keeps the gate and the stripper
+    in agreement about which links are "real citations" vs. arbitrary outbound links.
+    """
     if not html:
         return 0
-    return sum(
-        1
-        for match in _ANCHOR_WITH_HREF_RE.finditer(html)
-        if _is_external_anchor_href(unescape(str(match.group("href") or "")).strip(), allowed_hosts=allowed_hosts)
-    )
+    extra_set = frozenset(extra_allowed_urls)
+    count = 0
+    for match in _ANCHOR_WITH_HREF_RE.finditer(html):
+        href = unescape(str(match.group("href") or "")).strip()
+        if href in extra_set:
+            continue
+        if _is_external_anchor_href(href, allowed_hosts=allowed_hosts):
+            count += 1
+    return count
 
 
 def strip_document_shell(html: str) -> str:
@@ -657,10 +689,15 @@ def prepare_blogspot_html(
     links: tuple[tuple[str, str], ...] | list[tuple[str, str]] | None = None,
     include_internal_links: bool = False,
     strip_document: bool = False,
+    extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
 ) -> str:
     selected_links = _fill_internal_links(tuple(links or ()))
     source = strip_document_shell(html) if strip_document else (html or "")
-    cleaned = strip_style_blocks(strip_inline_style_attributes(strip_external_anchor_links(strip_naver_ctas(source))))
+    cleaned = strip_style_blocks(
+        strip_inline_style_attributes(
+            strip_external_anchor_links(strip_naver_ctas(source), extra_allowed_urls=extra_allowed_urls)
+        )
+    )
     if strip_document:
         cleaned = strip_body_meta_tags(cleaned)
     cleaned = strip_internal_link_sections(cleaned)

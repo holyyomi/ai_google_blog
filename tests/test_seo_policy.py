@@ -198,6 +198,44 @@ def test_prepare_blogspot_html_preserves_verified_official_source_links() -> Non
     assert count_external_anchor_links(cleaned) == 0
 
 
+def test_prepare_blogspot_html_preserves_explicit_extra_allowed_citation_urls() -> None:
+    # 2026-07-16 회귀: official_source_links_below_2 게이트 실측 차단 — Naver/Exa로
+    # 실제로 수집한 인용 URL(공식기관 호스트가 아닌 일반 뉴스 도메인)이 이 함수의
+    # 외부 링크 제거 정책에 걸려 전부 사라졌었다. extra_allowed_urls로 명시적으로
+    # 전달한 URL만 예외로 살아남고, 목록에 없는 다른 외부 링크는 여전히 제거된다.
+    cleaned = prepare_blogspot_html(
+        '<article><section id="SOURCE_TRUST_BLOCK">'
+        '<a href="https://news.example.com/real-citation">관련 보도</a>'
+        '<a href="https://random.example/not-a-citation">임의 링크</a>'
+        "</section></article>",
+        extra_allowed_urls=("https://news.example.com/real-citation",),
+    )
+
+    assert 'href="https://news.example.com/real-citation"' in cleaned
+    assert "관련 보도" in cleaned
+    assert "https://random.example/not-a-citation" not in cleaned
+    assert "임의 링크" in cleaned
+    # count_external_anchor_links도 같은 extra_allowed_urls 계약을 받는다(2026-07-16
+    # 후속 수정) — 넘기지 않으면 여전히 호스트 allowlist만 보고 "외부"로 집계한다.
+    assert count_external_anchor_links(cleaned) == 1
+    assert count_external_anchor_links(
+        cleaned, extra_allowed_urls=("https://news.example.com/real-citation",)
+    ) == 0
+
+
+def test_count_external_anchor_links_extra_allowed_urls_is_exact_match_only() -> None:
+    html = (
+        '<p><a href="https://news.example.com/real-citation">관련 보도</a></p>'
+        '<p><a href="https://news.example.com/other-article">다른 기사</a></p>'
+    )
+
+    # 정확히 일치하는 URL만 예외 처리 — 같은 호스트의 다른 기사는 여전히 집계된다.
+    assert count_external_anchor_links(
+        html, extra_allowed_urls=("https://news.example.com/real-citation",)
+    ) == 1
+    assert count_external_anchor_links(html) == 2
+
+
 def test_prepare_blogspot_html_can_strip_full_document_for_publish_body() -> None:
     cleaned = prepare_blogspot_html(
         '<!doctype html><html><head><title>제목</title><meta name="description" content="설명"></head>'
