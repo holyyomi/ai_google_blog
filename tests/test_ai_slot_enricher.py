@@ -74,6 +74,78 @@ class TestFactInjection(unittest.TestCase):
         self.assertNotEqual(out["hook_opening"], "정적 훅")
 
 
+class _FakeLlmWithCitations(_FakeLlm):
+    """gather_facts_with_citations를 지원하는 최신 LlmContentService를 흉내낸다."""
+
+    def __init__(self, response: dict | None, facts: str = "", citations: list | None = None) -> None:
+        super().__init__(response, facts=facts)
+        self._citations = citations or []
+
+    def gather_facts_with_citations(self, topic: str):
+        self.facts_calls += 1
+        return self._facts, self._citations
+
+
+class TestSourceCitationPlumbing(unittest.TestCase):
+    # 2026-07-16 회귀: llm_service가 gather_facts_with_citations를 지원하면 실제
+    # 검색 URL을 enriched["_llm_source_citations"]로 넘겨 SOURCE_TRUST_BLOCK
+    # 렌더러가 진짜 <a href> 인용 링크를 만들 수 있게 해야 한다.
+    def test_real_citations_are_forwarded_when_available(self):
+        llm = _FakeLlmWithCitations(
+            _BASE_RESPONSE,
+            facts="[뉴스] 요금 변경 발표.",
+            citations=[
+                {"name": "보도 A", "url": "https://news.example.com/a"},
+                {"name": "보도 B", "url": "https://news.example.com/b"},
+            ],
+        )
+        out = enrich_slots_with_llm(slots=_slots(), topic="AI 요금", content_type="platform_change", llm_service=llm)
+        self.assertEqual(
+            out["_llm_source_citations"],
+            [
+                {"name": "보도 A", "url": "https://news.example.com/a"},
+                {"name": "보도 B", "url": "https://news.example.com/b"},
+            ],
+        )
+
+    def test_single_citation_is_not_forwarded(self):
+        # 게이트는 2건 이상을 요구하므로 1건뿐이면 굳이 슬롯에 담지 않는다.
+        llm = _FakeLlmWithCitations(
+            _BASE_RESPONSE, facts="[뉴스] 요금 변경 발표.",
+            citations=[{"name": "보도 A", "url": "https://news.example.com/a"}],
+        )
+        out = enrich_slots_with_llm(slots=_slots(), topic="AI 요금", content_type="platform_change", llm_service=llm)
+        self.assertNotIn("_llm_source_citations", out)
+
+    def test_non_http_or_empty_name_citations_are_dropped(self):
+        llm = _FakeLlmWithCitations(
+            _BASE_RESPONSE,
+            facts="[뉴스] 요금 변경 발표.",
+            citations=[
+                {"name": "보도 A", "url": "https://news.example.com/a"},
+                {"name": "", "url": "https://news.example.com/no-name"},
+                {"name": "잘못된 스킴", "url": "javascript:alert(1)"},
+                {"name": "보도 B", "url": "https://news.example.com/b"},
+            ],
+        )
+        out = enrich_slots_with_llm(slots=_slots(), topic="AI 요금", content_type="platform_change", llm_service=llm)
+        self.assertEqual(
+            out["_llm_source_citations"],
+            [
+                {"name": "보도 A", "url": "https://news.example.com/a"},
+                {"name": "보도 B", "url": "https://news.example.com/b"},
+            ],
+        )
+
+    def test_old_llm_service_without_citation_support_still_works(self):
+        # _FakeLlm(구형/테스트 더블)에는 gather_facts_with_citations가 없다 —
+        # hasattr 폴백 경로가 예외 없이 기존처럼 동작해야 한다(하위 호환).
+        llm = _FakeLlm(_BASE_RESPONSE, facts="[뉴스] 요금 변경 발표.")
+        out = enrich_slots_with_llm(slots=_slots(), topic="AI 요금", content_type="platform_change", llm_service=llm)
+        self.assertNotIn("_llm_source_citations", out)
+        self.assertEqual(llm.facts_calls, 1)
+
+
 class TestGeoBlockKeys(unittest.TestCase):
     def test_llm_geo_blocks_extracted(self):
         response = dict(_BASE_RESPONSE)

@@ -6,6 +6,7 @@ from blogspot_automation.services.answer_engine_policy import (
     answer_engine_coverage,
     ensure_answer_engine_optimized_html,
 )
+from blogspot_automation.services.final_html_audit_service import _official_source_link_count
 
 
 def test_sentences_does_not_split_on_decimal_point() -> None:
@@ -76,6 +77,69 @@ def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
     assert 'class="ai-overview-box"' not in result
     assert 'class="paa-block"' not in result
     assert 'class="yomi-paa-compact"' not in result
+
+
+def test_source_citations_render_as_real_links_and_pass_official_source_gate() -> None:
+    # 2026-07-16 회귀: 실측(GHA run 29464514437)에서 gpt-image-1/Grok Imagine 요금
+    # 뉴스가 official_source_links_below_2:0으로 차단됐다 — Naver/Exa로 실제 팩트를
+    # 수집했음에도 SOURCE_TRUST_BLOCK에는 <a href> 링크가 하나도 없었기 때문이다.
+    # source_citations로 실제 검색 결과 URL을 전달하면 진짜 인용 링크가 생성돼야 한다.
+    html = """
+    <html><head></head><body>
+      <article>
+        <h1>gpt-image-1 요금 변경 확인</h1>
+        <p>요금 변경과 무료 한도를 확인해야 합니다.</p>
+      </article>
+    </body></html>
+    """
+
+    result = ensure_answer_engine_optimized_html(
+        html,
+        title="gpt-image-1 요금 변경 확인",
+        topic="gpt-image-1 요금",
+        content_type="platform_change",
+        topic_group="platform_issue",
+        source_citations=[
+            {"name": "관련 보도 A", "url": "https://news.example.com/a"},
+            {"name": "관련 보도 B", "url": "https://news.example.com/b"},
+        ],
+    )
+
+    assert 'href="https://news.example.com/a"' in result
+    assert 'href="https://news.example.com/b"' in result
+    assert _official_source_link_count(result) >= 2
+
+
+def test_source_citations_missing_falls_back_to_plain_trust_text() -> None:
+    # 인용 URL이 없을 때는 기존처럼 boilerplate 문구만 나오고(behavior 변경 없음),
+    # 조작된 링크를 만들어내지 않는다.
+    html = "<html><body><h1>t</h1><p>p</p></body></html>"
+    result = ensure_answer_engine_optimized_html(
+        html,
+        title="t",
+        topic="t",
+        content_type="platform_change",
+        topic_group="platform_issue",
+    )
+    assert "<a href=" not in result.split('id="SOURCE_TRUST_BLOCK"')[1].split("</section>")[0]
+
+
+def test_source_citations_with_non_http_urls_are_ignored() -> None:
+    # 방어적 검증: http(s)가 아닌 값이나 name이 빈 항목은 링크로 만들지 않는다
+    # (조작·잘못된 데이터가 그대로 <a href>로 새는 것을 막는다).
+    html = "<html><body><h1>t</h1><p>p</p></body></html>"
+    result = ensure_answer_engine_optimized_html(
+        html,
+        title="t",
+        topic="t",
+        content_type="platform_change",
+        topic_group="platform_issue",
+        source_citations=[
+            {"name": "이상한 항목", "url": "javascript:alert(1)"},
+            {"name": "", "url": "https://ok.example.com"},
+        ],
+    )
+    assert "<a href=" not in result.split('id="SOURCE_TRUST_BLOCK"')[1].split("</section>")[0]
 
 
 def test_ensure_answer_engine_optimized_html_is_idempotent_for_blocks() -> None:

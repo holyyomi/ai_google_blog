@@ -981,8 +981,20 @@ class GoldenArticlePreviewService:
                 '  </section>'
             )
 
+        # 실제 검색(Naver/Exa)에서 가져온 인용 URL이 있으면 정적 공식기관 매핑보다
+        # 우선 사용한다 — AI 뉴스처럼 official_sources.py에 고정 매핑이 없는
+        # pattern_id(ai_work_time_savings 등은 빈 튜플)도 실제 근거 링크를 얻는다
+        # (2026-07-16, official_source_links_below_2 게이트 실측 차단 대응).
+        # 조작 URL이 섞이지 않도록 http(s) 스킴과 name 존재만 다시 검증한다.
+        _real_source_citations = [
+            {"name": str(c.get("name", "")).strip(), "url": str(c.get("url", "")).strip()}
+            for c in (slots.get("_llm_source_citations") or [])
+            if isinstance(c, dict)
+            and str(c.get("url", "")).strip().lower().startswith(("http://", "https://"))
+            and str(c.get("name", "")).strip()
+        ][:4]
         _official_sources_html = render_official_sources_html(
-            get_official_sources_for_pattern(_pattern_id)
+            _real_source_citations or get_official_sources_for_pattern(_pattern_id)
         )
         # 날짜 신호 마커(id="UPDATED_DATE_BLOCK")를 출처 문단에 부여 — 상단 별도
         # 날짜 블록을 없앤 뒤에도 GEO 점수의 updated-date 체크가 유지되게 한다.
@@ -1285,7 +1297,16 @@ class GoldenArticlePreviewService:
         # 목차(ai-toc)는 GEO/SGE 점수 어디에도 반영되지 않고, 결론 바로 다음에 끼어들어
         # 본문 흐름만 끊는다는 지적을 반영해 제거했다.
 
-        clean = prepare_blogspot_html(clean)
+        # prepare_blogspot_html은 정책상 공식기관 호스트가 아닌 외부 <a href>를
+        # 전부 벗겨낸다(LLM이 본문에 임의로 지어낸 링크 방지용 안전장치) — 그래서
+        # SOURCE_TRUST_BLOCK에 방금 넣은 실제 인용 URL(Naver/Exa)도 그대로 두면
+        # 벗겨져 official_source_links_below_2 게이트가 다시 막힌다. 여기서 만든
+        # _real_source_citations는 실제 API 응답에서 그대로 가져온 것만 통과했으므로
+        # (조작 URL 아님) 정확히 그 URL만 예외로 허용한다.
+        clean = prepare_blogspot_html(
+            clean,
+            extra_allowed_urls=tuple(c["url"] for c in _real_source_citations),
+        )
         # 내부링크 + 해시태그는 prepare의 strip 이후에 붙여야 살아남는다 (AI 글만)
         if _ai_family:
             clean = append_ai_footer_html(
