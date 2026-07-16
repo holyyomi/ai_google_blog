@@ -761,11 +761,13 @@ class NewsQualityGate:
         # Blogger가 렌더링하지 못하는 entity fragment가 독자 화면에 그대로 노출되는 것을 차단.
         # 1) &amp;#숫자 — 이중 escape (독자에게 "&amp;#9989" 텍스트로 표시됨)
         # 2) &#숫자 (세미콜론 없음) — 불완전 entity (브라우저 처리 불일치, 텍스트 노출)
-        _dbl_escape_re = re.compile(r'&amp;#\d+')
-        # (?!\d|;): 숫자 또는 ; 다음이 오면 더 긴 entity의 중간이므로 제외
-        # 예: &#9989; → &#9989 다음이 ; → 제외됨 (정상 entity)
-        # 예: &#9989 공백 → 다음이 공백 → 차단 (세미콜론 없는 entity)
-        _bare_entity_re = re.compile(r'&#\d+(?!\d|;)')
+        # 10진(&#39)과 16진(&#x27) 표기 모두 잡는다 — hex는 2026-07-16 실측에서
+        # LLM 출력에 등장 확인, 기존 10진 전용 정규식의 블라인드 스팟이었다.
+        _dbl_escape_re = re.compile(r'&amp;#(?:[xX][0-9a-fA-F]+|\d+)')
+        # (?!...|;): 자릿수 문자 또는 ; 가 이어지면 더 긴 entity의 중간이므로 제외
+        # 예: &#9989; / &#x27; → 다음이 ; → 제외됨 (정상 entity)
+        # 예: &#9989 공백 / &#x27 공백 → 차단 (세미콜론 없는 entity)
+        _bare_entity_re = re.compile(r'&#(?:[xX][0-9a-fA-F]+(?![0-9a-fA-F]|;)|\d+(?!\d|;))')
         _html_entity_double_escaped = bool(_dbl_escape_re.search(html))
         _html_entity_bare = bool(_bare_entity_re.search(html))
         html_entity_artifact_detected = _html_entity_double_escaped or _html_entity_bare

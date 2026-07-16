@@ -912,24 +912,28 @@ def _clean_entity_artifacts(html: str) -> str:
     3. &#숫자(세미콜론 없음) → unicode 문자 (불완전 entity 디코딩)
     HTML 태그 구조·속성은 변경하지 않는다.
     """
-    # 1) 이중 escape 해소: &amp;#숫자 → &#숫자
-    result = re.sub(r'&amp;(#\d+)', r'&\1', html)
-    # 2) 세미콜론 있는 숫자 entity → unicode
+    # 1) 이중 escape 해소: &amp;#숫자 / &amp;#x16진수 → &#...
+    result = re.sub(r'&amp;(#(?:[xX][0-9a-fA-F]+|\d+))', r'&\1', html)
+    # 2) 세미콜론 있는 숫자 entity → unicode (10진 + 16진 &#x27; 모두 —
+    #    2026-07-16 실측: LLM이 작은따옴표를 &#x27;로 내는 케이스가 관측됐고
+    #    기존 10진 전용 처리·게이트 둘 다 hex 표기를 놓치는 블라인드 스팟이 있었다)
     def _decode_entity_with_semi(m: re.Match) -> str:
-        code = int(m.group(1))
+        token = m.group(1)
+        code = int(token[1:], 16) if token[0] in "xX" else int(token)
         try:
             return chr(code) if 0 < code < 0x110000 else m.group(0)
         except (ValueError, OverflowError):
             return m.group(0)
-    result = re.sub(r'&#(\d+);', _decode_entity_with_semi, result)
+    result = re.sub(r'&#([xX][0-9a-fA-F]+|\d+);', _decode_entity_with_semi, result)
     # 3) 세미콜론 없는 entity → unicode (공백·태그·줄끝 앞에 있는 경우만)
     def _decode_entity_bare(m: re.Match) -> str:
-        code = int(m.group(1))
+        token = m.group(1)
+        code = int(token[1:], 16) if token[0] in "xX" else int(token)
         try:
             return chr(code) if 0 < code < 0x110000 else ''
         except (ValueError, OverflowError):
             return ''
-    result = re.sub(r'&#(\d+)(?=\s|<|$)', _decode_entity_bare, result)
+    result = re.sub(r'&#([xX][0-9a-fA-F]+|\d+)(?=\s|<|$)', _decode_entity_bare, result)
     return result
 
 
