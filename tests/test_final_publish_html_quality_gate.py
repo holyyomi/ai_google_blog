@@ -207,6 +207,38 @@ class TestCleanEntityArtifacts(unittest.TestCase):
         result = self.clean(html)
         self.assertEqual(html, result)
 
+    def test_hex_entity_with_semicolon_decoded(self):
+        """&#x27; (hex, 2026-07-16 실측 관측) → ' 로 변환."""
+        result = self.clean("<p>오픈AI는 &#x27;서비스 개선&#x27;을 명시한다</p>")
+        self.assertIn("'서비스 개선'", result)
+        self.assertNotIn("&#x27", result)
+
+    def test_hex_entity_bare_and_double_escape_decoded(self):
+        """&#x27 (세미콜론 없음)·&amp;#x27; (이중 escape) 모두 처리."""
+        result = self.clean("<p>따옴표 &#x27 그리고 &amp;#x27; 케이스</p>")
+        self.assertNotIn("&#x27", result)
+        self.assertNotIn("&amp;#x", result)
+
+
+class TestHexEntityGate(unittest.TestCase):
+    """게이트의 entity 안전망이 hex 표기(&#x27)도 잡는지 검증 (2026-07-16)."""
+
+    def test_bare_hex_entity_blocked(self):
+        html = _min_valid_html('<p>따옴표 &#x27 노출</p>')
+        result = _evaluate(html)
+        self.assertIn("broken_html_entity_no_semicolon", result["blocking_issues"])
+
+    def test_double_escaped_hex_entity_blocked(self):
+        html = _min_valid_html('<p>따옴표 &amp;#x27; 노출</p>')
+        result = _evaluate(html)
+        self.assertIn("broken_html_entity_double_escape", result["blocking_issues"])
+
+    def test_valid_hex_entity_with_semicolon_not_blocked(self):
+        html = _min_valid_html('<p>따옴표 &#x27; 정상</p>')
+        result = _evaluate(html)
+        self.assertNotIn("broken_html_entity_no_semicolon", result["blocking_issues"])
+        self.assertNotIn("broken_html_entity_double_escape", result["blocking_issues"])
+
 
 if __name__ == "__main__":
     unittest.main()
