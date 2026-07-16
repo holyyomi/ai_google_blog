@@ -176,6 +176,35 @@ class TestIssueSpecificity(unittest.TestCase):
 
         self.assertGreaterEqual(score, 6)
 
+    def test_lowercase_ai_product_name_matches_entity_case_insensitively(self):
+        # 회귀 테스트(2026-07-16, GHA run 29464514437): 스크랩된 토픽에 섞인
+        # 소문자/하이픈 표기("gpt-image-1")가 대소문자 구분 매칭("GPT")에
+        # 걸리지 않아 이벤트 키워드("공개")가 있어도 combined 가점이 전혀
+        # 붙지 않고 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="gpt-image-1 공개 이후 사용자 반응 정리",
+            original_topic="",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"소문자 AI 제품명이 포함된 후보 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
+    def test_pricing_surge_ai_topic_scores_as_specific(self):
+        # 회귀 테스트(2026-07-16, GHA run 29464514437): "요금 폭등", "무료
+        # 한도" 같은 정당하고 구체적인 AI 가격 뉴스가 ai_event_keywords에
+        # 가격/요금 어휘가 전혀 없어 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="클로드 요금제 유료 전환, 무료 한도 폐지",
+            original_topic="",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"AI 가격/요금 인상 뉴스 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
     def test_ai_evergreen_low_issue_specificity_warns_not_blocks(self):
         gate = NewsQualityGate()
         title = "직장인 ChatGPT, 시간 줄이려면 먼저 볼 3가지"
