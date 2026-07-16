@@ -198,6 +198,28 @@ def test_prepare_blogspot_html_preserves_verified_official_source_links() -> Non
     assert count_external_anchor_links(cleaned) == 0
 
 
+def test_prepare_blogspot_html_preserves_explicit_extra_allowed_citation_urls() -> None:
+    # 2026-07-16 회귀: official_source_links_below_2 게이트 실측 차단 — Naver/Exa로
+    # 실제로 수집한 인용 URL(공식기관 호스트가 아닌 일반 뉴스 도메인)이 이 함수의
+    # 외부 링크 제거 정책에 걸려 전부 사라졌었다. extra_allowed_urls로 명시적으로
+    # 전달한 URL만 예외로 살아남고, 목록에 없는 다른 외부 링크는 여전히 제거된다.
+    cleaned = prepare_blogspot_html(
+        '<article><section id="SOURCE_TRUST_BLOCK">'
+        '<a href="https://news.example.com/real-citation">관련 보도</a>'
+        '<a href="https://random.example/not-a-citation">임의 링크</a>'
+        "</section></article>",
+        extra_allowed_urls=("https://news.example.com/real-citation",),
+    )
+
+    assert 'href="https://news.example.com/real-citation"' in cleaned
+    assert "관련 보도" in cleaned
+    assert "https://random.example/not-a-citation" not in cleaned
+    assert "임의 링크" in cleaned
+    # count_external_anchor_links는 extra_allowed_urls를 모르는 별도 감사 함수라
+    # (호스트 allowlist만 봄) 여기선 그대로 "외부"로 집계된다 — 의도된 동작이다.
+    assert count_external_anchor_links(cleaned) == 1
+
+
 def test_prepare_blogspot_html_can_strip_full_document_for_publish_body() -> None:
     cleaned = prepare_blogspot_html(
         '<!doctype html><html><head><title>제목</title><meta name="description" content="설명"></head>'

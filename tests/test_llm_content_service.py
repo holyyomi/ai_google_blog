@@ -128,6 +128,110 @@ def test_naver_news_facts_parses_snippets(monkeypatch) -> None:
     assert "스마트렌즈 & AI 브리핑 연동" in facts
 
 
+def test_naver_news_facts_and_citations_extracts_real_urls(monkeypatch) -> None:
+    # 2026-07-16 회귀: Naver 응답의 originallink/link는 기존에 텍스트 추출 후 버려졌다
+    # — SOURCE_TRUST_BLOCK에 걸 실제 인용 링크가 전혀 없었던 원인. 이제 텍스트와
+    # 함께 실제 기사 URL도 반환해야 한다.
+    body = json.dumps({
+        "items": [
+            {
+                "title": "네이버 <b>AI탭</b> 출시",
+                "description": "스마트렌즈 &amp; AI 브리핑 연동",
+                "pubDate": "Sun, 05 Jul 2026 08:00:00 +0900",
+                "originallink": "https://press.example.com/naver-ai-tab",
+                "link": "https://news.naver.com/mnews/article/000/000",
+            },
+            {
+                "title": "AI탭 기술 공개",
+                "description": "실행형 에이전트로 진화",
+                "pubDate": "Sun, 05 Jul 2026 09:00:00 +0900",
+                "originallink": "",
+                "link": "https://news.naver.com/mnews/article/000/001",
+            },
+        ]
+    }).encode("utf-8")
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return body
+
+    def fake_urlopen(req: urllib.request.Request, timeout: int):
+        return FakeResponse()
+
+    monkeypatch.setenv("NAVER_CLIENT_ID", "cid")
+    monkeypatch.setenv("NAVER_CLIENT_SECRET", "csec")
+    monkeypatch.delenv("ENABLE_NAVER_SEARCH", raising=False)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    text, citations = LlmContentService()._naver_news_facts_and_citations("네이버 AI탭")
+
+    assert "네이버 뉴스 검색 결과" in text
+    assert len(citations) == 2
+    # originallink가 있으면 그것을(언론사 원문), 없으면 link(네이버 미러)를 사용
+    assert citations[0]["url"] == "https://press.example.com/naver-ai-tab"
+    assert citations[1]["url"] == "https://news.naver.com/mnews/article/000/001"
+    assert all(c["name"] for c in citations)
+
+
+def test_exa_facts_and_citations_extracts_real_urls(monkeypatch) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "ekey")
+    monkeypatch.delenv("ENABLE_EXA_SEARCH", raising=False)
+    body = json.dumps({
+        "results": [
+            {"title": "Grok Imagine pricing update", "text": "New free tier limits announced.", "publishedDate": "2026-07-10", "url": "https://example.com/grok-pricing"},
+        ]
+    }).encode("utf-8")
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return body
+
+    def fake_urlopen(req: urllib.request.Request, timeout: int):
+        return FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    text, citations = LlmContentService()._exa_facts_and_citations("Grok Imagine pricing")
+
+    assert "웹 문서 발췌" in text
+    assert citations == [{"name": "Grok Imagine pricing update", "url": "https://example.com/grok-pricing"}]
+
+
+def test_gather_facts_with_citations_merges_naver_and_exa_sources(monkeypatch) -> None:
+    svc = LlmContentService()
+    monkeypatch.setattr(
+        svc,
+        "_naver_news_facts_and_citations",
+        lambda topic: ("[네이버 뉴스 검색 결과]\n- a", [{"name": "a", "url": "https://a.example.com"}]),
+    )
+    monkeypatch.setattr(
+        svc,
+        "_exa_facts_and_citations",
+        lambda topic: ("[웹 문서 발췌 (Exa)]\n- b", [{"name": "b", "url": "https://b.example.com"}]),
+    )
+
+    facts, citations = svc.gather_facts_with_citations("주제")
+
+    assert "네이버 뉴스 검색 결과" in facts
+    assert "웹 문서 발췌" in facts
+    assert citations == [
+        {"name": "a", "url": "https://a.example.com"},
+        {"name": "b", "url": "https://b.example.com"},
+    ]
+
+
 def test_gather_facts_merges_naver_and_exa(monkeypatch) -> None:
     monkeypatch.delenv("ENABLE_GOOGLE_CUSTOM_SEARCH", raising=False)
     svc = LlmContentService()

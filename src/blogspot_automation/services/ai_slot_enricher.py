@@ -195,9 +195,27 @@ def enrich_slots_with_llm(
     # Custom Search/Gemini 그라운딩 결과를 근거로 제공하고, 근거에 없는 수치는
     # 단정하지 않도록 지시한다. 수집 실패 시엔 기존 방식(보수적 서술)으로 폴백.
     facts_part = ""
+    source_citations: list[dict[str, str]] = []
     if os.getenv("ENABLE_AI_FACT_INJECTION", "true").strip().lower() not in {"0", "false", "no", "off"}:
         try:
-            facts = str(llm_service.gather_facts(topic) or "").strip()
+            # gather_facts_with_citations가 있으면 실제 인용 URL(Naver 원문 링크·
+            # Exa 결과 URL)까지 함께 받는다 — SOURCE_TRUST_BLOCK에 실제 <a href>
+            # 근거를 남기기 위함(2026-07-16, official_source_links_below_2 게이트
+            # 실측 차단 대응). 구형/테스트용 llm_service는 gather_facts만 있을 수
+            # 있으므로 없으면 텍스트만 받는 기존 경로로 폴백한다.
+            if hasattr(llm_service, "gather_facts_with_citations"):
+                facts, fetched_citations = llm_service.gather_facts_with_citations(topic)
+                facts = str(facts or "").strip()
+                if isinstance(fetched_citations, list):
+                    source_citations = [
+                        {"name": str(c.get("name", "")).strip(), "url": str(c.get("url", "")).strip()}
+                        for c in fetched_citations
+                        if isinstance(c, dict)
+                        and str(c.get("url", "")).strip().lower().startswith(("http://", "https://"))
+                        and str(c.get("name", "")).strip()
+                    ]
+            else:
+                facts = str(llm_service.gather_facts(topic) or "").strip()
             if facts:
                 facts_part = (
                     "\n[웹 검색으로 수집한 최신 근거 — 오늘 날짜 기준]\n"
@@ -205,7 +223,7 @@ def enrich_slots_with_llm(
                     "위 근거에 있는 수치·날짜·요금은 그대로 인용하고, "
                     "근거에 없는 수치는 단정하지 말 것.\n"
                 )
-                logger.info("ai_slot_enricher: 검색 팩트 주입 (%d자)", len(facts))
+                logger.info("ai_slot_enricher: 검색 팩트 주입 (%d자, 인용 URL %d건)", len(facts), len(source_citations))
         except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
             logger.warning("ai_slot_enricher: 팩트 수집 실패(근거 없이 진행): %s", exc)
 
@@ -251,6 +269,20 @@ def enrich_slots_with_llm(
         return slots
 
     enriched = dict(slots)
+    # 실제로 검색에서 가져온 인용 URL(제목 중복 제거) — 렌더러(golden_article_
+    # preview_service)가 SOURCE_TRUST_BLOCK에 실제 <a href> 링크로 사용한다.
+    # 조작·추정 URL은 절대 넣지 않는다 — 여기 담기는 항목은 전부 실제 API 응답에서
+    # 그대로 가져온 것뿐이다.
+    if source_citations:
+        deduped: list[dict[str, str]] = []
+        seen_urls: set[str] = set()
+        for c in source_citations:
+            if c["url"] in seen_urls:
+                continue
+            seen_urls.add(c["url"])
+            deduped.append(c)
+        if len(deduped) >= 2:
+            enriched["_llm_source_citations"] = deduped[:4]
     _apply_text(enriched, data, "hook_opening")
     _apply_text(enriched, data, "yomi_judgment", clean=True)
     _apply_text(enriched, data, "real_criterion")

@@ -323,6 +323,10 @@ class LlmContentService:
         # 무제한 호출되지 않게 프로세스당 상한을 둔다.
         self._exa_facts_calls = 0
         self._exa_facts_max_calls = 6
+        # 마지막 generate_html() 호출에서 실제로 수집된 인용 URL(Naver 원문 링크·
+        # Exa 결과 URL). generate_html은 문자열만 반환하므로, 호출부(news_pipeline)가
+        # SOURCE_TRUST_BLOCK에 실제 <a href> 근거를 걸려면 이 속성을 함께 읽는다.
+        self.last_source_citations: list[dict[str, str]] = []
 
     # ─── Public API ───────────────────────────────────────────────────────────
 
@@ -342,8 +346,9 @@ class LlmContentService:
         today = kst_today("%Y.%m.%d")
         raw = raw or {}
 
-        # 1. Google Search로 실제 정보 수집
-        facts = self._gather_facts(topic)
+        # 1. Google Search로 실제 정보 수집 (+ 실제 인용 URL도 함께 보관 —
+        # 호출부가 SOURCE_TRUST_BLOCK에 실제 근거 링크를 걸 수 있게 한다)
+        facts, self.last_source_citations = self.gather_facts_with_citations(topic)
 
         # 2. 독자 질문 목록 구성
         questions_raw = list(reader_questions or [])
@@ -424,6 +429,31 @@ class LlmContentService:
         """
         return self._gather_facts(topic)
 
+    def gather_facts_with_citations(self, topic: str) -> tuple[str, list[dict[str, str]]]:
+        """팩트 텍스트 + 실제 인용 가능한 출처 URL을 함께 반환.
+
+        2026-07-16: 기존 gather_facts()/_gather_facts()는 Naver 뉴스·Exa 응답에서
+        본문 스니펫만 뽑고 원문 링크(link/originallink, url)를 버렸다 — 그 결과
+        SOURCE_TRUST_BLOCK에는 실제 <a href> 인용 링크가 단 하나도 남지 않았고,
+        official_source_links_below_2 게이트가 실제 근거가 있었음에도 발행을
+        차단했다(실측: run 29464514437). 이 메서드는 같은 API 응답에서 텍스트와
+        URL을 한 번에 뽑아, 호출부가 실제 근거 링크를 렌더링할 수 있게 한다.
+        Naver/Exa 호출은 한 번씩만 수행한다(중복 호출로 Exa 크레딧을 낭비하지 않음).
+        """
+        naver_text, naver_citations = self._naver_news_facts_and_citations(topic)
+        exa_text, exa_citations = self._exa_facts_and_citations(topic)
+        sections = [s for s in (naver_text, exa_text) if s]
+        if sections:
+            facts = "\n\n".join(sections)
+        else:
+            facts = ""
+            if self._search_api_key and self._search_cx:
+                facts = self._custom_search(topic)
+            if not facts:
+                facts = self._google_news_rss_facts(topic)
+        citations = naver_citations + exa_citations
+        return facts, citations
+
     def _gather_facts(self, topic: str) -> str:
         """실제 팩트 수집: Naver 뉴스 스니펫 + Exa 본문 발췌 병합 → 폴백 체인.
 
@@ -452,8 +482,17 @@ class LlmContentService:
 
     def _naver_news_facts(self, topic: str) -> str:
         """Naver 뉴스 검색 API로 주제 관련 기사 제목+요약 스니펫을 수집한다."""
+        text, _ = self._naver_news_facts_and_citations(topic)
+        return text
+
+    def _naver_news_facts_and_citations(self, topic: str) -> tuple[str, list[dict[str, str]]]:
+        """Naver 뉴스 검색 API 응답에서 스니펫 텍스트와 실제 기사 URL을 함께 뽑는다.
+
+        응답의 originallink(언론사 원문)·link(네이버 뉴스 미러) 필드는 기존에
+        버려졌다 — SOURCE_TRUST_BLOCK에 걸 실제 인용 링크로 여기서 함께 반환한다.
+        """
         if not (self._naver_client_id and self._naver_client_secret):
-            return ""
+            return "", []
         try:
             query = urllib.parse.quote(topic)
             url = f"https://openapi.naver.com/v1/search/news.json?query={query}&display=4&sort=sim"
@@ -467,10 +506,12 @@ class LlmContentService:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
             lines: list[str] = []
+            citations: list[dict[str, str]] = []
             for item in body.get("items") or []:
                 title = _strip_search_markup(str(item.get("title") or ""))
                 desc = _strip_search_markup(str(item.get("description") or ""))
                 pub = str(item.get("pubDate") or "")[:16]
+                link = str(item.get("originallink") or item.get("link") or "").strip()
                 if not title:
                     continue
                 line = f"- {title}"
@@ -479,20 +520,31 @@ class LlmContentService:
                 if pub:
                     line += f" ({pub})"
                 lines.append(line)
+                if link.lower().startswith(("http://", "https://")) and len(citations) < 4:
+                    citations.append({"name": title[:40], "url": link})
                 if len(lines) >= 4:
                     break
             if not lines:
-                return ""
-            logger.info("LlmContentService: Naver 뉴스 팩트 %d건", len(lines))
-            return "[네이버 뉴스 검색 결과]\n" + "\n".join(lines)
+                return "", []
+            logger.info("LlmContentService: Naver 뉴스 팩트 %d건 (인용 URL %d건)", len(lines), len(citations))
+            return "[네이버 뉴스 검색 결과]\n" + "\n".join(lines), citations
         except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
             logger.warning("LlmContentService: Naver 뉴스 팩트 수집 실패 — %s", exc)
-            return ""
+            return "", []
 
     def _exa_facts(self, topic: str) -> str:
         """Exa 검색으로 주제 관련 웹 문서의 본문 발췌를 수집한다 (크레딧 과금 — 호출 상한)."""
+        text, _ = self._exa_facts_and_citations(topic)
+        return text
+
+    def _exa_facts_and_citations(self, topic: str) -> tuple[str, list[dict[str, str]]]:
+        """Exa 검색 응답에서 본문 발췌 텍스트와 실제 결과 URL을 함께 뽑는다.
+
+        응답의 url 필드는 기존에 버려졌다 — SOURCE_TRUST_BLOCK에 걸 실제 인용
+        링크로 여기서 함께 반환한다. 호출 상한(_exa_facts_max_calls)은 그대로 적용.
+        """
         if not self._exa_api_key or self._exa_facts_calls >= self._exa_facts_max_calls:
-            return ""
+            return "", []
         self._exa_facts_calls += 1
         try:
             payload = json.dumps({
@@ -513,10 +565,12 @@ class LlmContentService:
             with urllib.request.urlopen(req, timeout=12) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
             lines: list[str] = []
+            citations: list[dict[str, str]] = []
             for item in body.get("results") or []:
                 title = " ".join(str(item.get("title") or "").split())
                 text = " ".join(str(item.get("text") or "").split())[:300]
                 pub = str(item.get("publishedDate") or "")[:10]
+                result_url = str(item.get("url") or "").strip()
                 if not (title or text):
                     continue
                 line = f"- {title}" if title else "-"
@@ -525,15 +579,17 @@ class LlmContentService:
                 if pub:
                     line += f" ({pub})"
                 lines.append(line)
+                if result_url.lower().startswith(("http://", "https://")) and len(citations) < 3:
+                    citations.append({"name": (title or result_url)[:40], "url": result_url})
                 if len(lines) >= 3:
                     break
             if not lines:
-                return ""
-            logger.info("LlmContentService: Exa 팩트 %d건", len(lines))
-            return "[웹 문서 발췌 (Exa)]\n" + "\n".join(lines)
+                return "", []
+            logger.info("LlmContentService: Exa 팩트 %d건 (인용 URL %d건)", len(lines), len(citations))
+            return "[웹 문서 발췌 (Exa)]\n" + "\n".join(lines), citations
         except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
             logger.warning("LlmContentService: Exa 팩트 수집 실패 — %s", exc)
-            return ""
+            return "", []
 
     def _google_news_rss_facts(self, topic: str) -> str:
         """Google News RSS에서 주제 관련 최신 헤드라인을 수집한다 (API 키 불필요)."""

@@ -44,6 +44,7 @@ def ensure_answer_engine_optimized_html(
     faq_items: list[dict[str, str]] | None = None,
     confirmed_facts: list[str] | None = None,
     check_needed: list[str] | None = None,
+    source_citations: list[dict[str, str]] | None = None,
 ) -> str:
     """Add AEO/GEO/SGE blocks to any publish HTML path.
 
@@ -211,7 +212,13 @@ def ensure_answer_engine_optimized_html(
     if 'id="CONFIRMED_VS_CHECK_NEEDED_BLOCK"' not in content:
         tail_blocks.append(_confirmed_vs_check_needed_block(confirmed_map, label=_varied_label("confirmed", _seed)))
     if 'id="SOURCE_TRUST_BLOCK"' not in content:
-        tail_blocks.append(_section("SOURCE_TRUST_BLOCK", "yomi-source", _varied_label("trust", _seed), trust_text))
+        tail_blocks.append(
+            _source_trust_block(
+                trust_text,
+                citations=source_citations,
+                label=_varied_label("trust", _seed),
+            )
+        )
     if tail_blocks:
         content = _insert_before_internal_links_or_body_end(content, "\n".join(tail_blocks))
 
@@ -407,6 +414,38 @@ def _section(section_id: str, css_class: str, heading: str, text: str) -> str:
         f'<section id="{section_id}" class="{css_class}">'
         f'<h2>{escape(heading)}</h2>'
         f'<p>{escape(" ".join((text or "").split()))}</p>'
+        "</section>"
+    )
+
+
+def _source_trust_block(
+    text: str, *, citations: list[dict[str, str]] | None = None, label: str = ""
+) -> str:
+    """SOURCE_TRUST_BLOCK — 보일러플레이트 문구 + (있으면) 실제 인용 링크.
+
+    2026-07-16: 이 경로(llm_content_service.generate_html → 여기)는 기존에
+    plain text만 넣고 <a href> 링크를 전혀 만들지 않았다 — 실제 근거(Naver/Exa
+    검색으로 얻은 URL)가 있어도 official_source_links_below_2 게이트를 통과할
+    방법이 없었다. citations가 실제 http(s) URL을 가진 항목이면 이를
+    official_sources.render_official_sources_html과 동일한 마크업으로 덧붙인다.
+    조작 URL을 막기 위해 스킴·name 존재를 여기서도 다시 검증한다.
+    """
+    from blogspot_automation.services.official_sources import render_official_sources_html
+
+    heading = label or "어디서 확인했나"
+    safe_citations = [
+        {"name": str(c.get("name", "")).strip(), "url": str(c.get("url", "")).strip()}
+        for c in (citations or [])
+        if isinstance(c, dict)
+        and str(c.get("url", "")).strip().lower().startswith(("http://", "https://"))
+        and str(c.get("name", "")).strip()
+    ][:4]
+    links_html = render_official_sources_html(safe_citations)
+    return (
+        '<section id="SOURCE_TRUST_BLOCK" class="yomi-source">'
+        f'<h2>{escape(heading)}</h2>'
+        f'<p>{escape(" ".join((text or "").split()))}</p>'
+        f'{links_html}'
         "</section>"
     )
 
