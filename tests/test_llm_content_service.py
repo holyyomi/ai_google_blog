@@ -451,6 +451,15 @@ def test_validate_generated_content_rejects_common_free_model_defects() -> None:
             '<div class="faq-section"><article class="faq-item">'
             '<h3 class="faq-q">질문?</h3><p class="faq-a"></p></article></div>'
         )
+    # 7) AI 상투 문구 (2026-07-16) — 프롬프트 금지를 무시한 저품질 생성 신호
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content(
+            "<p>이 기능은 업무 자동화의 게임 체인저가 될 것으로 보인다.</p>"
+        )
+    with pytest.raises(module._ContentValidationError):
+        module._validate_generated_content(
+            "<p>빠르게 변화하는 디지털 시대에 이 도구의 활용법을 정리했다.</p>"
+        )
 
 
 def test_broken_free_output_falls_back_to_paid(monkeypatch) -> None:

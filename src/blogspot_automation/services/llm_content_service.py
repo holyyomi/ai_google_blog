@@ -837,6 +837,21 @@ class _ContentValidationError(ValueError):
     """생성 콘텐츠가 잘림·반복·언어·구조 결함을 보여 다음 provider로 폴백해야 함을 뜻한다."""
 
 
+# 시스템 프롬프트의 문체 규칙이 금지한 대표 AI 필러 표현. 오탐을 피하기 위해
+# 문맥과 무관하게 항상 저품질 신호인 표현만 담는다(일반 문장에도 흔한 단어 제외).
+_AI_CLICHE_PHRASES = (
+    "게임 체인저",
+    "게임체인저",
+    "귀추가 주목",
+    "무궁무진한 가능성",
+    "단순한 도구를 넘어",
+    "우리의 삶을 혁신",
+    "빠르게 변화하는 디지털 시대",
+    "새로운 시대를 열",
+    "혁신적인 변화의 물결",
+)
+
+
 def _validate_generated_content(html: str) -> None:
     """무료 모델이 흔히 내는 치명 결함을 검출한다(하나라도 걸리면 예외 → 다음 provider).
 
@@ -878,6 +893,14 @@ def _validate_generated_content(html: str) -> None:
     for s in [s.strip() for s in re.split(r"[.。!?]\s+", text) if len(s.strip()) >= 20][:8]:
         if text.count(s) >= 2:
             raise _ContentValidationError("문장 반복 — 반복 루프 의심")
+
+    # 6) AI 상투 문구(2026-07-16): 시스템 프롬프트가 명시적으로 금지한 대표 필러
+    #    표현. 금지 지시를 무시한 출력은 나머지 본문도 일반론 채우기일 가능성이
+    #    높다 → 다음 provider로 폴백. (전 provider 실패 시 템플릿 폴백이 있어
+    #    발행 회귀는 없다.)
+    for phrase in _AI_CLICHE_PHRASES:
+        if phrase in text:
+            raise _ContentValidationError(f"AI 상투 문구 검출: {phrase}")
 
 
 def _clean_entity_artifacts(html: str) -> str:
