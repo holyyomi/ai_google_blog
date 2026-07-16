@@ -2761,6 +2761,7 @@ class NewsPipeline:
                     pattern_match=_pm_for_cand,
                     slot_result=golden_preview_result.get("slot_result") or {},
                     selected_title=_selected_title,
+                    cover_image_url=str(image_plan.get("cover_image_url") or ""),
                 )
             except Exception as _rce:
                 logger.warning("render_article_candidate_html failed: %s", _rce)

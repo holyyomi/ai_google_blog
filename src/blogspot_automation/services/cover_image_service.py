@@ -44,9 +44,11 @@ _STYLE_SUFFIX = (
     "Completely wordless and textless artwork: no text, no letters, no numbers, "
     "no signs, no labels, no captions, no typography, no writing of any kind, "
     "no watermark, no logos. "
-    # 글자가 그려지기 쉬운 소재 자체를 배제 (화면/문서/키보드/책/간판 등)
-    "Do not draw screens, monitors, phones with UI, documents, papers, books, "
-    "keyboards, charts with axis labels, or any object that would contain readable text. "
+    # 글자가 그려지기 쉬운 소재는 허용하되 화면/문서/키보드 표면은 항상 텅 빈(blank) 상태로 —
+    # 주제 인식용 실루엣(폰/앱 카드/브라우저 창 등)은 살리고 글자 깨짐만 막는다.
+    "If a phone, screen, monitor, browser window, document, or keyboard appears, "
+    "its surface must be completely blank or filled with abstract shapes/icons only — "
+    "never readable text, charts must have no axis labels. "
     "No realistic human faces, no real person likeness."
 )
 

@@ -81,6 +81,9 @@ _ENRICH_SPEC = {
         "대표 도구명으로(예: 'ChatGPT 무료 플랜…', 'ChatGPT·Claude 무료 한계…'). "
         "'무료 AI 도구'처럼 어떤 도구인지 알 수 없는 익명 제목 금지. "
         "비문 금지(조사·어미 정확히), '먼저 볼 N가지'·'~할 N가지'·'무료 도구' 같은 정형구/막연한 표현 금지, "
+        "특히 '핵심 3가지'·'포인트 3가지'·'전략 3가지'처럼 숫자+'가지'로 끝맺는 건 절대 금지 "
+        "(가장 흔한 상투 패턴이라 매 글이 똑같아 보이는 주된 원인) — 구체적 결과·질문·비교·반전 중 "
+        "하나로 끝맺을 것. "
         "낚시성·과장 금지. 구체적 이득이나 핵심 질문이 드러나게. "
         "'반복 업무 자동화'·'업무 시간 단축'·'30분→10분' 같은 상투 프레임을 주제와 무관하게 "
         "붙이지 말 것 — 요금 변화 기사면 요금이, 발표 기사면 달라지는 것이 제목의 중심이어야 한다."
@@ -310,7 +313,7 @@ def enrich_slots_with_llm(
     llm_title = data.get("title")
     if isinstance(llm_title, str):
         t = re.sub(r"\s+", " ", llm_title).strip().strip('"').strip()
-        if 6 <= len(t) <= 60 and not re.search(r"먼저\s*(볼|확인할|정할|해야)\s*\d+\s*가지", t):
+        if 6 <= len(t) <= 60 and not re.search(r"\d+\s*가지\s*$", t):
             from blogspot_automation.services.title_integrity_policy import audit_title_integrity
             integrity = audit_title_integrity(t, content_type=content_type)
             if integrity.get("passed"):
