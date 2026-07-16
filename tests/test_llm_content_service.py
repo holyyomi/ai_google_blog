@@ -527,3 +527,36 @@ def test_call_with_fallback_stops_at_free_primary_when_it_succeeds(monkeypatch) 
     assert result and "free primary" in result
     # 무료 1차 성공 → 유료로 내려가지 않음 (비용 0)
     assert calls == ["https://openrouter.ai/api/v1/chat/completions"]
+
+
+def test_asset_rich_directive_triggers_on_productivity_evergreen_topics() -> None:
+    # 2026-07-16: "직장인 생산성/시간 절약"류 evergreen(ai_work_tip)이 무기(계산기·
+    # 비교표·체크리스트) 지시 트리거에 안 걸려 밋밋하게 나가던 갭 회귀 테스트
+    # (2026-07-11 사용자 피드백 — 게이트는 통과하는데 저장할 정보 밀도 부족).
+    directive = module._asset_rich_directive(
+        title="무료 ChatGPT로도 업무 시간 줄이는 3가지 패턴",
+        topic="직장인이 ChatGPT로 업무 시간을 줄이는 방법",
+        category="AI활용",
+        raw={},
+    )
+    assert directive, "생산성/시간 절약 evergreen 주제에 asset-rich 지시가 켜져야 함"
+
+
+def test_asset_rich_directive_stays_off_for_unrelated_news() -> None:
+    directive = module._asset_rich_directive(
+        title="오픈AI 이사회 구성 변경 발표",
+        topic="오픈AI 지배구조 개편",
+        category="AI뉴스",
+        raw={},
+    )
+    assert directive == ""
+
+
+def test_system_prompt_carries_depth_contract_and_cliche_ban() -> None:
+    # 프롬프트 계약 회귀 가드: 깊이 장치(독자 계약·판단 기준·4분할)와 상투 문구
+    # 금지가 이후 프롬프트 수정에서 실수로 삭제되지 않게 고정한다.
+    assert "독자 계약" in module._SYSTEM_PROMPT
+    assert "판단 기준 의무" in module._SYSTEM_PROMPT
+    assert "게임 체인저" in module._SYSTEM_PROMPT
+    assert "바뀌지 않은 것" in module._USER_PROMPT_TMPL
+    assert "본문이 다루지 않은 실제 검색 질문" in module._USER_PROMPT_TMPL
