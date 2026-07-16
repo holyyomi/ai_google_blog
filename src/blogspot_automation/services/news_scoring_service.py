@@ -702,6 +702,17 @@ class NewsScoringService:
         if angle_type == "ai_setting":
             return "ai_work"
         if angle_type == "money_compare":
+            # money_compare는 배달앱 쿠폰/최종결제금액 비교(news_taxonomy._is_consumer_money_compare_text)와
+            # AI 요금/무료한도 변화(news_taxonomy._classify_ai_event "pricing" 이벤트)가 같은 angle_type
+            # 문자열을 공유한다. 예전엔 이 값만 보고 무조건 delivery_money로 강제해, "gpt-image-1·Grok
+            # Imagine 요금 폭등" 같은 AI 가격 뉴스까지 배달앱 골든패턴(money_checklist)으로 잘못
+            # 라우팅되어 "최종 결제금액"/"가상의 계산 예시" 같은 배달앱 전용 문구를 요구하는 게이트에
+            # 구조적으로 통과 불가능한 상태로 걸렸다(2026-07 실측, GHA run 29464514437).
+            # classify_topic_group은 AI 신호(_has_ai_signal)를 delivery_money 키워드보다 먼저 검사하므로,
+            # 여기서 독립적으로 재분류해 실제 AI 후보만 ai_* 그룹으로 보내고 나머지는 기존 동작을 유지한다.
+            independent_group = self.classify_topic_group(text)
+            if independent_group.startswith("ai_"):
+                return independent_group
             return "delivery_money"
         if angle_type == "viral_issue_decode":
             text_lower = text.lower()
@@ -1081,6 +1092,20 @@ class NewsScoringService:
                     "example_needed": False,
                 }
             if angle_type == "money_compare":
+                # topic_group은 이미 _topic_group_from_search_angle에서 AI 신호가 있으면
+                # ai_* 그룹으로 재분류된 상태다 — 여기서도 같은 판단을 따라야 content_type이
+                # money_checklist(배달앱 전용 게이트)로 강제되는 것을 막을 수 있다. topic_group만
+                # 보고 content_type을 계속 money_checklist로 고정하면, AI 요금 뉴스가 topic_group은
+                # ai_work인데 content_type만 money_checklist인 불일치 상태가 되어 news_quality_gate의
+                # money_checklist_missing_example_box/final_payment_amount 게이트에 구조적으로 막힌다.
+                if topic_group.startswith("ai_"):
+                    return {
+                        "content_type": "ai_work_tip",
+                        "reader_question": "AI 요금이나 무료 한도가 바뀌면 지금 쓰는 방식에서 무엇부터 확인해야 할까?",
+                        "reader_loss": str(search_angle.get("click_reason") or "요금과 무료 한도가 바뀌면 지금 쓰던 방식의 비용이 달라질 수 있다."),
+                        "practical_value": str(search_angle.get("reader_benefit") or "바뀐 요금 조건과 무료·유료 전환 판단 기준을 얻는다."),
+                        "example_needed": False,
+                    }
                 return {
                     "content_type": "money_checklist",
                     "reader_question": "결제 전 어떤 조건을 비교해야 실제로 더 저렴할까?",
