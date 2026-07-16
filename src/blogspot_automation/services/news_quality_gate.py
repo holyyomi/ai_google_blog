@@ -1465,8 +1465,18 @@ class NewsQualityGate:
         ai_event_keywords = (
             "공개", "발표", "업데이트", "도입", "돌파", "추월", "확대", "해제",
             "수출통제", "이용률", "가입자", "다운로드",
+            # 가격/요금 변동 이벤트(2026-07-16, GHA run 29464514437 회귀 대응):
+            # "요금 폭등", "무료 한도" 같은 정당하고 구체적인 AI 가격 뉴스에
+            # 대응하는 이벤트 키워드가 없어 generic 취급되어 issue_specificity
+            # 게이트에 오차단됐다.
+            "요금", "가격", "인상", "폭등", "무료", "유료", "한도", "요금제",
         )
-        ai_entity_hits = sum(1 for kw in ai_entity_keywords if kw in all_text)
+        # 실측 사건(2026-07-16): 스크랩된 토픽 문자열에 "gpt-image-1",
+        # "claude-4"처럼 소문자/하이픈 표기가 섞여 대소문자 구분 매칭("GPT")이
+        # 실제 AI 제품명을 놓쳤다. 엔티티 매칭만 대소문자 무시로 바꾼다
+        # (이벤트 키워드 매칭은 기존 그대로 유지 — 스코프 최소화).
+        all_text_lower = all_text.lower()
+        ai_entity_hits = sum(1 for kw in ai_entity_keywords if kw.lower() in all_text_lower)
         ai_event_hits = sum(1 for kw in ai_event_keywords if kw in all_text)
         if ai_entity_hits and ai_event_hits:
             score += min(5, ai_entity_hits + ai_event_hits)
