@@ -205,6 +205,50 @@ class TestIssueSpecificity(unittest.TestCase):
             f"AI 가격/요금 인상 뉴스 issue_specificity가 {score} (6 이상이어야 함)",
         )
 
+    def test_ai_hardware_alliance_multi_entity_scores_as_specific(self):
+        # 회귀 테스트(2026-07-16, GHA run 29468907597): "엔비디아·도요타·화낙
+        # AI 협력 확대" 같은 반도체/제조 밸류체인 제휴 뉴스가 소비자용 AI
+        # 서비스명 위주 엔티티 목록에 안 걸려 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="재팬 패싱 지우기 확대 AI 소식",
+            original_topic="‘재팬 패싱’ 지우기 나선 엔비디아… 도요타·화낙과 AI 협력 확대 - 조선비즈",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"엔비디아·도요타·화낙 제휴 뉴스 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
+    def test_ai_incident_controversy_scores_as_specific(self):
+        # 회귀 테스트(2026-07-16, GHA run 29468907597): "그록 빌드 소스코드
+        # 무단수집 논란" 같은 사고/보안 뉴스가 ai_event_keywords에 사고성
+        # 어휘가 없어 5점(차단 임계값 6 미만)에 갇혔다.
+        scored = _make_scored(
+            topic="그록 빌드 AI 데이터 소식",
+            original_topic="'그록 빌드', 소스코드·인증키 무단 수집 논란...머스크 \"업로드 데이터 전면 삭제\" - AI타임스",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertGreaterEqual(
+            score, 6,
+            f"그록 소스코드 무단수집 논란 issue_specificity가 {score} (6 이상이어야 함)",
+        )
+
+    def test_generic_book_column_with_ai_mention_stays_low_specificity(self):
+        # 가드 테스트(2026-07-16): 같은 리허설에서 세 번째로 막힌 후보는
+        # 실제로는 "AI 반도체 경쟁" 검색어로 잘못 걸려든 주간 서평 칼럼
+        # ("흔들리지 않는 투자자 外[이주의 책")이었다 — issue_specificity가
+        # 이 후보를 막은 건 올바른 동작이었다. 엔티티/이벤트 키워드를
+        # 늘리면서 이런 일반 콘텐츠까지 통과시키지 않는지 확인한다.
+        scored = _make_scored(
+            topic="흔들리지 않는 투자자 AI 데이터 확대",
+            original_topic="흔들리지 않는 투자자 外[이주의 책",
+        )
+        score = NewsQualityGate._compute_issue_specificity(scored)
+        self.assertLess(
+            score, 6,
+            f"AI와 무관한 서평 칼럼 issue_specificity가 {score}로 통과 임계값을 넘었음(과도한 완화 회귀)",
+        )
+
     def test_ai_evergreen_low_issue_specificity_warns_not_blocks(self):
         gate = NewsQualityGate()
         title = "직장인 ChatGPT, 시간 줄이려면 먼저 볼 3가지"
