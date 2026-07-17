@@ -1361,7 +1361,26 @@ class NewsPipeline:
                     _cpg_issues = list(_candidate_publish_gate.get("blocking_issues") or [])
                     _cpg_issues.append("en_mode_template_fallback_blocked")
                     _candidate_publish_gate["blocking_issues"] = _cpg_issues
-                if bool(_candidate_publish_gate.get("passed")):
+                # 영어 모드 발행 판정(2026-07-17 드라이런 #4·#5 실측 교훈): candidate는
+                # 한국어 템플릿+영어 주제의 혼합물로 EN에서는 절대 발행되지 않는 게이트
+                # 판정용 아티팩트인데, 그 혼합물에서만 나는 구조적 이슈(한국어 박스에
+                # 영어 헤드라인 반복 삽입 등)가 발행을 막는 두더지잡기가 된다.
+                # EN에서는 "실제 발행본"인 LLM 영어 서술 본문이 같은 풀 게이트
+                # (quality_gate.evaluate)를 통과했으면 그 결과를 발행 판정으로 쓴다 —
+                # 발행되는 본문 기준으로는 동일 강도의 게이트가 그대로 전부 적용된다.
+                # (candidate의 구조 플래그 geo/sge/grade 요건은 바깥 if가 이미 강제.)
+                _en_narrative_publish = (
+                    is_english_mode()
+                    and _llm_body_gate_passed
+                    and not bool(_candidate_publish_gate.get("passed"))
+                )
+                if _en_narrative_publish:
+                    logger.info(
+                        "news pipeline: EN mode — 후보 게이트 대신 발행본(영어 서술) 게이트로 판정 "
+                        "(candidate-only blocking=%s)",
+                        _candidate_publish_gate.get("blocking_issues"),
+                    )
+                if bool(_candidate_publish_gate.get("passed")) or _en_narrative_publish:
                     # 템플릿 candidate가 게이트를 통과했다 — 발행 가부 판정·플래그는 이 기준을
                     # 그대로 쓴다(발행 회귀 0). 단 LLM 서술형 본문도 자체 게이트를 통과했다면
                     # 실제 발행 본문은 한 편으로 읽히는 LLM 서술형(html)을 유지하고, 통과 못
@@ -1379,7 +1398,10 @@ class NewsPipeline:
                         html=html,
                         topic=selected.candidate.topic,
                     )
-                    publish_quality_gate = _candidate_publish_gate
+                    if not _en_narrative_publish:
+                        publish_quality_gate = _candidate_publish_gate
+                    # _en_narrative_publish면 publish_quality_gate는 이미 발행본(영어
+                    # 서술) 평가 결과(passed=True)다 — 그대로 유지한다.
                     _publish_ready = True
                     self.artifact_service.update_publish_artifacts(
                         artifact_dir,
@@ -1389,6 +1411,12 @@ class NewsPipeline:
                             "final_publish_html_source": _final_html_source,
                             "promoted_article_candidate_as_publish_content": not _llm_body_gate_passed,
                             "llm_narrative_published": _llm_body_gate_passed,
+                            "en_candidate_gate_bypassed_for_narrative": _en_narrative_publish,
+                            "en_candidate_gate_blocking_issues": (
+                                list(_candidate_publish_gate.get("blocking_issues") or [])
+                                if _en_narrative_publish
+                                else []
+                            ),
                             "promoted_article_candidate_grade": _grade,
                             "promoted_article_candidate_length": len(_candidate_html),
                             "selected_title": best_title.title,
