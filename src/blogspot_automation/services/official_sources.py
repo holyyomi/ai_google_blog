@@ -75,8 +75,11 @@ def render_official_sources_html(sources: Iterable[dict[str, str]]) -> str:
     if not items:
         return ""
     body = "\n".join(items)
+    from blogspot_automation.services.blog_language import is_english_mode
+
+    label = "Sources" if is_english_mode() else "공식 출처"
     return (
-        '\n    <p class="source-trust-links-label"><strong>공식 출처</strong></p>\n'
+        f'\n    <p class="source-trust-links-label"><strong>{label}</strong></p>\n'
         '    <ul class="source-trust-links">\n'
         f'{body}\n'
         '    </ul>'

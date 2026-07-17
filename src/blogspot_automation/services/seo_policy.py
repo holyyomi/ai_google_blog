@@ -564,6 +564,16 @@ def append_internal_links_block(
     if not html:
         return html
     cleaned = strip_internal_link_sections(html)
+    if is_english_mode():
+        # 영어 전환 초기: 발행 이력의 내부링크는 전부 과거 한국어 글이다. 영어
+        # 독자에게 한국어 앵커를 내밀지 않도록 한글 제목 링크는 거르고, 남는 게
+        # 없으면 라벨 페이지 폴백(Related guides 클러스터 허브)으로 채운다.
+        links = tuple(
+            (title, url)
+            for title, url in tuple(links or ())
+            if not re.search(r"[가-힣]", str(title or ""))
+        )
+        include_fallbacks = include_fallbacks or not links
     selected_links = _fill_internal_links(links, include_fallbacks=include_fallbacks)
     if not selected_links:
         return cleaned
