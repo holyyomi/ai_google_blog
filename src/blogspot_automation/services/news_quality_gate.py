@@ -1727,6 +1727,12 @@ class NewsQualityGate:
         "slams", "cuts", "raises", "drops", "launches", "unveils", "rolls",
         "brings", "goes", "makes", "takes", "sees", "faces", "amid", "over",
         "under", "against", "toward", "towards", "full", "dev",
+        # 발표/소개형 헤드라인 필러 (드라이런 #14: "introducing"이 본문 필수어로
+        # 강제) — 본문 prose에는 등장할 이유가 없는 단어들.
+        "introducing", "introduces", "announcing", "announces", "meet",
+        "presenting", "inside", "breaking", "exclusive", "reportedly",
+        "officially", "finally", "everything", "need", "know", "here",
+        "launch", "focus", "explained", "compared", "means",
     })
 
     @classmethod

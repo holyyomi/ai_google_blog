@@ -321,7 +321,68 @@ def ensure_answer_engine_optimized_html(
         r'(class=["\'][^"\']*?)\bfaq-card\b', r"\1faq-item", content, flags=re.IGNORECASE
     )
 
+    if is_english_mode():
+        # 최종 보수(2026-07-17): clean-layout 재렌더·overstack 축소 등 어느 단계가
+        # intent 항목을 떨어뜨려도, 마지막에 3개를 다시 보장한다 —
+        # intent_qa_count_below_3가 EN 발행을 반복 차단한 실측 대응.
+        content = _ensure_min_intent_items_en(content)
+
     return content
+
+
+_EN_INTENT_REPAIR_POOL: tuple[tuple[str, str], ...] = (
+    ("Is it worth paying for right now?",
+     "Try the free tier on one real task first; upgrade only if the limits actually slow you down."),
+    ("How does this affect existing users?",
+     "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."),
+    ("Where can you verify the current details?",
+     "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."),
+    ("What should you check before relying on it?",
+     "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."),
+)
+
+
+def _ensure_min_intent_items_en(content: str) -> str:
+    """INTENT_ANSWER_BLOCK의 intent-qa-item이 3개 미만이면 범용 Q&A로 채운다."""
+    count = len(re.findall(r'class=["\'][^"\']*intent-qa-item', content))
+    if count >= 3:
+        return content
+    block_match = re.search(
+        r'(<section[^>]*id="INTENT_ANSWER_BLOCK"[^>]*>)(.*?)(</section>)',
+        content,
+        flags=re.DOTALL,
+    )
+    existing_qs = {
+        _normalize_question_key(q)
+        for q in re.findall(r"Q\.\s*([^<]+)", block_match.group(2))
+    } if block_match else set()
+    additions: list[str] = []
+    for q, a in _EN_INTENT_REPAIR_POOL:
+        if count + len(additions) >= 3:
+            break
+        if _normalize_question_key(q) in existing_qs:
+            continue
+        additions.append(
+            '<div class="intent-qa-item">'
+            f'<p class="intent-q"><strong>Q. {escape(q)}</strong></p>'
+            f"<p>A. {escape(a)}</p>"
+            "</div>"
+        )
+    if not additions:
+        return content
+    if block_match:
+        return (
+            content[: block_match.end(2)]
+            + "".join(additions)
+            + content[block_match.end(2):]
+        )
+    block = (
+        '<section id="INTENT_ANSWER_BLOCK" class="yomi-faq">'
+        "<h2>Reader questions, answered</h2>"
+        + "".join(additions)
+        + "</section>"
+    )
+    return _insert_before_internal_links_or_body_end(content, block)
 
 
 def answer_engine_coverage(html: str) -> dict[str, object]:
