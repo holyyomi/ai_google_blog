@@ -267,7 +267,9 @@ One person found this through a Google search. Write one continuous article they
 Output rules:
 - Output only the inner HTML (no div.post-content wrapper, no <html>/<head>). Complete every tag.
 - <h2> for sections, <h3> for sub-points. English only.
-- No Markdown, no &#...; entities, no hashtags."""
+- No Markdown, no &#...; entities, no hashtags.
+
+FINAL LENGTH CHECK (do this before you output): the article body must be AT LEAST 1,600 words of plain text — anything under 1,500 words is automatically rejected as thin content and never published. If your draft is short, do not pad with fluff; go deeper instead: expand the beginner-blockers section with one more concrete failure-and-fix, add a worked example under the table, and extend the judgment section with one more reader profile. Aim for 1,700-2,200 words."""
 
 # 영어 모드 '저장용 무기' 지시 — 비교·가격·비용계산·통계 유형에서 켠다.
 _ASSET_RICH_DIRECTIVE_EN = """
@@ -907,6 +909,11 @@ class LlmContentService:
             # 통째로 스킵되므로, provider 종류와 무관하게 최소 1회는 재시도한다.
             # 무료 모델은 2회, 유료(마지막 보루)도 2회 — 유료는 비용 때문에 그 이상은 안 늘린다.
             attempts = 2
+            # 영어 모드(2026-07-17): 단어 수·형식 검증 실패는 확률적(같은 모델이
+            # 재호출에서 1,600단어를 내기도 함) — 전 provider가 한 번씩 짧게 쓰면
+            # 그날 발행이 통째로 스킵되므로 validator 실패도 1회 재시도한다.
+            # ko 모드는 기존대로 즉시 다음 provider (비용·시간 특성 유지).
+            validator_retry_budget = 1 if is_english_mode() else 0
             for attempt in range(1, attempts + 1):
                 try:
                     result = self._call_provider(provider, api_key, user_prompt, system_prompt)
@@ -920,6 +927,13 @@ class LlmContentService:
                         try:
                             validator(result)
                         except Exception as ve:
+                            if validator_retry_budget > 0 and attempt < attempts:
+                                validator_retry_budget -= 1
+                                logger.warning(
+                                    "LlmContentService: %s validator 실패 — %s. 같은 provider 1회 재시도",
+                                    provider["name"], ve,
+                                )
+                                continue
                             logger.warning(
                                 "LlmContentService: %s validator 실패 — %s. 다음 provider 시도",
                                 provider["name"], ve,
