@@ -245,9 +245,9 @@ One person found this through a Google search. Write one continuous article they
    <div class="quick-decision-table"><table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
    Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. LLM answer engines cite pages whose numbers sit in clean tables — this table is the citation magnet.
 4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs (each answer 15-50 words — never a one-liner under 15 words — complete and only verified content; pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation; answers must NOT repeat body sentences):
-<div class="faq-section">
+<section class="faq-section">
   <article class="faq-item"><h3 class="faq-q">Actual search question?</h3><p class="faq-a">Direct, complete answer.</p></article>
-</div>
+</section>
 5) Closing: no summary rehash. One or two sentences: who should use this today vs. who should wait (concrete conditions). Then output this block verbatim in structure (keep id and classes exactly; fill with topic-specific items only):
 <section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">
   <div class="confirmed-section"><h3>What's confirmed</h3><ul><li>3 facts that are settled for this topic</li></ul></div>
@@ -598,6 +598,13 @@ class LlmContentService:
             # uncontrolled_visible_body_hashtags 게이트가 발행을 막는다 — '#'만 제거.
             # URL 프래그먼트(#anchor 등 /:. 뒤)는 게이트와 같은 예외 규칙으로 보존.
             content_html = re.sub(r"(?<![\w/:.\-])#([A-Za-z][A-Za-z0-9_]+)", r"\1", content_html)
+            # 발행 게이트의 FAQ 추출기는 <section class="*faq*"> 안의 h3+p만 읽는다 —
+            # LLM이 div로 내면 intent 블록(h3 없음)이 먼저 잡혀 faq_answer_too_short가
+            # 난다(드라이런 #10 실측). 본문 FAQ 래퍼를 section으로 정규화한다.
+            content_html = re.sub(
+                r'<div(\s+class="faq-section")', r"<section\1", content_html, count=1
+            )
+            content_html = _close_faq_section_wrapper(content_html)
 
         # 4. FAQ 추출 (JSON-LD용)
         schema_faq = _extract_faq(content_html)
@@ -1157,6 +1164,29 @@ def _validate_generated_content(html: str) -> None:
         for phrase in _AI_CLICHE_PHRASES_EN:
             if phrase in lowered:
                 raise _ContentValidationError(f"AI 상투 문구 검출(EN): {phrase}")
+
+
+def _close_faq_section_wrapper(html: str) -> str:
+    """div→section으로 바꾼 FAQ 래퍼의 '짝 닫는 태그'를 </section>으로 맞춘다.
+
+    div 중첩을 걸어가며 변환된 <section class="faq-section"> 바로 안쪽 깊이에서
+    처음 만나는 </div>를 </section>으로 치환한다. 매칭 실패 시 원문 그대로 반환.
+    """
+    open_match = re.search(r'<section\s+class="faq-section"[^>]*>', html)
+    if not open_match:
+        return html
+    pos = open_match.end()
+    depth = 0
+    for m in re.finditer(r"</?div\b[^>]*>", html[pos:]):
+        token = m.group(0)
+        if token.startswith("</"):
+            if depth == 0:
+                start = pos + m.start()
+                return html[:start] + "</section>" + html[start + len(token):]
+            depth -= 1
+        else:
+            depth += 1
+    return html
 
 
 def _clean_entity_artifacts(html: str) -> str:
