@@ -525,8 +525,18 @@ class NewsQualityGate:
 
         lowered_html = html.lower()
         visible_html_text = _visible_text_for_debug_marker_scan(html).lower()
+        # 영어 모드(2026-07-17): "raw"/"fallback"/"scoring"은 영어 일반 단어라
+        # substring 매칭이 정상 본문("drawing", "fallback model", "scoring 90")을
+        # 오탐 차단한다(드라이런 #4 실측: drawing→raw). 영어 모드에서는 이 세
+        # 마커를 디버그 형태(raw= / "raw" / raw:)로만 매칭한다. ko 모드는 기존 그대로.
+        _en_word_markers = {"raw", "fallback", "scoring"}
         for marker in _DEBUG_HTML_MARKERS:
-            if marker.lower() in visible_html_text:
+            m = marker.lower()
+            if is_english_mode() and m in _en_word_markers:
+                if re.search(rf'(?<![a-z0-9_]){m}\s*[=:]|"{m}"', visible_html_text):
+                    blocking_issues.append(f"html_contains_debug_marker:{marker}")
+                continue
+            if m in visible_html_text:
                 blocking_issues.append(f"html_contains_debug_marker:{marker}")
 
         if not re.search(r"<h1\b[^>]*>.*?</h1>", html, flags=re.IGNORECASE | re.DOTALL):
@@ -1551,6 +1561,9 @@ class NewsQualityGate:
             "data leak", "breach", "exfiltrat", "security incident",
             "jailbreak", "integration", "plugin", "extension", "dataset",
             "fine-tun", "on-device", "voice mode", "image generation",
+            # 드라이런 #4 보강: 가격 계열 실사용 어휘 ("pricing"만으론 "costs" 기사 미검출)
+            "cost", "costs", "fee", "fees", "per user", "per seat",
+            "monthly", "annual", "enterprise", "license",
         )
         # 실측 사건(2026-07-16): 스크랩된 토픽 문자열에 "gpt-image-1",
         # "claude-4"처럼 소문자/하이픈 표기가 섞여 대소문자 구분 매칭("GPT")이
@@ -2077,9 +2090,13 @@ class NewsQualityGate:
             issues.append("ai_title_tool_terms_missing_in_body:" + ",".join(missing_terms[:3]))
 
         value_groups = {
-            "pricing": ("요금", "가격", "비용", "무료", "유료", "플랜", "한도", "$", "달러"),
-            "workflow": ("활용", "워크플로우", "자동화", "설정", "단계", "적용", "사용법"),
-            "risk": ("보안", "개인정보", "권한", "데이터", "주의", "검수", "정책"),
+            # 영어 전환(2026-07-17): 영어 동의어 추가 (additive — ko 동작 불변)
+            "pricing": ("요금", "가격", "비용", "무료", "유료", "플랜", "한도", "$", "달러",
+                        "pricing", "price", "cost", "free", "paid", "plan", "limit", "subscription"),
+            "workflow": ("활용", "워크플로우", "자동화", "설정", "단계", "적용", "사용법",
+                         "workflow", "step", "steps", "setup", "how to", "settings", "automat", "use it"),
+            "risk": ("보안", "개인정보", "권한", "데이터", "주의", "검수", "정책",
+                     "risk", "privacy", "security", "data", "permission", "caution", "policy", "review", "verify"),
         }
         missing_value_groups = [
             name for name, terms in value_groups.items()

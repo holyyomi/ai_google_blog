@@ -1095,9 +1095,15 @@ class NewsTopicService:
         cleaned = RSS_SUFFIX_PATTERN.sub("", cleaned)
         cleaned = re.sub(r"\s+-\s+[^-]+(?:뉴스|일보|신문|방송|경제|닷컴)\s*$", "", cleaned, flags=re.IGNORECASE)
         if is_english_mode():
-            # 영어 RSS 제목의 매체 접미사 제거: "Headline - The Verge" / "… | TechCrunch".
-            # 하이픈 뒤가 4단어 이하의 짧은 매체명일 때만 잘라 본문 하이픈 오절단을 피한다.
-            cleaned = re.sub(r"\s+[-|–]\s+(?:[A-Z][\w.&']*)(?:\s+[A-Za-z][\w.&']*){0,3}\s*$", "", cleaned)
+            # 영어 RSS 제목의 매체/저자 접미사 제거: "Headline - The Verge" /
+            # "… - De'aaron Fox (nAmerica)". 영어 헤드라인 본문은 하이픈 대신
+            # em dash·콜론을 쓰므로, 마지막 " - " 뒤 꼬리가 45자 이하면 매체·저자로
+            # 보고 통째로 잘라낸다 (드라이런 #4: 괄호 낀 저자명이 部分 절단돼
+            # 깨진 주제 표면으로 패턴 confidence가 25로 캡되던 사고).
+            head, sep, tail = cleaned.rpartition(" - ")
+            if sep and head and len(tail) <= 45:
+                cleaned = head
+            cleaned = re.sub(r"\s+[|–]\s+[^|–]{1,45}$", "", cleaned)
         cleaned = re.sub(r"\s{2,}", " ", cleaned)
         quote_count = cleaned.count('"')
         if quote_count % 2 == 1:

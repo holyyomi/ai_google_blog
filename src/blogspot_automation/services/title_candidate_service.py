@@ -131,6 +131,14 @@ def _build_english_titles(*, topic: str, raw: dict) -> list[tuple[str, str]]:
     def _with_year(t: str) -> str:
         return t if has_year or year in t else f"{t} ({year})"
 
+    # 헤드라인이 이미 "머리: 꼬리" 구조면 접미사 변형은 머리(키워드부)에만 붙인다
+    # ("…: What It Costs: The Real Numbers" 같은 이중 콜론 제목 방지).
+    if ":" in tc:
+        tc_head = tc.split(":", 1)[0].strip()
+        if len(tc_head) >= 18:
+            titles.append((_with_year(tc), "search"))  # 원 헤드라인 우선 후보
+            tc = tc_head
+
     if " vs " in f" {blob} " or "vs." in blob or "versus" in blob:
         titles.append((_with_year(f"{tc}: Which One Wins?"), "comparison"))
         titles.append((_with_year(f"{tc} Compared"), "comparison"))

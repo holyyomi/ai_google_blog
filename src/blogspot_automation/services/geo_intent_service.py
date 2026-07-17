@@ -260,6 +260,11 @@ class GeoIntentService:
                 a = clean_yomi[:120] if clean_yomi else a
             if self._is_low_quality_answer(a):
                 a = self._fallback_answer_for_question(q, topic, content_type)
+            # 영어 모드(2026-07-17): 영어 글은 한국어 패턴 기반 슬롯 추출(real/yomi)이
+            # 비어 default_a가 여러 질문에 그대로 복제된다 → repeated_faq_or_intent_
+            # answers 게이트 차단(드라이런 #4 실측). 질문 유형별 영어 폴백으로 다양화.
+            if is_english_mode() and a == default_a:
+                a = self._fallback_answer_for_question(q, topic, content_type)
             qa_pairs.append({"Q": q, "A": a})
             used_qs.add(q)
 

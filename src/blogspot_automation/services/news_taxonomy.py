@@ -721,7 +721,13 @@ def _build_english_search_angle(*, original_topic: str, lower: str, angle: Any) 
 
     angle_type은 기존 파이프라인이 아는 값(ai_slot_enricher._ANGLE_FOCUS 키)만 쓴다.
     """
-    topic = original_topic[:90].strip()
+    topic = original_topic.strip()
+    if len(topic) > 90:
+        # 단어 경계에서 절단 — 중간 절단은 깨진 주제 표면으로 패턴 매칭이 캡된다
+        topic = topic[:90].rsplit(" ", 1)[0].rstrip(" ,;:-–—")
+    # 괄호가 열린 채 끝나면 괄호 시작부터 제거 (잘린 "(nAm" 류)
+    if topic.count("(") > topic.count(")"):
+        topic = topic[: topic.rfind("(")].rstrip(" ,;:-–—")
     subject = topic.rstrip(".!?")
 
     if any(k in lower for k in ("pricing", "price", "cost", "subscription", "free tier", "per month", "/month", "fee")):

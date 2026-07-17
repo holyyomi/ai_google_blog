@@ -25,12 +25,15 @@ _LABEL_VARIANTS: dict[str, tuple[str, ...]] = {
 }
 
 # 영어 모드 변주 풀 — 선택 메커니즘(seed 결정적)은 한국어와 동일.
+# 주의: 변형은 전부 '비질문형' 표현만 쓴다 — What/Why/How/Which 시작이나 '?'가
+# 들어가면 final_html_audit의 질문 헤딩 예산(≤5)을 GEO 블록이 잡아먹어
+# visible_question_headings_above_5로 발행이 차단된다 (2026-07-17 드라이런 #4 실측).
 _LABEL_VARIANTS_EN: dict[str, tuple[str, ...]] = {
     "overview": ("The short answer", "TL;DR", "Bottom line first"),
-    "context": ("Why this matters now", "What changed", "The backstory in brief"),
-    "context_ai": ("What changed", "Why this update matters", "What's different now"),
-    "intent": ("What people are asking", "Questions worth answering", "Common questions, answered"),
-    "confirmed": ("What's confirmed so far", "Confirmed vs. still unclear"),
+    "context": ("The context behind it", "The backstory in brief", "Behind this change"),
+    "context_ai": ("The change, in context", "Behind this update", "The backstory in brief"),
+    "intent": ("Reader questions, answered", "Common questions, answered", "Quick answers for searchers"),
+    "confirmed": ("Confirmed vs. still unclear", "The confirmed facts so far"),
     "trust": ("Sources & where to verify", "Where this comes from", "Sources"),
 }
 
