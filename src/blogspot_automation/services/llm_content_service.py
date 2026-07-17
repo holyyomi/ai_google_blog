@@ -592,6 +592,10 @@ class LlmContentService:
         if english:
             for _pat, _repl in _OVERCLAIM_SOFTENERS_EN:
                 content_html = _pat.sub(_repl, content_html)
+            # LLM이 금지 지시를 어기고 본문에 해시태그를 넣으면(무료 모델 관측)
+            # uncontrolled_visible_body_hashtags 게이트가 발행을 막는다 — '#'만 제거.
+            # URL 프래그먼트(#anchor 등 /:. 뒤)는 게이트와 같은 예외 규칙으로 보존.
+            content_html = re.sub(r"(?<![\w/:.\-])#([A-Za-z][A-Za-z0-9_]+)", r"\1", content_html)
 
         # 4. FAQ 추출 (JSON-LD용)
         schema_faq = _extract_faq(content_html)

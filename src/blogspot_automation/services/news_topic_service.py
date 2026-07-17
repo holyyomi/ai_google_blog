@@ -1100,10 +1100,18 @@ class NewsTopicService:
             # em dash·콜론을 쓰므로, 마지막 " - " 뒤 꼬리가 45자 이하면 매체·저자로
             # 보고 통째로 잘라낸다 (드라이런 #4: 괄호 낀 저자명이 部分 절단돼
             # 깨진 주제 표면으로 패턴 confidence가 25로 캡되던 사고).
-            head, sep, tail = cleaned.rpartition(" - ")
-            if sep and head and len(tail) <= 45:
-                cleaned = head
-            cleaned = re.sub(r"\s+[|–]\s+[^|–]{1,45}$", "", cleaned)
+            # "Headline - Author - Publication"처럼 꼬리가 겹칠 수 있어 최대 3회 반복 제거
+            for _ in range(3):
+                _before = cleaned
+                for _sep in (" - ", " – ", " — ", " | "):
+                    head, sep, tail = cleaned.rpartition(_sep)
+                    if sep and head and len(tail) <= 45:
+                        cleaned = head
+                if cleaned == _before:
+                    break
+            cleaned = re.sub(r"\s+[|–—]\s+[^|–—]{1,45}$", "", cleaned)
+            # 꼬리의 "by Author Name" 제거 ("… , by Jane Doe" / "… by Jane Doe")
+            cleaned = re.sub(r",?\s+by\s+[A-Z][\w.'’-]*(?:\s+[A-Z][\w.'’-]*){0,3}\s*$", "", cleaned)
         cleaned = re.sub(r"\s{2,}", " ", cleaned)
         quote_count = cleaned.count('"')
         if quote_count % 2 == 1:

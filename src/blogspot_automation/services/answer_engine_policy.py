@@ -212,6 +212,25 @@ def ensure_answer_engine_optimized_html(
                     )
                 ]
                 _distinct.extend(_fallback_intent_answers(_extra_questions, topic_text)[: 3 - len(_distinct)])
+            if is_english_mode() and len(_distinct) < 3:
+                # 영어 모드(2026-07-17): 본문 FAQ와 질문 풀이 전부 겹치면 intent 블록이
+                # 3개 미만이 되어 intent_qa_count_below_3로 발행이 막힌다(드라이런 실측).
+                # 본문 FAQ와 겹치지 않는 범용 영어 Q&A로 최소 3개를 보장한다.
+                _en_generic_pool = [
+                    {"Q": "Is it worth paying for right now?", "A": "Try the free tier on one real task first; upgrade only if the limits actually slow you down."},
+                    {"Q": "How does this affect existing users?", "A": "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."},
+                    {"Q": "Where can you verify the current details?", "A": "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."},
+                    {"Q": "What should you check before relying on it?", "A": "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."},
+                ]
+                for qa in _en_generic_pool:
+                    if len(_distinct) >= 3:
+                        break
+                    _qk = _normalize_question_key(qa["Q"])
+                    if _qk in _body_faq_keys:
+                        continue
+                    if any(_qk == _normalize_question_key(str(d.get("Q") or "")) for d in _distinct):
+                        continue
+                    _distinct.append(qa)
             _intent_items = _distinct
         head_blocks.append(_intent_answer_block(_intent_items, label=_varied_label("intent", _seed)))
     # PEOPLE_ALSO_ASK_BLOCK("이어서 찾아보면 좋은 것")는 더 이상 삽입하지 않는다

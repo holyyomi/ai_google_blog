@@ -422,7 +422,12 @@ def _detect_broken_topic_surface(text: str) -> str:
     for marker in _BROKEN_SURFACE_MARKERS:
         if marker in text:
             return f"truncate_marker:{marker}"
-    if len(text.split()) > _MAX_TOPIC_TOKEN_COUNT:
+    # 영어 헤드라인은 관사·전치사 때문에 정상 제목도 14토큰을 훌쩍 넘는다
+    # (2026-07-17 실측: 15토큰 정상 헤드라인이 too_many_tokens로 confidence 캡).
+    # 한국어 기준(14)은 유지하고 영어 모드에서만 상한을 넉넉히 둔다.
+    from blogspot_automation.services.blog_language import is_english_mode
+    _token_cap = 22 if is_english_mode() else _MAX_TOPIC_TOKEN_COUNT
+    if len(text.split()) > _token_cap:
         return "too_many_tokens"
     for ending in _VERB_ENDING_FOLLOWED_BY_NOUN_PATTERN:
         if ending in text:
