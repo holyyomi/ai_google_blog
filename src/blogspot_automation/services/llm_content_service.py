@@ -244,7 +244,7 @@ One person found this through a Google search. Write one continuous article they
 3) MANDATORY: one comparison/pricing/spec table inside the flow, wrapped exactly like this (the wrapper enables mobile scroll + first-column emphasis):
    <div class="quick-decision-table"><table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
    Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. LLM answer engines cite pages whose numbers sit in clean tables — this table is the citation magnet.
-4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs (each answer ≤ 50 words, complete, only verified content; pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation; answers must NOT repeat body sentences):
+4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs (each answer 15-50 words — never a one-liner under 15 words — complete and only verified content; pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation; answers must NOT repeat body sentences):
 <div class="faq-section">
   <article class="faq-item"><h3 class="faq-q">Actual search question?</h3><p class="faq-a">Direct, complete answer.</p></article>
 </div>
@@ -1121,8 +1121,11 @@ def _validate_generated_content(html: str) -> None:
     text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw)).strip()
 
     # 3) FAQ 답 미완성: 비었거나 지나치게 짧은 faq-a는 잘림/오류.
+    #    영어 모드는 발행 게이트(faq_answer_too_short, 20자)와 같은 하한을 여기서
+    #    먼저 걸어 재시도로 회복한다 (드라이런 #9: 한 줄 답변이 게이트에서 차단).
+    _faq_min = 20 if english else 5
     for ans in re.findall(r'class="faq-a"[^>]*>(.*?)</', raw, re.DOTALL):
-        if len(re.sub(r"<[^>]+>", "", ans).strip()) < 5:
+        if len(re.sub(r"<[^>]+>", "", ans).strip()) < _faq_min:
             raise _ContentValidationError("FAQ 답이 비었거나 잘림")
 
     # 4) 언어 정합: 한국어 모드에서는 영어 설명 문장 혼입(연속 영단어 6개 이상),

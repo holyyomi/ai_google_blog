@@ -1720,6 +1720,13 @@ class NewsQualityGate:
         "will", "should", "not", "no", "be", "has", "have", "had", "at",
         "by", "as", "from", "into", "about", "after", "before", "still",
         "just", "now", "new", "more", "most",
+        # 헤드라인 동사/기능어(2026-07-17 드라이런 #9: "vows"가 본문 필수 단어로
+        # 강제돼 title_body_entity_mismatch 오탐) — 본문에 재등장할 이유가 없는
+        # 뉴스 헤드라인 상투 동사·전치사류.
+        "vows", "hits", "falls", "says", "said", "plans", "wants", "warns",
+        "slams", "cuts", "raises", "drops", "launches", "unveils", "rolls",
+        "brings", "goes", "makes", "takes", "sees", "faces", "amid", "over",
+        "under", "against", "toward", "towards", "full", "dev",
     })
 
     @classmethod
