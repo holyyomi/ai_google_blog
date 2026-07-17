@@ -1284,6 +1284,24 @@ class NewsPipeline:
                 )
                 plan.selected_title = best_title
                 selected.candidate.raw["selected_title"] = _candidate_title
+                # 영어 모드(2026-07-17): 서술 본문 게이트는 위에서 '확정 전' 빌더
+                # 제목으로 평가됐다. 최종 제목(슬롯 보강 LLM 제목)이 이 시점에
+                # 확정되므로, 제목 의존 검사(title_body_entity_mismatch 등)를 최종
+                # 제목 기준으로 재평가한다 — 낡은 헤드라인 파편 제목의 오탐 제거.
+                if self._ai_blog_mode_enabled() and is_english_mode() and bool(_llm_used):
+                    publish_quality_gate = self.quality_gate.evaluate(
+                        selected=selected,
+                        selected_title=best_title.title,
+                        html=html,
+                        image_prompt=image_plan.get("image_prompt", ""),
+                        image_alt_text=image_plan.get("image_alt_text", ""),
+                        labels=plan.labels,
+                        hashtags=final_hashtags,
+                        dry_run=self.dry_run,
+                        news_publish_mode=self.news_publish_mode,
+                        extra_allowed_urls=_llm_citation_urls,
+                    )
+                    _llm_body_gate_passed = bool(publish_quality_gate.get("passed"))
 
             # article_candidate.html이 모든 GEO/SGE/품질 구조를 충족하면 그것을 publish content로 사용한다.
             # 이렇게 하면 LLM/ContrarianContentService가 GEO/SGE 구조를 빠뜨려도 publish_quality_gate를 통과한다.

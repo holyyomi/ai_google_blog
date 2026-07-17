@@ -243,7 +243,7 @@ One person found this through a Google search. Write one continuous article they
      <div class="risk-note"><span class="section-label">Watch out</span><p>1-2 sentences of the real risk</p></div>
 3) MANDATORY: one comparison/pricing/spec table inside the flow, wrapped exactly like this (the wrapper enables mobile scroll + first-column emphasis):
    <div class="quick-decision-table"><table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
-   Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. LLM answer engines cite pages whose numbers sit in clean tables — this table is the citation magnet.
+   Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. NO empty cells — write "n/a" or "check official page" when a value is unknown. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. LLM answer engines cite pages whose numbers sit in clean tables — this table is the citation magnet.
 4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs (each answer 15-50 words — never a one-liner under 15 words — complete and only verified content; pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation; answers must NOT repeat body sentences):
 <section class="faq-section">
   <article class="faq-item"><h3 class="faq-q">Actual search question?</h3><p class="faq-a">Direct, complete answer.</p></article>
@@ -605,6 +605,8 @@ class LlmContentService:
                 r'<div(\s+class="faq-section")', r"<section\1", content_html, count=1
             )
             content_html = _close_faq_section_wrapper(content_html)
+            # 빈 표 셀은 empty_table_cells 게이트가 차단한다 — "n/a"로 결정적 채움.
+            content_html = re.sub(r"(<t[dh]\b[^>]*>)\s*(</t[dh]>)", r"\1n/a\2", content_html)
 
         # 4. FAQ 추출 (JSON-LD용)
         schema_faq = _extract_faq(content_html)
