@@ -12,6 +12,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Windows 로컬 콘솔(cp949)에서 영어 본문의 em-dash 등 비-cp949 문자가
+# 마지막 결과 print에서 UnicodeEncodeError로 죽는 것 방지 (GHA는 UTF-8이라 no-op).
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 — 콘솔 인코딩 보정 실패는 비치명
+            pass
+
 
 def main() -> None:
     """Compatibility entrypoint.
