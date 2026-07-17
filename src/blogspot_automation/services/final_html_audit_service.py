@@ -325,7 +325,10 @@ def _heading_text_is_question(text: str) -> bool:
         return False
     if "?" in t or "무엇" in t or "왜" in t:
         return True
-    if t.endswith("?") or _QUESTION_HEADING_START_EN.match(t):
+    # 영어: '?'로 끝나는 것만 질문으로 센다. 의문사 시작만으로 세면
+    # "What the share numbers actually measure" 같은 명사구 헤딩이 전부
+    # 오탐돼 질문 예산(≤5)을 채운다 (2026-07-17 드라이런 #8 실측).
+    if t.endswith("?"):
         return True
     return bool(_QUESTION_HEADING_END.search(t))
 

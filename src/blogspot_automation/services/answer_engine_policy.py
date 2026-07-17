@@ -122,8 +122,8 @@ def ensure_answer_engine_optimized_html(
     if len(overview) < 35:
         if is_english_mode():
             overview = (
-                f"{overview} The article separates what's confirmed about "
-                f"{topic_text} from what you should verify yourself."
+                f"{overview} The article separates what's confirmed "
+                "from what you should verify yourself."
             ).strip()
         else:
             overview = (
@@ -134,8 +134,8 @@ def ensure_answer_engine_optimized_html(
     if len(issue_context) < 20:
         if is_english_mode():
             issue_context = (
-                f"{issue_context} The background and real-world impact of "
-                f"{topic_text} are covered below, based on confirmed facts."
+                f"{issue_context} The background and real-world impact "
+                "are covered below, based on confirmed facts."
             ).strip()
         else:
             issue_context = (
@@ -352,14 +352,15 @@ def _build_slots_from_html(html: str, *, title: str, topic: str) -> dict[str, An
             second_sentence = sentence
             break
     if is_english_mode():
-        # 영어 모드: 조사 합성 없이 전치사 구문으로 판단 문장을 만든다.
-        _subject = " ".join((topic or title or "this story").split()).strip()
-        hook = first_sentence or f"Here's what to check first about {topic}."
+        # 영어 모드: 긴 헤드라인(topic)을 문장에 그대로 삽입하면 같은 문자열이
+        # 여러 블록에 반복돼 raw_topic_repeated_in_html로 발행이 막힌다
+        # (드라이런 #8 실측: 7회). 주제어 없는 중립 문장으로 만든다.
+        hook = first_sentence or "Here's what to check first before you act on this story."
         return {
             "hook_opening": hook,
             "real_criterion": second_sentence or _first_sentence(plain, max_len=160) or hook,
             "yomi_judgment": (
-                f"The key with {_subject} is separating the actual impact "
+                "The key here is separating the actual impact "
                 "from the noise, and knowing what to verify yourself."
             ),
             "faq": faq,
@@ -549,9 +550,9 @@ def _citation_summary_block(
         sentences = [s for s in sentences if _dupcheck_norm(s) not in body_norm]
     if len(sentences) < 3:
         if is_english_mode():
-            fallback_topic = topic or title or "this topic"
+            # 헤드라인(topic) 삽입 금지 — raw_topic_repeated_in_html 반복 카운트 방지
             sentences.extend([
-                f"With {fallback_topic}, it pays to separate who it applies to from what actually changes.",
+                "It pays to separate who this applies to from what actually changes.",
                 "Check the official announcement, the product screen, and the latest updates side by side.",
                 "The article lays out the key conditions and caveats first, so you can compare quickly.",
             ])
@@ -571,15 +572,27 @@ def _citation_summary_block(
 
 
 def _intent_answer_block(items: list[dict[str, str]], *, label: str = "") -> str:
-    body = "".join(
-        '<div class="intent-qa-item">'
-        f'<h3>Q. {escape(str(item.get("Q") or ""))}</h3>'
-        f'<p>A. {escape(str(item.get("A") or ""))}</p>'
-        "</div>"
-        for item in items[:3]
-        if item.get("Q") and item.get("A")
-    )
-    heading = label or ("What people are asking" if is_english_mode() else "많이들 궁금해하는 것")
+    if is_english_mode():
+        # 영어: 질문을 h3로 내면 intent 3개가 곧장 질문 헤딩 예산(≤5)을 잡아먹어
+        # visible_question_headings_above_5로 발행이 막힌다 — 단락 강조로 렌더.
+        body = "".join(
+            '<div class="intent-qa-item">'
+            f'<p class="intent-q"><strong>Q. {escape(str(item.get("Q") or ""))}</strong></p>'
+            f'<p>A. {escape(str(item.get("A") or ""))}</p>'
+            "</div>"
+            for item in items[:3]
+            if item.get("Q") and item.get("A")
+        )
+    else:
+        body = "".join(
+            '<div class="intent-qa-item">'
+            f'<h3>Q. {escape(str(item.get("Q") or ""))}</h3>'
+            f'<p>A. {escape(str(item.get("A") or ""))}</p>'
+            "</div>"
+            for item in items[:3]
+            if item.get("Q") and item.get("A")
+        )
+    heading = label or ("Reader questions, answered" if is_english_mode() else "많이들 궁금해하는 것")
     return (
         '<section id="INTENT_ANSWER_BLOCK" class="yomi-faq">'
         f"<h2>{escape(heading)}</h2>"

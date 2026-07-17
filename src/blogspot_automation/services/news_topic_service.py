@@ -1112,6 +1112,9 @@ class NewsTopicService:
             cleaned = re.sub(r"\s+[|–—]\s+[^|–—]{1,45}$", "", cleaned)
             # 꼬리의 "by Author Name" 제거 ("… , by Jane Doe" / "… by Jane Doe")
             cleaned = re.sub(r",?\s+by\s+[A-Z][\w.'’-]*(?:\s+[A-Z][\w.'’-]*){0,3}\s*$", "", cleaned)
+            # 소스가 붙인 SEO 꼬리 "[2026]" 류 대괄호 조각 제거 — 바깥 strip()이
+            # 닫는 대괄호만 벗겨 "[2026" 같은 깨진 꼬리가 topic에 남는다(실측).
+            cleaned = re.sub(r"\s*\[[^\]]{0,20}\]?\s*$", "", cleaned)
         cleaned = re.sub(r"\s{2,}", " ", cleaned)
         quote_count = cleaned.count('"')
         if quote_count % 2 == 1:

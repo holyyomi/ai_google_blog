@@ -803,7 +803,9 @@ def _build_english_search_angle(*, original_topic: str, lower: str, angle: Any) 
     return angle(
         search_demand_topic=topic,
         questions=[
-            f"What was actually confirmed about {subject[:60]}?",
+            # 헤드라인(topic)을 질문에 삽입하지 않는다 — intent 블록에 그대로 노출돼
+            # raw_topic_repeated_in_html 카운트를 올린다 (드라이런 #8 실측).
+            "What was actually confirmed in this announcement?",
             "How does this affect regular users?",
             "What should I check before acting on it?",
         ],
