@@ -1544,6 +1544,13 @@ class NewsQualityGate:
             "api", "tokens", "context window", "discontinued", "rollout",
             "waitlist", "benchmark", "per month", "/month", "lawsuit",
             "acquisition", "partnership", "outage",
+            # 2026-07-17 드라이런 #3 보강: 보안/오픈소스/기능 사건 신호 —
+            # "open source 전환·저장소 유출"류 실뉴스가 5점(1점 부족)으로
+            # 막히던 케이스. 전부 사건 특정 신호라 일반론 글에는 안 잡힌다.
+            "open source", "open-source", "codebase", "repository", "repos",
+            "data leak", "breach", "exfiltrat", "security incident",
+            "jailbreak", "integration", "plugin", "extension", "dataset",
+            "fine-tun", "on-device", "voice mode", "image generation",
         )
         # 실측 사건(2026-07-16): 스크랩된 토픽 문자열에 "gpt-image-1",
         # "claude-4"처럼 소문자/하이픈 표기가 섞여 대소문자 구분 매칭("GPT")이
