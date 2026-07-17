@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any
 
 from blogspot_automation.models.news_models import NewsCandidate
+from blogspot_automation.services.blog_language import is_english_mode
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +97,11 @@ class EvergreenTopicService:
                 "publish_allowed": True,
                 "evergreen_axis": topic.evergreen_axis,
                 "evergreen_reason": topic.evergreen_reason,
-                "target_reader": "30~50대 직장인",
+                "target_reader": (
+                    "working professionals and solo business owners (US/UK/CA/IN)"
+                    if is_english_mode()
+                    else "30~50대 직장인"
+                ),
                 "query_group": topic.evergreen_axis,
                 "topic_group": topic.topic_group,
                 "content_angle": content_angle,
@@ -115,6 +120,10 @@ class EvergreenTopicService:
 
     @classmethod
     def _topics(cls) -> list[EvergreenTopic]:
+        if is_english_mode():
+            # 영어 전환(2026-07-17): 영어권 독자 대상 고 CPC 에버그린만.
+            # ai_blog_mode는 ai_automation 축만 쓰므로 이 뱅크가 전체 풀이 된다.
+            return cls._ai_automation_topics_en()
         return [
             *cls._adsense_revenue_topics(),
             *cls._blogspot_growth_topics(),
@@ -299,6 +308,175 @@ class EvergreenTopicService:
             cls._topic(topic="AI 캘린더 일정 자동화, 직장인 업무 시간 관리법", axis="ai_automation", search_topic="AI 캘린더 일정 자동화 직장인 업무 시간 관리", questions=("AI 캘린더 자동화는 직장인 업무 시간 관리에 어떻게 도움이 되나요?", "AI가 잡아준 일정을 그대로 따라가도 괜찮은가요?", "AI 일정 자동화에서 직접 확인해야 할 점은 무엇인가요?"), click_reason="검수 없이 AI 일정 자동화를 그대로 따르면 우선순위가 뒤바뀔 수 있다.", reader_benefit="AI 캘린더 자동화로 업무 시간을 관리하는 직장인 기준을 얻는다.", content_promise="AI 캘린더 일정 자동화를 직장인 업무 시간 관리 기준으로 정리한다.", angle_type="ai_setting", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
             cls._topic(topic="AI 이미지 생성 도구, 직장인 업무 자료 활용 기준", axis="ai_automation", search_topic="AI 이미지 생성 직장인 업무 자료 자동화 활용 기준", questions=("AI 이미지 생성 도구는 직장인 업무 자료 제작에 어떻게 쓰이나요?", "AI로 만든 이미지를 업무 자료에 그대로 써도 괜찮은가요?", "AI 이미지 생성 자동화에서 저작권상 확인할 점은 무엇인가요?"), click_reason="저작권 확인 없이 AI 이미지를 업무 자료에 쓰면 법적 문제가 생길 수 있다.", reader_benefit="AI 이미지 생성을 업무 자료에 안전하게 활용하는 기준을 얻는다.", content_promise="AI 이미지 생성 도구를 직장인 업무 자료 활용 기준으로 정리한다.", angle_type="ai_setting", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
             cls._topic(topic="AI 학습법으로 직장인 자기계발 생산성 높이는 법", axis="ai_automation", search_topic="AI 학습 직장인 자기계발 생산성 자동화 활용법", questions=("AI를 활용한 학습법은 직장인 자기계발 생산성을 얼마나 높여주나요?", "AI 학습 자동화에서 실제로 이해도가 올라가는지 어떻게 확인하나요?", "AI에만 의존한 학습의 한계는 무엇인가요?"), click_reason="이해 확인 없이 AI 학습 자동화만 반복하면 실제 실력으로 이어지지 않을 수 있다.", reader_benefit="AI 학습법을 직장인 자기계발 생산성으로 연결하는 기준을 얻는다.", content_promise="AI 학습법을 직장인 자기계발 생산성 기준으로 정리한다.", angle_type="benefit_howto", topic_group="ai_work", content_type="ai_work_tip", category="tech"),
+        ]
+
+    # ─── 영어 에버그린 뱅크 (2026-07-17 영어 전환) ────────────────────────────
+    # 운영 전략의 고가치 주제군: 1) 비교·선택형(직업·업무를 좁힌다) 2) 가격·비용
+    # 분석형 3) 문제해결·에러픽스형 4) 데이터·통계형 6) 수익화 하우투형.
+    # 가격 숫자는 제목·주제에 박지 않는다 — 생성 시점 리서치로 확인된 값만 본문에.
+    @classmethod
+    def _ai_automation_topics_en(cls) -> list[EvergreenTopic]:
+        def t(
+            topic: str,
+            search_topic: str,
+            questions: tuple[str, str, str],
+            click_reason: str,
+            reader_benefit: str,
+            content_promise: str,
+            angle_type: str,
+        ) -> EvergreenTopic:
+            return EvergreenTopic(
+                topic=topic,
+                category="tech",
+                summary=f"{topic} — practical, numbers-first guide for working professionals.",
+                evergreen_axis="ai_automation",
+                evergreen_reason=(
+                    "Comparison, pricing, and fix-it AI queries are repeat searches with "
+                    "high commercial intent and strong AI-citation potential."
+                ),
+                search_demand_topic=search_topic,
+                reader_search_questions=questions,
+                click_reason=click_reason,
+                reader_benefit=reader_benefit,
+                urgency_reason="Prices and limits change often; a current, sourced answer wins the click.",
+                content_promise=content_promise,
+                angle_type=angle_type,
+                topic_group="ai_work",
+                content_type="ai_work_tip",
+            )
+
+        return [
+            # 1) 비교·선택형 — 직업·업무를 좁힌 고 CPC 키워드
+            t(
+                "Claude vs ChatGPT for Excel and spreadsheet work",
+                "Claude vs ChatGPT for Excel work",
+                ("Is Claude or ChatGPT better for Excel formulas?", "Can ChatGPT analyze spreadsheet data?", "Which AI tool handles large spreadsheets better?"),
+                "Picking the wrong assistant for spreadsheet-heavy work wastes hours of cleanup.",
+                "A task-by-task comparison (formulas, cleanup, analysis, file limits) with clear pick-this-if conditions.",
+                "Compare both tools on real spreadsheet tasks and give a decision table.",
+                "money_compare",
+            ),
+            t(
+                "Best AI tools for real estate agents",
+                "best AI tools for real estate agents",
+                ("What AI tools do real estate agents actually use?", "Can AI write property listings?", "How much do AI tools for realtors cost?"),
+                "Generic 'best AI tools' lists ignore listing descriptions, CMA prep, and client follow-up.",
+                "A short list matched to actual agent tasks, with pricing and free-tier limits.",
+                "Rank tools by agent task (listings, follow-up, market summaries) with a pricing table.",
+                "money_compare",
+            ),
+            t(
+                "Best AI tools for Etsy sellers",
+                "best AI tools for Etsy sellers",
+                ("What AI tools help Etsy sellers write listings?", "Can AI generate Etsy product photos?", "Are AI-written Etsy listings against the rules?"),
+                "Sellers waste listing fees testing tools that don't fit handmade-shop workflows.",
+                "Tools matched to Etsy tasks (titles/tags, photos, customer messages) with cost per month and policy cautions.",
+                "Rank tools by Etsy task with pricing and a policy-risk note.",
+                "money_compare",
+            ),
+            t(
+                "Perplexity vs ChatGPT for research work",
+                "Perplexity vs ChatGPT for research",
+                ("Is Perplexity better than ChatGPT for research?", "Does Perplexity cite real sources?", "Which is better for fact-checking?"),
+                "Using the wrong tool for sourced research means unverifiable citations in real deliverables.",
+                "A comparison on citations, freshness, limits, and price — with pick-this-if conditions.",
+                "Compare research accuracy, citations, and cost in a decision table.",
+                "money_compare",
+            ),
+            # 2) 가격·비용 분석형 — 지갑 연 검색자
+            t(
+                "ChatGPT free vs paid: what you actually get",
+                "ChatGPT free vs paid difference",
+                ("What does ChatGPT Plus give you over free?", "Is ChatGPT Plus worth it?", "What are the free ChatGPT limits?"),
+                "The plan pages don't say which limits actually bite in daily use.",
+                "A plain-English breakdown of what each tier really unlocks, with current limits and an upgrade decision rule.",
+                "Break down free vs paid features and limits in a table with as-of dates.",
+                "money_compare",
+            ),
+            t(
+                "Claude free vs Pro: what you actually get",
+                "Claude free vs Pro difference",
+                ("What do you get with Claude Pro?", "What are Claude's free limits?", "Is Claude Pro worth paying for?"),
+                "Message limits are the real difference and the official page undersells how they feel in practice.",
+                "Current limits and features per tier plus who should upgrade and who shouldn't.",
+                "Tier-by-tier table with verified limits and an upgrade rule.",
+                "money_compare",
+            ),
+            t(
+                "The hidden costs of AI subscriptions for small businesses",
+                "hidden costs of AI subscriptions",
+                ("How much do AI tools really cost per month?", "What AI subscriptions overlap?", "How do I cut AI subscription costs?"),
+                "Stacked $20 subscriptions quietly become a three-figure monthly bill.",
+                "An overlap map (which tools duplicate each other) and a cut-list decision rule.",
+                "Total the real monthly stack and show which subscriptions to merge or drop.",
+                "money_compare",
+            ),
+            t(
+                "What it costs to run the OpenAI API for a small business",
+                "OpenAI API cost for small business",
+                ("How is OpenAI API pricing calculated?", "How much does the API cost per month for light use?", "API vs ChatGPT Plus — which is cheaper?"),
+                "Token pricing is opaque; owners can't predict a monthly bill before committing.",
+                "The cost formula with a worked example and an API-vs-subscription break-even rule.",
+                "Show the token math with a worked example and a break-even table.",
+                "money_compare",
+            ),
+            # 3) 문제해결·에러픽스형 — 경쟁 최저 롱테일
+            t(
+                "ChatGPT not working: common causes and fixes",
+                "ChatGPT not working fixes",
+                ("Why is ChatGPT not responding?", "How do I fix ChatGPT stuck on loading?", "Is ChatGPT down right now or is it just me?"),
+                "Outage vs account vs browser causes look identical; users retry blindly.",
+                "A cause-by-symptom triage order that avoids pointless resets.",
+                "A symptom → cause → fix table plus what to check first.",
+                "benefit_howto",
+            ),
+            t(
+                "How to work around ChatGPT file upload limits",
+                "ChatGPT file upload limit workaround",
+                ("What is ChatGPT's file size limit?", "Why won't ChatGPT read my file?", "How do I upload large files to ChatGPT?"),
+                "Uploads fail with no useful error message right when the work is due.",
+                "Current limits by plan and three practical workarounds (split, convert, link).",
+                "Verified limits table plus step-by-step workarounds.",
+                "benefit_howto",
+            ),
+            t(
+                "Why AI chatbots give wrong answers and how to get better ones",
+                "why AI gives wrong answers",
+                ("Why does ChatGPT make things up?", "How do I stop AI hallucinations?", "Can I trust AI answers for work?"),
+                "Trusting a confident wrong answer costs more than the time the tool saved.",
+                "The 3 failure modes (stale data, hallucination, ambiguity) and a per-mode countermeasure.",
+                "Explain each failure mode with a concrete prompt-level fix.",
+                "benefit_howto",
+            ),
+            # 4) 데이터·통계 정리형 — AI 인용(링크 자석)
+            t(
+                "AI assistant plans compared: prices, limits, and context windows",
+                "AI assistant pricing and limits comparison",
+                ("Which AI subscription is the best value?", "How do ChatGPT, Claude, and Gemini plans compare?", "Which AI has the biggest context window?"),
+                "Plan data is scattered across vendor pages that change without notice.",
+                "One sourced table: price, limits, context window, best-for — the page AI engines cite.",
+                "A verified comparison table with as-of dates and per-plan best-for calls.",
+                "money_compare",
+            ),
+            # 6) 수익화·업무활용 하우투형 — 결과가 돈·시간과 직결
+            t(
+                "How to use ChatGPT to write product descriptions that sell",
+                "use ChatGPT for product descriptions",
+                ("Can ChatGPT write good product descriptions?", "What prompts work for product copy?", "How do I keep AI product copy from sounding generic?"),
+                "Generic AI copy blends in and converts worse than no rewrite at all.",
+                "A prompt structure with concrete before/after examples and a quality checklist.",
+                "A reusable prompt recipe plus an editing checklist tied to conversion basics.",
+                "benefit_howto",
+            ),
+            t(
+                "How to automate meeting notes with AI without leaking company data",
+                "automate meeting notes with AI safely",
+                ("What's the best way to automate meeting notes?", "Are AI notetakers safe for confidential meetings?", "Do AI notetakers need everyone's consent?"),
+                "Notetaker bots quietly join calls and store transcripts — a compliance surprise.",
+                "A setup order (tool choice → retention settings → consent) with the risks named.",
+                "Step-by-step setup with a privacy checklist and who-should-wait conditions.",
+                "benefit_howto",
+            ),
         ]
 
     @classmethod

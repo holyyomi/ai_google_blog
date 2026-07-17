@@ -18,6 +18,7 @@ from datetime import datetime
 from html import unescape as _html_unescape
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.issue_content_profile_service import IssueContentProfileService
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.news_topic_service import _google_api_error_summary
@@ -168,6 +169,117 @@ _SYSTEM_PROMPT = """당신은 구글 블로그스팟에 매일 자동 업로드�
 - HTML entity 코드(&#숫자; 형태) 절대 사용 금지 — 이모지/아이콘은 유니코드 문자(✅ ✓ 🎯 등) 직접 사용.
 - 기계적인 템플릿 텍스트("이슈 정의", "핵심 내용") 금지 -> 실제 독자의 질문 형태(자연어)로 <h2> 소제목 구성."""
 
+# ─── 영어 모드 프롬프트 (2026-07-17 영어 전환) ────────────────────────────────
+# 대상: 미국·영국·캐나다·인도 영어권 검색 독자 + AI 챗봇 인용(GEO).
+# 수익 모델: 애드센스 단일 — thin content·낚시 제목·확인 안 된 수치가 최대 리스크.
+_SYSTEM_PROMPT_EN = """You are the staff writer and quality editor for an English-language AI blog that publishes automatically to Blogspot. Readers arrive from Google search (US, UK, Canada, India) or from AI chatbots (ChatGPT, Perplexity, Google AI Overviews) citing this blog as a source.
+
+Top priority: an article that is SAFE to auto-publish beats an article that is flashy. The blog is under AdSense review — thin content, clickbait, and unverified numbers are the fastest ways to fail.
+
+[FACT SAFETY — the #1 rule for auto-published articles]
+Never state any of the following unless it appears in the provided [SEARCH FACTS]: release dates, prices, plan names, free-tier limits, model names/version numbers, feature availability, menu paths, data-retention policies, country availability, default settings.
+- Every price, limit, or spec you do state must carry an as-of date: "as of {month_year}" — and name the source in plain text (e.g. "per OpenAI's pricing page").
+- If a number is not in the facts, do NOT invent it. Write "check the official pricing page for current rates" instead. One stale or invented price kills the article's credibility and its chance of being cited by AI search.
+- Never invent benchmarks, statistics, or survey results. Never invent first-person usage anecdotes ("I tested", "in my testing") unless the claim is verifiable from the provided facts — describe what the facts support instead.
+- Version/generation numbers: only use them exactly as written in the facts. Never guess the next version up. Product naming must be identical in title and body.
+
+[BANNED — auto-publish gate will reject these]
+- Affiliate links, promo codes, "buy through my link".
+- Income guarantees ("guaranteed income", "get rich", "$X/month easily"), "100% safe", "works for everyone", "no review needed".
+- Investment advice tied to specific stocks/coins, medical or legal judgments.
+- AI-slop phrases and their variants: "game-changer", "revolutionize", "unlock the power", "harness the power", "in today's fast-paced world", "delve into", "it's important to note", "look no further", "elevate your", "seamlessly". Replace every one of them with a concrete fact or judgment.
+- Clickbait: "you won't believe", "shocking", "insane".
+
+[WRITING RULES]
+1. English only. US blog register: short sentences, second person ("you"), active voice. No throat-clearing — never open with "In this article, we will..." or "AI is evolving rapidly". Start with the reader's situation or the direct answer.
+2. Opening = the direct answer. The first paragraph answers the title's question in 2-3 sentences WITH the key number(s). AI chatbots and Google AI Overviews quote this block verbatim — make it quotable on its own.
+3. Depth duty: at least 2 things a knowledgeable reader would not already know — exact limits, price math with a worked example, cause-and-effect ("turning on X cuts Y by ~Z because..."), order-of-operations that only applies to this tool. If a paragraph teaches nothing new, cut it or make it concrete.
+4. Judgment duty: never end on "it depends". Give explicit conditions: "Use it now if [plan/usage/job condition]. Skip it if [condition]." This is what separates the article from a press-release summary.
+5. Beginner blockers: name 1-3 places where a first-time user actually gets stuck WITH the cause and the fix — specific to this tool, not generic AI advice.
+6. Freshness: facts older than 12 months may only appear as background, never as the hook or the conclusion's basis.
+7. Topic specificity: if the topic names a tool/feature, every section must be about THAT tool. If you could swap the tool name and the article still reads fine, it has failed.
+
+[COMPLETENESS — violations block publishing]
+- Finish the article completely. Never cut a sentence, table, or FAQ answer mid-way. Close every tag.
+- Never repeat a sentence or recycle the opening paragraph later in the article.
+- <h2>/<h3> headings are one-line natural search questions or short noun phrases — no full paragraphs in headings.
+
+[SELF-REVIEW BEFORE OUTPUT]
+1) Any price/date/version/feature stated without support in the facts? Remove or soften it.
+2) Every number carries "as of {month_year}" + a named source?
+3) Any repeated paragraphs, truncated sentences, unfinished FAQ answers?
+4) At least 2 genuinely new concrete facts? A "use it / skip it" judgment with conditions?
+5) Any banned phrase, income claim, or invented anecdote left?
+
+[HTML — use exactly these classes; the publish CSS styles them]
+- No Markdown, no HTML entity codes (&#...;) — use unicode characters directly. No hashtags in the body (the system appends them).
+- Never expose internal jargon: "SEO", "GEO", "AEO", "SGE", "CTA", "AdSense" (unless AdSense itself is the article topic).
+- Allowed classes only: actions-box, risk-note, quick-decision-table, quality-checklist, faq-section/faq-item/faq-q/faq-a, confirmed-needed-box. Inventing other classes or inline styles leaves the article unstyled."""
+
+_USER_PROMPT_TMPL_EN = """[Write one complete blog article]
+
+Title: {title}
+Topic: {topic}
+Date: {today}
+Content family: {content_family}
+
+[SEARCH FACTS — collected from live web search today]
+{facts}
+
+[Questions real searchers ask (target for FAQ and headings)]
+{questions}
+
+---
+One person found this through a Google search. Write one continuous article they read top to bottom — a flow, not a form. Length: 1,600-2,400 words of plain text (excluding HTML tags). Never below 1,500 words — thin content fails AdSense review.
+
+[STRUCTURE]
+1) Opening paragraphs (plain <p>, no box — the system builds the top summary box from them):
+   the reader's concrete situation in 1-2 lines → the direct answer to the title's question in 2-3 sentences with the key numbers and "as of {month_year}". No greetings, no "AI is changing fast".
+2) 4-6 <h2> sections, each a natural-language search question or tight noun phrase. Each section goes one step deeper than the last.
+   - Cover, as fits the topic: what actually changed / how it works → real numbers (pricing, limits, quotas — only from facts, each with as-of + source) → what stays the same and what is still unconfirmed → what it means for the reader's time and money → where beginners get stuck (cause + fix) + at least one little-known tip.
+   - If a follow-along process has 3+ steps, use (numbers are auto-generated by CSS — do not write "1."):
+     <div class="actions-box"><ol><li><strong>One-line step title</strong> — concrete instruction</li> ...</ol></div>
+   - If there is one honest caveat worth isolating, use exactly one:
+     <div class="risk-note"><span class="section-label">Watch out</span><p>1-2 sentences of the real risk</p></div>
+3) MANDATORY: one comparison/pricing/spec table inside the flow, wrapped exactly like this (the wrapper enables mobile scroll + first-column emphasis):
+   <div class="quick-decision-table"><table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
+   Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. LLM answer engines cite pages whose numbers sit in clean tables — this table is the citation magnet.
+4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with 3-5 FAQs (each answer ≤ 50 words, complete, only verified content; pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation):
+<div class="faq-section">
+  <article class="faq-item"><h3 class="faq-q">Actual search question?</h3><p class="faq-a">Direct, complete answer.</p></article>
+</div>
+5) Closing: no summary rehash. One or two sentences: who should use this today vs. who should wait (concrete conditions). Then output this block verbatim in structure (keep id and classes exactly; fill with topic-specific items only):
+<section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">
+  <div class="confirmed-section"><h3>What's confirmed</h3><ul><li>3 facts that are settled for this topic</li></ul></div>
+  <div class="check-needed-section"><h3>Check for yourself</h3><ul><li>3 things that change often (prices, limits, availability) with where to check</li></ul></div>
+</section>
+(The system appends related internal links after your article — do not add external links or a "read more" section yourself.)
+
+[OPTIONAL — only when the topic genuinely calls for it]
+- Pre-flight checklist: <div class="quality-checklist"><ul><li>topic-specific check item</li>...</ul></div>
+{asset_directive}
+[DO NOT]
+- Use any class not listed above, or inline style attributes.
+- Pad with generic "AI productivity tips" that fit any article.
+- Repeat the same guidance in multiple sections.
+- Write filler FAQs that restate body paragraphs.
+
+Output rules:
+- Output only the inner HTML (no div.post-content wrapper, no <html>/<head>). Complete every tag.
+- <h2> for sections, <h3> for sub-points. English only.
+- No Markdown, no &#...; entities, no hashtags."""
+
+# 영어 모드 '저장용 무기' 지시 — 비교·가격·비용계산·통계 유형에서 켠다.
+_ASSET_RICH_DIRECTIVE_EN = """
+[This is a comparison/pricing/cost-math article — load it with savable assets]
+Readers save this article to reuse its numbers. Fill 1-2 of these with REAL values from the facts (never all of them as empty scaffolding):
+ - Cost math: the formula (input/output tokens × model rate) plus one worked example in a quick-decision-table. Add "as of {month_year}" and "check the official pricing page". If the rate is not in the facts, show the METHOD only — never invent a rate.
+ - Comparison table: only the tools/plans this topic is about; columns are decision criteria (price, limits, speed, best-for). quick-decision-table wrapper.
+ - Checklist: pre-purchase or pre-setup checks specific to this topic in a quality-checklist div.
+[Honesty rule]
+ - No first-person measured results ("I ran it and got X seconds"). Give the reader the experiment design instead: what to run, under which condition, what to measure.
+"""
+
 _USER_PROMPT_TMPL = """[블로그 글 작성 (최고 수익화/SEO 최적화 버전)]
 
 제목: {title}
@@ -276,7 +388,43 @@ _ASSET_RICH_KEYWORDS = (
     "도구 비교", "비교표", "cursor", "codex", "claude code", "제휴", "한도",
     "임시저장", "자동발행", "자동 발행", "실험", "100개", "대체 루트", "프롬프트 템플릿",
     "시간 절약", "시간을 줄", "업무 시간", "생산성", "활용법", "활용 팁", "업무 팁",
+    # 영어 모드 트리거 — 비교·가격·비용계산·통계 유형(고 CPC·AI 인용 자석)
+    "pricing", "price", "cost", " vs ", "vs.", "comparison", "compare",
+    "alternatives", "worth it", "free tier", "limit", "calculator",
+    "statistics", "benchmark", "automation", "workflow", "tokens",
 )
+
+
+# 영어 모드 콘텐츠 유형(운영 전략의 6개 주제군) 판별 — 프롬프트·라벨에 쓰인다.
+_CONTENT_FAMILY_RULES_EN: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Comparisons", (" vs ", "vs.", "versus", "alternative", "best ai", "best free", "worth it", "compare", "comparison")),
+    ("Pricing", ("pricing", "price", "cost", "fee", "subscription", "per month", "/month", "free tier", "paid plan", "hidden cost")),
+    ("Fixes", ("not working", "fix", "error", "limit", "blocked", "bypass", "slow", "wrong answers", "troubleshoot", "refused")),
+    ("Data & Stats", ("statistics", "stats", "benchmark", "adoption", "numbers", "context window", "comparison table")),
+    ("How-To", ("how to", "guide", "tutorial", "setup", "use ", "using ", "workflow", "automate")),
+)
+
+
+def content_family_en(*parts: str) -> str:
+    """제목·주제 텍스트에서 6개 주제군 라벨 하나를 고른다 (기본 News)."""
+    blob = " ".join(str(p or "") for p in parts).lower()
+    for family, tokens in _CONTENT_FAMILY_RULES_EN:
+        if any(tok in blob for tok in tokens):
+            return family
+    return "News"
+
+
+_EN_MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _month_year_en() -> str:
+    """as-of 표기용 'July 2026' 형태 현재 월 (%B는 로케일 의존이라 직접 조립)."""
+    ym = kst_today("%Y-%m")
+    year, month = ym.split("-")
+    return f"{_EN_MONTHS[int(month) - 1]} {year}"
 
 
 def _asset_rich_directive(title: str, topic: str, category: str, raw: dict) -> str:
@@ -355,7 +503,12 @@ class LlmContentService:
         raw: dict | None = None,
     ) -> str | None:
         """LLM으로 블로그 HTML 생성. 실패 시 None 반환."""
-        today = kst_today("%Y.%m.%d")
+        english = is_english_mode()
+        if english:
+            # %B는 로케일 의존 — 영어 월명으로 직접 조립 ("July 17, 2026")
+            today = f"{_month_year_en().split(' ')[0]} {int(kst_today('%d'))}, {kst_today('%Y')}"
+        else:
+            today = kst_today("%Y.%m.%d")
         raw = raw or {}
 
         # 1. Google Search로 실제 정보 수집 (+ 실제 인용 URL도 함께 보관 —
@@ -367,34 +520,59 @@ class LlmContentService:
         if not questions_raw:
             questions_raw = list(raw.get("reader_search_questions") or [])
         if not questions_raw:
-            questions_raw = [f"{topic}이란 무엇인가요?", f"{topic} 대상은 누구인가요?"]
+            if english:
+                questions_raw = [
+                    f"What is {topic} and how does it work?",
+                    f"How much does {topic} cost?",
+                    f"Is {topic} worth it?",
+                ]
+            else:
+                questions_raw = [f"{topic}이란 무엇인가요?", f"{topic} 대상은 누구인가요?"]
         questions_str = "\n".join(f"- {q}" for q in questions_raw[:6])
-        content_angle = raw.get("content_angle") if isinstance(raw.get("content_angle"), dict) else {}
-        issue_profile = raw.get("issue_content_profile") if isinstance(raw.get("issue_content_profile"), dict) else {}
-        if not issue_profile:
-            issue_profile = IssueContentProfileService().build_profile(
-                topic=topic,
-                summary=str(raw.get("summary") or ""),
-                content_type=content_type or str(content_angle.get("content_type") or ""),
-                topic_group=str(raw.get("topic_group") or content_angle.get("topic_group") or ""),
-                raw=raw,
-            )
-        issue_profile_prompt = IssueContentProfileService.prompt_block(issue_profile)
-        reader_interest_prompt = ReaderInterestBriefService.prompt_block(
-            raw.get("reader_interest_brief") if isinstance(raw.get("reader_interest_brief"), dict) else {}
-        )
 
-        prompt = _USER_PROMPT_TMPL.format(
-            title=title,
-            topic=topic,
-            today=today,
-            category=category,
-            facts=facts or "(검색 결과 없음 — 알려진 사실 기반으로 작성)",
-            questions=questions_str,
-            reader_interest_prompt=reader_interest_prompt,
-            issue_profile_prompt=issue_profile_prompt,
-            asset_directive=_asset_rich_directive(title, topic, category, raw),
-        )
+        if english:
+            # 영어 모드: 한국어 전용 프로필/브리프 블록은 주입하지 않는다.
+            month_year = _month_year_en()
+            asset_directive = _asset_rich_directive(title, topic, category, raw)
+            if asset_directive:
+                asset_directive = _ASSET_RICH_DIRECTIVE_EN.format(month_year=month_year)
+            prompt = _USER_PROMPT_TMPL_EN.format(
+                title=title,
+                topic=topic,
+                today=today,
+                content_family=content_family_en(title, topic, category),
+                facts=facts or "(no live search results — write conservatively; do not state any specific price/date/version, direct readers to official pages instead)",
+                questions=questions_str,
+                asset_directive=asset_directive,
+                month_year=month_year,
+            )
+        else:
+            content_angle = raw.get("content_angle") if isinstance(raw.get("content_angle"), dict) else {}
+            issue_profile = raw.get("issue_content_profile") if isinstance(raw.get("issue_content_profile"), dict) else {}
+            if not issue_profile:
+                issue_profile = IssueContentProfileService().build_profile(
+                    topic=topic,
+                    summary=str(raw.get("summary") or ""),
+                    content_type=content_type or str(content_angle.get("content_type") or ""),
+                    topic_group=str(raw.get("topic_group") or content_angle.get("topic_group") or ""),
+                    raw=raw,
+                )
+            issue_profile_prompt = IssueContentProfileService.prompt_block(issue_profile)
+            reader_interest_prompt = ReaderInterestBriefService.prompt_block(
+                raw.get("reader_interest_brief") if isinstance(raw.get("reader_interest_brief"), dict) else {}
+            )
+
+            prompt = _USER_PROMPT_TMPL.format(
+                title=title,
+                topic=topic,
+                today=today,
+                category=category,
+                facts=facts or "(검색 결과 없음 — 알려진 사실 기반으로 작성)",
+                questions=questions_str,
+                reader_interest_prompt=reader_interest_prompt,
+                issue_profile_prompt=issue_profile_prompt,
+                asset_directive=_asset_rich_directive(title, topic, category, raw),
+            )
 
         # 3. LLM 폴백 체인
         content_html = self._run_fallback_chain(prompt)
@@ -411,6 +589,9 @@ class LlmContentService:
         # 깨는 결정적 치환을 적용한다(프롬프트 지침만으론 불안정).
         for _pat, _repl in _OVERCLAIM_SOFTENERS:
             content_html = _pat.sub(_repl, content_html)
+        if english:
+            for _pat, _repl in _OVERCLAIM_SOFTENERS_EN:
+                content_html = _pat.sub(_repl, content_html)
 
         # 4. FAQ 추출 (JSON-LD용)
         schema_faq = _extract_faq(content_html)
@@ -452,7 +633,12 @@ class LlmContentService:
         URL을 한 번에 뽑아, 호출부가 실제 근거 링크를 렌더링할 수 있게 한다.
         Naver/Exa 호출은 한 번씩만 수행한다(중복 호출로 Exa 크레딧을 낭비하지 않음).
         """
-        naver_text, naver_citations = self._naver_news_facts_and_citations(topic)
+        if is_english_mode():
+            # 영어 모드 리서치: Naver 뉴스는 한국어 소스라 스킵. Exa(영문 웹 본문
+            # 발췌 — 경쟁 상위글·공식 가격 페이지)가 1차, Google News RSS(en-US)가 폴백.
+            naver_text, naver_citations = "", []
+        else:
+            naver_text, naver_citations = self._naver_news_facts_and_citations(topic)
         exa_text, exa_citations = self._exa_facts_and_citations(topic)
         sections = [s for s in (naver_text, exa_text) if s]
         if sections:
@@ -477,7 +663,7 @@ class LlmContentService:
         모든 실패는 비치명 — 빈 문자열이면 LLM이 보수적 서술로 폴백한다.
         """
         sections: list[str] = []
-        naver = self._naver_news_facts(topic)
+        naver = "" if is_english_mode() else self._naver_news_facts(topic)
         if naver:
             sections.append(naver)
         exa = self._exa_facts(topic)
@@ -608,10 +794,10 @@ class LlmContentService:
         try:
             import xml.etree.ElementTree as ET
             query = urllib.parse.quote(topic)
-            url = (
-                f"https://news.google.com/rss/search?q={query}"
-                "&hl=ko&gl=KR&ceid=KR:ko"
+            locale_params = (
+                "&hl=en-US&gl=US&ceid=US:en" if is_english_mode() else "&hl=ko&gl=KR&ceid=KR:ko"
             )
+            url = f"https://news.google.com/rss/search?q={query}{locale_params}"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 root = ET.fromstring(resp.read())
@@ -675,7 +861,17 @@ class LlmContentService:
         본문 생성은 무료 모델이 흔히 내는 치명 결함(중간 절단·반복 루프·영어 혼입·
         태그 불균형)을 validator로 걸러, 불합격이면 다음 provider(→유료 OpenAI)로
         폴백한다. 정상 출력은 그대로 통과시켜 무료 우선 정책과 비용 0을 유지한다.
+
+        영어 모드: 영어 시스템 프롬프트 + 1,500단어 하한(thin content 방지) 적용.
         """
+        if is_english_mode():
+            return self.call_with_fallback(
+                user_prompt,
+                system_prompt=_SYSTEM_PROMPT_EN.format(month_year=_month_year_en()),
+                # 1,500단어 영어 본문은 태그 포함 8,000자를 훌쩍 넘는다 — 얇은 응답 조기 컷.
+                min_chars=4000,
+                validator=_validate_generated_content,
+            )
         return self.call_with_fallback(
             user_prompt,
             system_prompt=None,
@@ -851,6 +1047,32 @@ _AI_CLICHE_PHRASES = (
     "혁신적인 변화의 물결",
 )
 
+# 영어 모드 상투 문구 — 시스템 프롬프트가 금지한 대표 AI 필러. 문맥과 무관하게
+# 항상 저품질 신호인 것만 담는다(일반 문장에 흔한 단어 제외). 소문자 비교.
+_AI_CLICHE_PHRASES_EN = (
+    "game-changer",
+    "game changer",
+    "in today's fast-paced world",
+    "in today's fast-paced digital",
+    "delve into",
+    "unlock the power",
+    "harness the power",
+    "revolutionize the way",
+    "look no further",
+    "it's important to note that",
+    "elevate your",
+    "in this article, we will",
+)
+
+# 영어 모드 overclaim 중화 — 게이트 패턴을 깨되 의미는 보존하는 결정적 치환.
+_OVERCLAIM_SOFTENERS_EN: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"guaranteed (income|profit|returns?)", re.IGNORECASE), r"potential \1"),
+    (re.compile(r"100%\s*safe", re.IGNORECASE), "generally safe"),
+    (re.compile(r"works for everyone", re.IGNORECASE), "works for many users"),
+    (re.compile(r"no (human )?review (is )?needed", re.IGNORECASE), "with a quick review"),
+    (re.compile(r"replaces? (all|every) (your )?(work|jobs?|tasks?)", re.IGNORECASE), "handles part of the work"),
+)
+
 
 def _validate_generated_content(html: str) -> None:
     """무료 모델이 흔히 내는 치명 결함을 검출한다(하나라도 걸리면 예외 → 다음 provider).
@@ -863,6 +1085,7 @@ def _validate_generated_content(html: str) -> None:
     raw = (html or "").strip()
     if not raw:
         raise _ContentValidationError("빈 응답")
+    english = is_english_mode()
 
     # 1) 중간 절단: 정상 출력은 닫는 태그(</section> 등)로 끝난다. 태그로 끝나지
     #    않으면 max_tokens에서 문장 중간에 잘린 것으로 본다.
@@ -884,8 +1107,15 @@ def _validate_generated_content(html: str) -> None:
         if len(re.sub(r"<[^>]+>", "", ans).strip()) < 5:
             raise _ContentValidationError("FAQ 답이 비었거나 잘림")
 
-    # 4) 영어 설명 문장 혼입: 고유명사·코드가 아닌 연속 영단어 6개 이상.
-    if re.search(r"[A-Za-z]{2,}(?:[ ,]+[A-Za-z]{2,}){5,}", text):
+    # 4) 언어 정합: 한국어 모드에서는 영어 설명 문장 혼입(연속 영단어 6개 이상),
+    #    영어 모드에서는 한글 혼입·단어 수 미달(thin content)을 걸러낸다.
+    if english:
+        if re.search(r"[가-힣]", text):
+            raise _ContentValidationError("영어 모드에 한국어 혼입")
+        word_count = len(re.findall(r"[A-Za-z][A-Za-z'’-]*", text))
+        if word_count < 1400:
+            raise _ContentValidationError(f"영어 본문 단어 수 부족 ({word_count} < 1400)")
+    elif re.search(r"[A-Za-z]{2,}(?:[ ,]+[A-Za-z]{2,}){5,}", text):
         raise _ContentValidationError("영어 문장 혼입 의심")
 
     # 5) 반복 루프: 20자 이상 문장이 본문에 두 번 이상 등장(도입부 문장이 뒤에서
@@ -901,6 +1131,11 @@ def _validate_generated_content(html: str) -> None:
     for phrase in _AI_CLICHE_PHRASES:
         if phrase in text:
             raise _ContentValidationError(f"AI 상투 문구 검출: {phrase}")
+    if english:
+        lowered = text.lower()
+        for phrase in _AI_CLICHE_PHRASES_EN:
+            if phrase in lowered:
+                raise _ContentValidationError(f"AI 상투 문구 검출(EN): {phrase}")
 
 
 def _clean_entity_artifacts(html: str) -> str:
@@ -960,4 +1195,6 @@ def _extract_meta_description(html: str, title: str) -> str:
         if len(text) > 160:
             return text[:157] + "..."
     # 제목 기반 fallback
+    if is_english_mode():
+        return f"{title} — pricing, limits, and what to check before you rely on it."[:160]
     return f"{title} — 대상·신청방법·일정을 한눈에 정리했습니다."[:160]

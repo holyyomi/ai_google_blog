@@ -26,6 +26,50 @@ STOPWORDS = {
     # "오픈AI 공개 AI 소식"이 candidate.reason의 상투어 "직장인"과
     # 과거 "...직장인 업무에 미치는 영향" 글의 "직장인"만 겹쳐 차단).
     "ai",
+    # 영어 전환(2026-07-17) 추가 — 영어 제목/요약의 filler 단어가 키워드 겹침
+    # (>=2 차단)의 자리를 공짜로 채우지 않도록 하는 영어 불용어.
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "for",
+    "to",
+    "of",
+    "in",
+    "on",
+    "with",
+    "your",
+    "you",
+    "how",
+    "what",
+    "why",
+    "when",
+    "is",
+    "are",
+    "it",
+    "this",
+    "that",
+    "vs",
+    "versus",
+    "best",
+    "guide",
+    "tools",
+    "tool",
+    "new",
+    "free",
+    "2025",
+    "2026",
+    "worth",
+    "really",
+    "actually",
+    "tested",
+    "explained",
+    "complete",
+    "ultimate",
+    "tips",
+    "ways",
+    "top",
 }
 GENERIC_DEDUP_KEYWORD_PREFIXES = (
     "신청",
@@ -73,6 +117,18 @@ GENERIC_DEDUP_KEYWORDS = {
     # 독자층 설명이 거의 모든 후보에 반복돼 실제 주제와 무관하게 겹침을
     # 만든다(2026-07-11 리허설 실측).
     "직장인",
+    # 영어 전환(2026-07-17) 추가 — 영어 AI 뉴스 템플릿 상투 토큰. 겹침 판정은
+    # 단일 토큰 비교이므로 구("how to use")가 아닌 토큰 단위로 등록한다.
+    # 실제 엔티티·사건 단어만 겹침 신호가 되도록 generic 토큰을 제외한다.
+    "use",
+    "using",
+    "feature",
+    "features",
+    "update",
+    "updates",
+    "settings",
+    "setup",
+    "news",
 }
 
 # 회사/소재 쿨다운 (2026-07 운영 방침: 같은 회사·소재는 7일에 1회만 발행).

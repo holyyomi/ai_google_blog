@@ -12,6 +12,7 @@ import traceback
 from typing import Any, Protocol
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate, SelectedNewsPlan, TitleCandidate
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.contrarian_content_service import ContrarianContentService
 from blogspot_automation.services.evergreen_topic_service import EvergreenTopicService
 from blogspot_automation.services.answer_engine_policy import ensure_answer_engine_optimized_html
@@ -1347,6 +1348,19 @@ class NewsPipeline:
                     news_publish_mode=self.news_publish_mode,
                     extra_allowed_urls=_candidate_citation_urls,
                 )
+                # 영어 모드 강화 게이트(2026-07-17): 템플릿 candidate는 구조·헤딩이
+                # 한국어라 영어 블로그에 그대로 나가면 안 된다. LLM 영어 서술 본문이
+                # 자체 게이트를 통과했을 때만 발행을 허용하고, 아니면 이 후보를
+                # 차단해 재시도 루프가 다음 후보로 넘어가게 한다 (추가 차단 = 강화).
+                if is_english_mode() and not _llm_body_gate_passed:
+                    logger.info(
+                        "news pipeline: EN mode — LLM 영어 본문 게이트 미통과, 한국어 템플릿 폴백 발행 차단"
+                    )
+                    _candidate_publish_gate = dict(_candidate_publish_gate)
+                    _candidate_publish_gate["passed"] = False
+                    _cpg_issues = list(_candidate_publish_gate.get("blocking_issues") or [])
+                    _cpg_issues.append("en_mode_template_fallback_blocked")
+                    _candidate_publish_gate["blocking_issues"] = _cpg_issues
                 if bool(_candidate_publish_gate.get("passed")):
                     # 템플릿 candidate가 게이트를 통과했다 — 발행 가부 판정·플래그는 이 기준을
                     # 그대로 쓴다(발행 회귀 0). 단 LLM 서술형 본문도 자체 게이트를 통과했다면

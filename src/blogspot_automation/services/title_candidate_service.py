@@ -5,6 +5,7 @@ import logging
 import re
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.title_integrity_policy import audit_title_integrity
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,62 @@ _PATTERN_FORBIDDEN_CROSSOVER: dict[str, list[str]] = {
     "ai_beginner_guide": ["지원금", "환급금", "세금", "홈택스", "드라마", "넷플릭스", "배달"],
     "delivery_money_checklist": ["지원금", "환급", "세금", "홈택스", "신청마감", "복지급여", "드라마", "넷플릭스"],
 }
+
+# ─── 영어 제목 빌더 (2026-07-17 영어 전환) ────────────────────────────────────
+# 제목 공식: [키워드] + [구체성/각도] + [연도]. 검증 불가한 숫자·과장 없이,
+# 주제 문자열(이미 영어 검색 키워드 형태)을 그대로 키워드부로 쓴다.
+_EN_TITLE_SMALL_WORDS = frozenset({
+    "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into",
+    "nor", "of", "on", "or", "over", "per", "the", "to", "vs", "with", "without",
+})
+
+
+def _en_title_case(text: str) -> str:
+    """영문 제목 표기(Title Case). 고유명사 대소문자(ChatGPT 등)는 보존한다."""
+    words = [w for w in str(text or "").split() if w]
+    out: list[str] = []
+    for i, w in enumerate(words):
+        if any(c.isupper() for c in w[1:]) or w.isupper():
+            out.append(w)  # ChatGPT, OpenAI, AI 등 기존 대문자 보존
+        elif i not in (0, len(words) - 1) and w.lower() in _EN_TITLE_SMALL_WORDS:
+            out.append(w.lower())
+        else:
+            out.append(w[:1].upper() + w[1:])
+    return " ".join(out)
+
+
+def _build_english_titles(*, topic: str, raw: dict) -> list[tuple[str, str]]:
+    """영어 제목 후보 목록 — (title, title_type) 튜플."""
+    base = str(raw.get("search_demand_topic") or topic or "").strip().rstrip(".!?")
+    base = re.sub(r"\s+", " ", base)
+    year = "2026"
+    tc = _en_title_case(base)
+    blob = base.lower()
+    titles: list[tuple[str, str]] = []
+    has_year = year in base
+
+    def _with_year(t: str) -> str:
+        return t if has_year or year in t else f"{t} ({year})"
+
+    if " vs " in f" {blob} " or "vs." in blob or "versus" in blob:
+        titles.append((_with_year(f"{tc}: Which One Wins?"), "comparison"))
+        titles.append((_with_year(f"{tc} Compared"), "comparison"))
+    if any(k in blob for k in ("pricing", "price", "cost", "free vs", "what you actually get", "hidden cost")):
+        titles.append((_with_year(f"{tc}: The Real Numbers"), "search"))
+        titles.append((_with_year(f"{tc}, Explained"), "howto"))
+    if any(k in blob for k in ("fix", "not working", "workaround", "limit", "wrong answers", "outage")):
+        titles.append((_with_year(f"{tc}: What Actually Works"), "howto"))
+        titles.append((f"{tc}: Causes and Fixes", "howto"))
+    if blob.startswith("how to") or "guide" in blob:
+        titles.append((_with_year(tc), "howto"))
+        titles.append((f"{tc}: A Practical Guide ({year})", "howto"))
+    if any(k in blob for k in ("statistics", "stats", "comparison", "compared", "numbers")):
+        titles.append((f"{tc}: The Data ({year})", "search"))
+    # 공통 폴백 — 뉴스 헤드라인형 주제 포함 모든 경우
+    titles.append((_with_year(tc), "search"))
+    titles.append((f"{tc}: What It Means for You", "curiosity"))
+    return titles
+
 
 # pattern별 제목 공식
 _PATTERN_TITLE_TEMPLATES: dict[str, list[tuple[str, str]]] = {
@@ -294,6 +351,44 @@ class TitleCandidateService:
         """제목 후보 목록과 최적 제목을 반환한다."""
         raw = candidate_raw or {}
 
+        # 영어 모드(2026-07-17): 한국어 패턴/문맥 템플릿은 전부 한국어 제목을 만들어
+        # 영어 글 H1에 그대로 새어 나간다 — 영어 후보 빌더로 완전 대체한다.
+        # (LLM 슬롯 보강기의 _llm_title이 있으면 그쪽이 최종 채택되는 흐름은 동일.)
+        if is_english_mode():
+            en_titles = _build_english_titles(topic=topic, raw=raw)
+            candidates = []
+            seen: set[str] = set()
+            for title, title_type in en_titles:
+                if title in seen:
+                    continue
+                seen.add(title)
+                scored = self.score_title(title, content_type=content_type, topic_group=topic_group, pattern_id=pattern_id)
+                candidates.append({
+                    "title": title,
+                    "title_type": title_type,
+                    "ctr_score": scored["ctr_score"],
+                    "risk_score": scored["risk_score"],
+                    "promise_match_score": scored["promise_match_score"],
+                    "is_allowed": scored["is_allowed"],
+                    "blocking_issues": scored["blocking_issues"],
+                    "reason": scored["reason"],
+                })
+            allowed = [c for c in candidates if c["is_allowed"]]
+            blocked = [c for c in candidates if not c["is_allowed"]]
+            _search_topic = str(raw.get("search_demand_topic") or topic)
+            _topic_kws = _extract_topic_keywords(_search_topic, pattern_id)
+            best = self.select_best_title(allowed, topic_keywords=_topic_kws) if allowed else {}
+            return {
+                "topic": topic,
+                "primary_title": best.get("title", topic),
+                "candidates": candidates,
+                "best_title": best,
+                "blocked_titles": blocked,
+                "topic_keywords": _topic_kws,
+                "selected_title_specificity_score": best.get("specificity_score", 0),
+                "selected_title_keyword_coverage": best.get("selected_title_keyword_coverage", 0),
+            }
+
         # pattern_id 기반 공식 제목 로드 (없으면 topic 기반 동적 생성)
         templates = _PATTERN_TITLE_TEMPLATES.get(pattern_id, [])
         candidates: list[dict[str, Any]] = []
@@ -490,9 +585,16 @@ class TitleCandidateService:
         # ── CTR score (0~100) ──
         ctr = 50  # base
 
-        # 길이 보너스 (20~42자 최적)
+        # 길이 보너스 (한국어 20~42자 / 영어 30~65자 최적 — 영어 제목은 구조상 길다)
         length = len(title)
-        if 20 <= length <= 42:
+        if is_english_mode():
+            if 30 <= length <= 65:
+                ctr += 10
+            elif length < 18 or length > 80:
+                ctr -= 10
+            elif length > 70:
+                ctr -= 5
+        elif 20 <= length <= 42:
             ctr += 10
         elif length < 15 or length > 55:
             ctr -= 10

@@ -92,6 +92,19 @@ _POLITICAL_GEOPOLITICAL_TERMS: tuple[str, ...] = (
     "민주당",
     "장동혁",
     "오세훈",
+    # 영어 전환(2026-07-17) 추가 — 영어 소스에서의 정치/지정학 차단 신호.
+    # _matched_terms는 ascii substring 매칭이라 AI 도구 기사에 오탐될 수 있는
+    # 단어(bare "war", "president", "campaign")는 피하고 복합어/구체어만 쓴다.
+    "election",
+    "president trump",
+    "white house",
+    "congress",
+    "senate",
+    "parliament",
+    "ceasefire",
+    "airstrike",
+    "sanctions",
+    "war in",
 )
 _FOREIGN_ADMIN_TERMS: tuple[str, ...] = (
     "외국인 체류자격",
@@ -129,6 +142,20 @@ _HARM_CRIME_TERMS: tuple[str, ...] = (
     "구속",
     "입건",
     "집 찾아가",
+    # 영어 전환(2026-07-17) 추가 — 영어 소스에서의 강력범죄/피해 차단 신호.
+    # bare "killed"는 "skilled/reskilled"에 substring 오탐되므로 구 단위로만 등록.
+    "murder",
+    "was killed",
+    "killed in",
+    "shot dead",
+    "stabbing",
+    "assault",
+    "suicide",
+    "dead body",
+    "homicide",
+    "police investigation",
+    "arrested",
+    "kidnapping",
 )
 _EVERYDAY_EXCEPTION_TERMS: tuple[str, ...] = (
     "택배",

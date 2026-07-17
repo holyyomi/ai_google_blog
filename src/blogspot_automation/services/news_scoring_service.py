@@ -26,11 +26,19 @@ MONEY_KEYWORDS = (
     "통신비", "결제", "환불", "위약금", "손해", "이득", "비용",
     "주식", "투자", "성과급", "연봉", "임금", "마일리지", "포인트", "적립",
     "할인", "인상", "인하", "가격 변동",
+    # 영어 전환(2026-07-17) 추가 — 영어 후보 스코어링용 (additive 가산 전용,
+    # 매칭은 keyword.lower() in lowered_text라 ko 모드에는 사실상 무해).
+    "pricing", "price", "cost", "fee", "subscription", "per month",
+    "free tier", "paid plan", "discount", "price increase", "price hike",
+    "refund",
 )
 AUDIENCE_KEYWORDS = (
     "소비자", "자영업자", "사장님", "라이더", "직장인", "부모", "학생", "청년",
     "운전자", "이용자", "팬",
     "투자자", "주주", "노동자", "시청자", "구독자", "납세자",
+    # 영어 전환(2026-07-17) 추가.
+    "developers", "marketers", "students", "freelancers", "small business",
+    "creators", "teachers", "real estate agents", "sellers",
 )
 URGENCY_KEYWORDS = (
     "오늘", "지금", "실시간", "갑자기", "중단", "종료", "변경", "논란", "마감", "지연",
@@ -38,22 +46,37 @@ URGENCY_KEYWORDS = (
     "파업", "총파업", "긴급", "화제", "급등", "급증", "폭발", "최고", "역대",
     "합병", "인수", "폐지", "시행", "개정", "발효", "확정",
     "휴무", "집화", "배송조회", "청약", "사전투표", "선거일",
+    # 영어 전환(2026-07-17) 추가.
+    "today", "just launched", "launches", "announced", "rolls out",
+    "rolling out", "shutting down", "discontinued", "deadline",
+    "now available", "breaking",
 )
 CURIOSITY_KEYWORDS = (
     "이유", "이면", "숨은", "놓친", "결국", "왜", "논란", "반응", "갈린",
     "진짜", "실제로", "따져보면", "알고보면", "사실은", "정말",
+    # 영어 전환(2026-07-17) 추가.
+    "why", "actually", "really", "the truth", "what happens", "hidden",
+    "nobody tells",
 )
 SEARCH_INTENT_KEYWORDS = (
     "신청", "방법", "대상", "조건", "확인", "환불", "증거", "설정", "해지",
     "비교", "체크", "계산", "기간", "마감", "종료", "변경", "지원",
+    # 영어 전환(2026-07-17) 추가.
+    "how to", "fix", "error", "not working", "worth it", "alternative",
+    "vs", "best", "compare", "setup", "tutorial",
 )
 PRACTICAL_VALUE_KEYWORDS = (
     "체크리스트", "계산", "비교", "신청 전", "환불 증거", "증거", "설정 방법",
     "대상 조건", "공식 페이지", "오늘 바로", "확인", "방법", "조건",
+    # 영어 전환(2026-07-17) 추가.
+    "checklist", "step by step", "calculator", "template", "cheat sheet",
+    "comparison table",
 )
 BRAND_FIT_KEYWORDS = (
     "돈", "시간", "불안", "선택", "생활", "의사결정", "AI", "자동화",
     "소비자", "행동 기준", "실전", "체크", "확인",
+    # 영어 전환(2026-07-17) 추가.
+    "automation", "productivity", "workflow", "save time", "save money",
 )
 RISK_KEYWORDS = (
     "정치 선동", "선동", "정쟁", "국회 공방", "범죄", "사건사고", "사망",
@@ -63,6 +86,8 @@ RISK_KEYWORDS = (
     "가짜뉴스", "기업 실적", "실적 발표", "보도자료", "정례회의", "외교 회의",
     "외교 회담", "부동산 시세", "아파트 시세", "의료", "법률", "소송 확정",
     "무조건", "절대", "충격", "경악", "소름", "난리났다",
+    # 영어 전환(2026-07-17) 추가 — 영어 소스의 수익 보장/투기 낚시 차단.
+    "crypto pump", "get rich quick", "guaranteed returns", "stock picks",
 )
 
 

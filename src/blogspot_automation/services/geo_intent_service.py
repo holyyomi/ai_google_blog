@@ -6,6 +6,8 @@ from html import escape
 import re
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,6 +48,8 @@ class GeoIntentService:
         topic 반복 spam 방지를 위해 첫 1~2개만 topic 활용, 나머지는 카테고리 키워드 사용.
         viral_issue_decode는 작품/이슈 이름 자체가 검색 키워드라 예외.
         """
+        if is_english_mode():
+            return self._reader_intent_questions_en(topic=topic, content_type=content_type, slots=slots)
         kw = topic.strip()[:30] if topic.strip() else "이 주제"
         policy_kw = self._policy_subject(topic)
         is_delivery_schedule_issue = self._is_delivery_schedule_issue(topic)
@@ -158,6 +162,8 @@ class GeoIntentService:
         hook: str,
     ) -> str:
         """3문장 이슈 맥락을 반환한다. 200자 이하, 사실 톤."""
+        if is_english_mode():
+            return self._issue_context_en(topic=topic, content_type=content_type, hook=hook)
         if not hook:
             hook = topic
 
@@ -222,7 +228,11 @@ class GeoIntentService:
         # 남은 질문은 real_criterion / yomi_judgment / 기본값으로 채움
         real = str(slots.get("real_criterion") or "").strip()
         yomi = str(slots.get("yomi_judgment") or "").strip()
-        default_a = "앱/공식 채널에서 직접 확인하세요."
+        default_a = (
+            "Check the official page or app directly."
+            if is_english_mode()
+            else "앱/공식 채널에서 직접 확인하세요."
+        )
         is_delivery_schedule_issue = self._is_delivery_schedule_issue(topic)
 
         for raw_q in questions:
@@ -255,14 +265,24 @@ class GeoIntentService:
 
         # 최소 3개 보장
         if len(qa_pairs) < 3:
-            generics = [
-                {"Q": f"{topic}에서 가장 먼저 확인할 것은 무엇인가요?",
-                 "A": "공식 안내 페이지에서 적용 조건을 먼저 확인하세요."},
-                {"Q": "실제로 나에게 해당하는지 어떻게 알 수 있나요?",
-                 "A": "공식 채널에서 적용 대상 기준을 직접 조회해 보세요."},
-                {"Q": "변경 사항이 있을 수 있나요?",
-                 "A": "정책은 수시로 바뀔 수 있으므로 최신 공지를 확인하는 것이 좋습니다."},
-            ]
+            if is_english_mode():
+                generics = [
+                    {"Q": f"What should you check first about {topic}?",
+                     "A": "Start with the official announcement and confirm which plans and regions it applies to."},
+                    {"Q": "How do I know if this affects me?",
+                     "A": "Compare your plan, account settings, and region against the official eligibility notes."},
+                    {"Q": "Could the details change?",
+                     "A": "Yes — pricing and rollout details change often, so check the official page for the latest."},
+                ]
+            else:
+                generics = [
+                    {"Q": f"{topic}에서 가장 먼저 확인할 것은 무엇인가요?",
+                     "A": "공식 안내 페이지에서 적용 조건을 먼저 확인하세요."},
+                    {"Q": "실제로 나에게 해당하는지 어떻게 알 수 있나요?",
+                     "A": "공식 채널에서 적용 대상 기준을 직접 조회해 보세요."},
+                    {"Q": "변경 사항이 있을 수 있나요?",
+                     "A": "정책은 수시로 바뀔 수 있으므로 최신 공지를 확인하는 것이 좋습니다."},
+                ]
             for g in generics:
                 q = self._topic_specific_policy_question(g["Q"], topic) if is_policy_content else g["Q"]
                 if q not in used_qs and len(qa_pairs) < 3:
@@ -278,6 +298,8 @@ class GeoIntentService:
         pattern_id: str,
     ) -> str:
         """출처 신뢰 면책 2~3문장을 반환한다."""
+        if is_english_mode():
+            return self._source_trust_en(content_type)
         if content_type in ("money_checklist", "delivery_money") or pattern_id == "delivery_money_checklist":
             return (
                 "이 글은 공개 정보를 바탕으로 정리했습니다. "
@@ -325,6 +347,8 @@ class GeoIntentService:
         slots: dict,
     ) -> str:
         """Google AI Overviews가 참고하기 좋은 3~5문장 핵심 답변을 반환한다."""
+        if is_english_mode():
+            return self._ai_overview_answer_en(topic=topic, content_type=content_type, slots=slots)
         hook = str(slots.get("hook_opening") or "").strip()
         yomi = str(slots.get("yomi_judgment") or "").replace("요미 판단:", "").replace("요미의 판단:", "").strip()
         real = str(slots.get("real_criterion") or "").strip()
@@ -411,6 +435,8 @@ class GeoIntentService:
         content_type: str,
     ) -> list[str]:
         """PAA(People Also Ask) 검색자 형태 질문 5개 이상을 반환한다."""
+        if is_english_mode():
+            return self._people_also_ask_en(questions=questions, topic=topic)
         kw = topic.strip()[:25] if topic.strip() else "이 주제"
         is_delivery_schedule_issue = self._is_delivery_schedule_issue(topic)
 
@@ -518,6 +544,8 @@ class GeoIntentService:
         topic: str = "",
     ) -> dict[str, list[str]]:
         """확인된 내용과 직접 확인 필요 항목을 반환한다."""
+        if is_english_mode():
+            return self._confirmed_vs_check_needed_en(content_type=content_type, slots=slots)
         real = str(slots.get("real_criterion") or "").strip()
         faq_list = list(slots.get("faq") or [])
         is_delivery_schedule_issue = self._is_delivery_schedule_issue(topic)
@@ -672,6 +700,10 @@ class GeoIntentService:
         seed: str = "",
     ) -> str:
         """강화된 출처 신뢰 블록 — 원문 기준, 확인 항목, 업데이트 날짜 포함."""
+        if is_english_mode():
+            return self._enhanced_source_trust_en(
+                content_type=content_type, today_str=today_str, seed=seed
+            )
         date_part = f" ({today_str} 기준)" if today_str else ""
 
         if content_type in ("money_checklist", "delivery_money") or pattern_id == "delivery_money_checklist":
@@ -733,6 +765,245 @@ class GeoIntentService:
             "정책·서비스·가격 등 중요한 사항은 공식 채널에서 확인하는 것이 안전합니다."
         )
 
+    # ------------------------------------------------------------------ #
+    # English mode (BLOG_LANGUAGE=en) — 문자열 생산만 분기, 구조는 동일     #
+    # ------------------------------------------------------------------ #
+
+    def _reader_intent_questions_en(self, *, topic: str, content_type: str, slots: dict) -> list[str]:
+        kw = topic.strip()[:40] if topic.strip() else "this topic"
+        if content_type.startswith("ai_"):
+            questions = [
+                f"What is {kw} actually good for?",
+                "How much does it cost, and is there a free plan?",
+                "Is it worth paying for?",
+                "What are the common mistakes to avoid?",
+                "How should you review AI output before using it?",
+                "What should you check before relying on it at work?",
+            ]
+        elif content_type == "today_issue_explainer":
+            questions = [
+                f"What changed with {kw}?",
+                "Why is this news today?",
+                "What's confirmed, and what's still unclear?",
+                "Does this affect regular users?",
+                "What happens next?",
+                "How can you tell facts from speculation?",
+            ]
+        else:
+            questions = [
+                f"What's the key takeaway on {kw}?",
+                "What changed?",
+                "How much does it cost?",
+                "Is it worth paying for?",
+                "Where can you verify the official details?",
+                "What should you watch out for?",
+            ]
+        for item in slots.get("faq") or []:
+            if isinstance(item, dict):
+                q = str(item.get("Q", "")).strip()
+                if q and q not in questions and len(questions) < 8:
+                    questions.append(q)
+        return questions[:8]
+
+    def _issue_context_en(self, *, topic: str, content_type: str, hook: str) -> str:
+        text = " ".join((hook or topic or "").split())
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 5][:2]
+        if not sentences and text:
+            sentences = [_ensure_sentence(text[:120])]
+        if content_type.startswith("ai_"):
+            why = "Knowing what changed — and what it costs — decides whether this is worth your time."
+        elif content_type == "today_issue_explainer":
+            why = "Separating what's confirmed from what's still speculation is the only way to read this story."
+        else:
+            why = "The details worth verifying yourself are laid out below."
+        sentences.append(why)
+        return _truncate_at_sentence(" ".join(s for s in sentences[:3] if s), max_len=220)
+
+    def _ai_overview_answer_en(self, *, topic: str, content_type: str, slots: dict) -> str:
+        hook = str(slots.get("hook_opening") or "").strip()
+        real = str(slots.get("real_criterion") or "").split("\n")[0].strip()
+        yomi = str(slots.get("yomi_judgment") or "").strip()
+
+        parts: list[str] = []
+        for source in (hook, real, yomi):
+            if not source:
+                continue
+            cleaned = " ".join(source.split())
+            match = re.match(r".+?[.!?](?=\s|$)", cleaned)
+            sentence = match.group(0).strip() if match else ""
+            if not sentence and len(cleaned) <= 100:
+                sentence = cleaned if cleaned.endswith((".", "!", "?")) else f"{cleaned}."
+            if sentence and sentence not in parts:
+                parts.append(sentence)
+
+        if content_type.startswith("ai_"):
+            parts.append(
+                "Availability, pricing, and rollout can vary by account and region — "
+                "check the official page for the latest details."
+            )
+        result = " ".join(s.strip() for s in parts[:5] if s.strip())
+        if len(result) < 35:
+            result = (
+                f"{result} The article separates what's confirmed about {topic} "
+                "from what you should verify yourself."
+            ).strip()
+        return result[:500]
+
+    def _people_also_ask_en(self, *, questions: list[str], topic: str) -> list[str]:
+        kw = topic.strip()[:40] if topic.strip() else "this topic"
+        paa: list[str] = []
+        for q in questions:
+            q_clean = q.strip()
+            if q_clean and len(q_clean) > 5 and q_clean not in paa:
+                paa.append(q_clean)
+            if len(paa) >= 5:
+                break
+        for s in (
+            f"{kw} pricing",
+            f"{kw} free plan limits",
+            f"{kw} alternatives",
+            f"{kw} how to get started",
+        ):
+            if s not in paa and len(paa) < 8:
+                paa.append(s)
+        return paa[:8]
+
+    def _confirmed_vs_check_needed_en(self, *, content_type: str, slots: dict) -> dict[str, list[str]]:
+        if content_type.startswith("ai_"):
+            confirmed = [
+                "The core facts here come from official announcements and product pages",
+                "Free-tier limits and paid pricing are as published at the time of writing",
+                "AI output still needs human review before you use it for real work",
+            ]
+            check_needed = [
+                "Current pricing and plan limits on the official page (they change often)",
+                "Whether the rollout has reached your account and region",
+            ]
+        elif content_type == "today_issue_explainer":
+            confirmed = [
+                "This article sticks to what multiple reports have confirmed so far.",
+                "Facts and interpretation are kept separate on purpose.",
+            ]
+            check_needed = [
+                "Details that follow-up announcements could still change",
+                "Official statements, exact figures, and timelines that aren't final yet",
+            ]
+        else:
+            confirmed = [
+                "This article is based on publicly available information.",
+                "Details may shift as official guidance updates.",
+            ]
+            check_needed = [
+                "The current conditions on the official page",
+                "Whether the specifics apply to your own account or situation",
+            ]
+
+        # 본문 기준 문장 흡수 — 짧고 검증 지향적인 줄만 (한국어 경로와 같은 취지)
+        real = str(slots.get("real_criterion") or "").strip()
+        for line in real.split("\n"):
+            line = " ".join(line.split()).strip()
+            if (
+                line
+                and len(line) <= 90
+                and ":" not in line
+                and re.search(r"\b(check|official|confirm)\w*\b", line, flags=re.IGNORECASE)
+                and line not in confirmed
+                and len(confirmed) < 5
+            ):
+                confirmed.append(line)
+
+        return {"confirmed": confirmed[:5], "check_needed": check_needed[:5]}
+
+    def _source_trust_en(self, content_type: str) -> str:
+        if content_type.startswith("ai_"):
+            return (
+                "This article is based on publicly available information from official AI service pages. "
+                "Features and pricing change with provider policy. "
+                "Check the official page before you rely on it."
+            )
+        if content_type == "today_issue_explainer":
+            return (
+                "The facts here are cross-checked against multiple published reports; the interpretation is mine. "
+                "This is a developing story, so read the original sources before making any big calls."
+            )
+        return (
+            "This article is based on publicly available information. "
+            "Details can change over time, so verify anything important at the source."
+        )
+
+    def _enhanced_source_trust_en(self, *, content_type: str, today_str: str, seed: str) -> str:
+        date_part = f" (as of {today_str})" if today_str else ""
+        if content_type.startswith("ai_"):
+            return (
+                f"This article is based on the official AI service documentation and announcements{date_part}. "
+                "Free-tier limits, paid pricing, and feature availability change often with provider policy. "
+                "Check the official page — and your company's AI policy — before you rely on it. "
+                "Always review AI output before putting it into real work."
+            )
+        if content_type == "today_issue_explainer":
+            # 매 글 같은 문장이 반복되면 AI 티가 나므로 토픽 시드로 결정적 변주 (한국어와 동일 메커니즘).
+            variants = (
+                (
+                    f"The facts here are cross-checked against multiple reports published today{date_part}. "
+                    "This is a developing story — numbers and timelines may shift, so check the original "
+                    "sources before making any decisions."
+                ),
+                (
+                    f"I limited the factual claims to what more than one outlet reported today{date_part}. "
+                    "The interpretation is mine; if a decision rides on this, read the original reporting."
+                ),
+                (
+                    f"Everything stated as fact comes from reports by multiple outlets{date_part}. "
+                    "Follow-up announcements may change the picture, so keep that in mind as you read."
+                ),
+            )
+            digest = hashlib.md5((seed or today_str or "today_issue").encode("utf-8")).hexdigest()
+            return variants[int(digest, 16) % len(variants)]
+        return (
+            f"This article is based on publicly available information{date_part}. "
+            "Details can change over time, so verify anything important at the source. "
+            "For pricing, policy, and availability, the official page is the final word."
+        )
+
+    @staticmethod
+    def _fallback_answer_en(question: str, topic: str, content_type: str) -> str:
+        q = (question or "").lower()
+        subject = " ".join((topic or "this topic").split()).strip() or "this topic"
+        if any(token in q for token in ("cost", "price", "pricing", "free plan", "pay")):
+            return (
+                "Pricing and plan limits change often — compare the official pricing page "
+                "against what you actually need before paying."
+            )
+        if any(token in q for token in ("worth", "should i")):
+            return (
+                "It depends on how often you'd use it. Try the free tier on a real task first, "
+                "then decide whether the paid plan earns its keep."
+            )
+        if any(token in q for token in ("changed", "change", "new", "update")):
+            return (
+                f"The article covers what actually changed with {subject} and what stayed the same — "
+                "check the official announcement for the exact rollout details."
+            )
+        if any(token in q for token in ("affect", "apply", "eligible", "my account")):
+            return (
+                "Whether it applies to you depends on your plan, account settings, and region — "
+                "check the official eligibility notes against your own setup."
+            )
+        if any(token in q for token in ("official", "verify", "source", "where")):
+            return (
+                "Go by the official announcement and product page first; treat community posts "
+                "and screenshots as secondary sources."
+            )
+        if any(token in q for token in ("mistake", "watch out", "risk", "careful")):
+            return (
+                "The main trap is treating unconfirmed claims as fact — keep what's verified "
+                "separate from what's still speculation."
+            )
+        return (
+            f"With {subject}, separate what's confirmed from what still needs checking — "
+            "the details depend on your plan, account, and region."
+        )
+
     @staticmethod
     def _is_delivery_schedule_issue(text: str) -> bool:
         haystack = (text or "").lower()
@@ -773,6 +1044,8 @@ class GeoIntentService:
 
     @staticmethod
     def _fallback_answer_for_question(question: str, topic: str, content_type: str) -> str:
+        if is_english_mode():
+            return GeoIntentService._fallback_answer_en(question, topic, content_type)
         q = question or ""
         subject = GeoIntentService._policy_subject(topic) if content_type in ("policy_deadline", "policy_benefit") else (topic or "이 이슈")
         if content_type in ("money_checklist", "delivery_money"):
@@ -856,7 +1129,10 @@ class GeoIntentService:
                 key = cls._answer_key(a)
             if key in seen_answers:
                 q_context = q.rstrip("?")[:34]
-                a = f"{q_context} 기준으로 보면, {a}"
+                if is_english_mode():
+                    a = f"For {q_context}: {a}"
+                else:
+                    a = f"{q_context} 기준으로 보면, {a}"
                 key = cls._answer_key(a)
             deduped.append({"Q": q, "A": a})
             seen_questions.add(q)

@@ -30,6 +30,10 @@ def main() -> None:
 
     os.environ.setdefault("NEWS_MODE", "news")
     os.environ.setdefault("AI_BLOG_MODE", "true")
+    # 2026-07-17 영어 전환: holyyomiai 블로그는 영어권(미국·영국·캐나다·인도) 대상
+    # 영어 AI 블로그다. ai_blog.yml 스케줄이 이 엔트리포인트를 쓰므로 여기 기본값이
+    # 곧 운영값이다 (BLOG_LANGUAGE=ko를 명시하면 옛 한국어 동작으로 복귀).
+    os.environ.setdefault("BLOG_LANGUAGE", "en")
     os.environ.setdefault("ALLOW_AI_NEWS_TOPICS", "true")
     os.environ.setdefault("ENABLE_NAVER_SEARCH", "false")
     os.environ.setdefault("ENABLE_NAVER_DATALAB", "false")

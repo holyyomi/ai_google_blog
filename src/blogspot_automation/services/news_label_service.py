@@ -2,10 +2,49 @@ from __future__ import annotations
 
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.seo_policy import normalize_hashtags, normalize_labels
 
 
 COMMON_LABELS = ("AI활용", "업무자동화", "AI도구", "프롬프트")
+
+# ─── 영어 전환(2026-07-17): 6개 고정 라벨 체계 ────────────────────────────────
+# Comparisons / Pricing / How-To / Fixes / Data & Stats / News 로 통일해
+# 라벨 페이지 = 토픽 클러스터 허브로 쓴다 (내부링크가 라벨 검색 URL로 걸린다).
+EN_LABEL_FAMILIES = ("Comparisons", "Pricing", "How-To", "Fixes", "Data & Stats", "News")
+
+_EN_FAMILY_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Comparisons", (" vs ", "vs.", "versus", "alternative", "best ai", "best free", "worth it", "compare", "comparison", "which ")),
+    ("Pricing", ("pricing", "price", "cost", "fee", "subscription", "per month", "/month", "free tier", "paid plan", "hidden cost", "free vs")),
+    ("Fixes", ("not working", "fix", "error", "limit", "blocked", "bypass", "troubleshoot", "wrong answers", "workaround", "outage")),
+    ("Data & Stats", ("statistics", "stats", "benchmark", "adoption", "context window", "the numbers")),
+    ("How-To", ("how to", "guide", "tutorial", "setup", "automate", "use chatgpt", "use claude", "use ai", "workflow")),
+)
+
+# 영어 해시태그용 엔티티 표기 (탐지 토큰 → 태그 표기)
+_EN_ENTITY_TAGS: tuple[tuple[str, str], ...] = (
+    ("chatgpt", "ChatGPT"),
+    ("openai", "OpenAI"),
+    ("claude", "Claude"),
+    ("gemini", "Gemini"),
+    ("copilot", "Copilot"),
+    ("perplexity", "Perplexity"),
+    ("midjourney", "Midjourney"),
+    ("notion", "NotionAI"),
+    ("grok", "Grok"),
+    ("deepseek", "DeepSeek"),
+    ("llama", "Llama"),
+    ("cursor", "CursorAI"),
+)
+
+
+def en_content_family(*parts: str) -> str:
+    """제목·주제 텍스트에서 6개 라벨 중 하나를 고른다 (기본 News)."""
+    blob = " ".join(str(p or "") for p in parts).lower()
+    for family, tokens in _EN_FAMILY_RULES:
+        if any(tok in blob for tok in tokens):
+            return family
+    return "News"
 
 # Blogspot 발행용 라벨 2~3개 — pattern_id 기준 우선
 BLOGSPOT_LABELS_BY_PATTERN_ID: dict[str, tuple[str, ...]] = {
@@ -113,6 +152,10 @@ class NewsLabelService:
         topic_group: str = "",
     ) -> list[str]:
         """Blogspot 발행용 라벨을 2~3개로 제한해 반환한다."""
+        if is_english_mode():
+            # 주제 텍스트가 없는 경로라 family는 build()/해시태그 쪽에서 정교화되고,
+            # 여기서는 클러스터 기본 라벨만 준다.
+            return normalize_labels(["News", "AI Tools"])
         if pattern_id and pattern_id in BLOGSPOT_LABELS_BY_PATTERN_ID:
             return normalize_labels(list(BLOGSPOT_LABELS_BY_PATTERN_ID[pattern_id]))
         if content_type and content_type in BLOGSPOT_LABELS_BY_CONTENT_TYPE:
@@ -131,6 +174,15 @@ class NewsLabelService:
         content_angle: dict[str, Any] | None = None,
         existing_labels: list[str] | tuple[str, ...] | None = None,
     ) -> list[str]:
+        if is_english_mode():
+            family = en_content_family(selected_topic, selected_title)
+            labels_en = [family, "AI Tools"]
+            blob = f"{selected_topic} {selected_title}".lower()
+            for token, tag in _EN_ENTITY_TAGS:
+                if token in blob:
+                    labels_en.append(tag)
+                    break
+            return normalize_labels(labels_en[:4])
         labels: list[str] = []
         if content_type == "tax_refund":
             labels.extend(CONTENT_TYPE_LABELS["tax_refund"])
@@ -152,6 +204,16 @@ class NewsLabelService:
         content_type: str,
         labels: list[str] | tuple[str, ...] | None = None,
     ) -> list[str]:
+        if is_english_mode():
+            blob = f"{selected_topic} {selected_title}".lower()
+            family = en_content_family(selected_topic, selected_title)
+            tags_en = ["#AI", f"#{family.replace(' & ', '').replace(' ', '').replace('-', '')}", "#AITools"]
+            for token, tag in _EN_ENTITY_TAGS:
+                if token in blob and f"#{tag}" not in tags_en:
+                    tags_en.append(f"#{tag}")
+                if len(tags_en) >= 6:
+                    break
+            return normalize_hashtags(tags_en)
         candidates: list[str] = list(
             HASHTAG_BASE_BY_TOPIC_GROUP.get(topic_group, HASHTAG_BASE_BY_CONTENT_TYPE.get(content_type, ()))
         )

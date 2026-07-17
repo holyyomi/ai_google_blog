@@ -14,6 +14,8 @@ import os
 import re
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
+
 logger = logging.getLogger(__name__)
 
 # 앵글(사건 유형) → 글 초점. content_type(ai_work_tip)이 같아도 요금 개편 기사와
@@ -71,6 +73,27 @@ _SYSTEM_PROMPT = (
     "특정 인물 비방, 허위 단정, 수익 보장 표현은 절대 쓰지 않습니다. "
     "출력 전 스스로 검수합니다: 확인 안 된 수치·경로 단정이 있으면 완화하고, 반복 문장은 제거합니다. "
     "반드시 유효한 JSON만 출력합니다(코드블록·설명 금지)."
+)
+
+# 영어 모드 시스템 프롬프트 — 슬롯 '값'은 전부 영어. JSON 키는 렌더러 계약이라
+# 한국어 키명 그대로 유지해야 한다(키를 번역하면 슬롯 적용이 통째로 폴백된다).
+_SYSTEM_PROMPT_EN = (
+    "You are a senior editor for an English-language AI blog (readers: US, UK, Canada, India). "
+    "If the topic names a specific tool, focus deeply on that one tool; if it is broad, pick 1-3 "
+    "representative tools (e.g. ChatGPT, Claude, Gemini) and write concretely about them — never "
+    "anonymous 'AI tools' vagueness. The tool name must appear in the title and the first paragraph. "
+    "Every sentence must be specific to this topic — generic 'AI productivity' filler is a failure. "
+    "[FACT SAFETY — top rule for auto-publishing] Never assert release dates, prices, plan limits, "
+    "model names/versions, feature availability, menu paths, data policies, or defaults that are not "
+    "in the provided evidence. Write 'as of the stated date' style attributions; when unsure, say "
+    "'check the official pricing page'. Never invent benchmarks, statistics, or first-person test "
+    "results. Banned: 'guaranteed income', '100% safe', 'works for everyone', income amounts, "
+    "affiliate wording, clickbait. Include at least 3 little-known practical tips (hidden menus, "
+    "free-tier-saving usage order, common mistakes and recovery). Be concise and information-dense. "
+    "No hashtags anywhere. "
+    "Output VALID JSON only (no code fences, no commentary). CRITICAL: keep every JSON key EXACTLY "
+    "as specified in the instructions — including Korean-named keys — and write every VALUE in "
+    "natural English."
 )
 
 # LLM이 채울 수 있는 텍스트형 슬롯과 출력 스펙 (간결·고밀도 지향)
@@ -227,17 +250,33 @@ def enrich_slots_with_llm(
         except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
             logger.warning("ai_slot_enricher: 팩트 수집 실패(근거 없이 진행): %s", exc)
 
-    user_prompt = (
-        f"주제: {topic}\n{title_part}글 성격: {focus}\n"
-        f"{facts_part}\n"
-        f"아래 키를 가진 JSON 하나만 출력하세요. 각 값은 한국어로, 주제에 특화된 구체적 내용으로 채웁니다.\n"
-        f"{spec_lines}\n\n"
-        "주의: 표·가격·체크리스트는 반드시 지정된 JSON 키(quick_decision_table/pricing_table/checklist)에만 담고, "
-        "텍스트 슬롯 안에는 넣지 마세요. "
-        "사실이 불확실하면 일반적 원리로 쓰되 '직접 확인 필요'를 덧붙이세요. "
-        "독자가 이 글을 저장하고 다시 찾아올 이유(복사해 쓰는 자산, 비교 기준, 비용 전략)를 "
-        "각 슬롯에 최소 하나씩 담으세요."
-    )
+    if is_english_mode():
+        user_prompt = (
+            f"Topic: {topic}\n{title_part}Article focus: {focus}\n"
+            f"{facts_part}\n"
+            "Output exactly one JSON object with the keys below. Keep every key name EXACTLY as "
+            "written (including Korean-named keys like \"착각\"/\"실제\") and write every VALUE in "
+            "natural, specific ENGLISH.\n"
+            f"{spec_lines}\n\n"
+            "Rules: tables/pricing/checklists go ONLY in their designated JSON keys "
+            "(quick_decision_table/pricing_table/checklist), never inside text slots. "
+            "If a fact is uncertain, state the general principle and add 'verify on the official page'. "
+            "The title must follow [keyword] + [specific number or angle] + [2026] where natural, "
+            "in English, under 70 characters. "
+            "Give the reader at least one savable asset (a reusable comparison rule, cost math, or checklist) per slot group."
+        )
+    else:
+        user_prompt = (
+            f"주제: {topic}\n{title_part}글 성격: {focus}\n"
+            f"{facts_part}\n"
+            f"아래 키를 가진 JSON 하나만 출력하세요. 각 값은 한국어로, 주제에 특화된 구체적 내용으로 채웁니다.\n"
+            f"{spec_lines}\n\n"
+            "주의: 표·가격·체크리스트는 반드시 지정된 JSON 키(quick_decision_table/pricing_table/checklist)에만 담고, "
+            "텍스트 슬롯 안에는 넣지 마세요. "
+            "사실이 불확실하면 일반적 원리로 쓰되 '직접 확인 필요'를 덧붙이세요. "
+            "독자가 이 글을 저장하고 다시 찾아올 이유(복사해 쓰는 자산, 비교 기준, 비용 전략)를 "
+            "각 슬롯에 최소 하나씩 담으세요."
+        )
 
     def _validator(text: str) -> None:
         data = _parse_json(text)
@@ -254,7 +293,10 @@ def enrich_slots_with_llm(
 
     try:
         result = llm_service.call_with_fallback(
-            user_prompt, system_prompt=_SYSTEM_PROMPT, min_chars=300, validator=_validator,
+            user_prompt,
+            system_prompt=_SYSTEM_PROMPT_EN if is_english_mode() else _SYSTEM_PROMPT,
+            min_chars=300,
+            validator=_validator,
         )
     except Exception as exc:
         logger.warning("ai_slot_enricher: LLM 호출 예외(폴백): %s", exc)
@@ -330,9 +372,10 @@ def enrich_slots_with_llm(
     paa = data.get("paa")
     if isinstance(paa, list):
         keywords = []
+        _paa_max_len = 45 if is_english_mode() else 30  # 영어 검색어는 더 길다
         for item in paa:
             text = re.sub(r"\s+", " ", str(item or "")).strip().strip('"')
-            if 6 <= len(text) <= 30 and not re.search(r"(인가요|하나요|할까요|입니까)\s*\??$", text):
+            if 6 <= len(text) <= _paa_max_len and not re.search(r"(인가요|하나요|할까요|입니까)\s*\??$", text):
                 keywords.append(text)
         if len(keywords) >= 3:
             enriched["_llm_paa"] = keywords[:5]
@@ -345,7 +388,8 @@ def enrich_slots_with_llm(
     llm_title = data.get("title")
     if isinstance(llm_title, str):
         t = re.sub(r"\s+", " ", llm_title).strip().strip('"').strip()
-        if 6 <= len(t) <= 60 and not re.search(r"\d+\s*가지\s*$", t):
+        _max_title_len = 75 if is_english_mode() else 60  # 영어 제목은 더 길다
+        if 6 <= len(t) <= _max_title_len and not re.search(r"\d+\s*가지\s*$", t):
             from blogspot_automation.services.title_integrity_policy import audit_title_integrity
             integrity = audit_title_integrity(t, content_type=content_type)
             if integrity.get("passed"):
