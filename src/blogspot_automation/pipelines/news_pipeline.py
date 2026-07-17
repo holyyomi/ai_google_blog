@@ -1276,6 +1276,9 @@ class NewsPipeline:
             _sge_score = int(_candidate_meta.get("sge_score") or 0)
             _candidate_title = str(_candidate_meta.get("candidate_h1") or "").strip()
             if _candidate_title and _candidate_title != best_title.title:
+                _pre_override_title = best_title
+                _pre_override_gate = publish_quality_gate
+                _pre_override_llm_ok = _llm_body_gate_passed
                 best_title = TitleCandidate(
                     title=_candidate_title,
                     hook_type=best_title.hook_type,
@@ -1285,11 +1288,12 @@ class NewsPipeline:
                 plan.selected_title = best_title
                 selected.candidate.raw["selected_title"] = _candidate_title
                 # 영어 모드(2026-07-17): 서술 본문 게이트는 위에서 '확정 전' 빌더
-                # 제목으로 평가됐다. 최종 제목(슬롯 보강 LLM 제목)이 이 시점에
-                # 확정되므로, 제목 의존 검사(title_body_entity_mismatch 등)를 최종
-                # 제목 기준으로 재평가한다 — 낡은 헤드라인 파편 제목의 오탐 제거.
+                # 제목으로 평가됐다. 슬롯 LLM 제목은 본문과 다른 생성물이라 단어가
+                # 어긋날 수 있으므로(title_body_entity_mismatch 실측) 최종 제목으로
+                # 재평가하고, 재평가가 실패하면 본문과 정합이 확인된 원래 제목을
+                # 유지한다 — 제목 채택은 게이트 통과를 전제로 한 조건부다.
                 if self._ai_blog_mode_enabled() and is_english_mode() and bool(_llm_used):
-                    publish_quality_gate = self.quality_gate.evaluate(
+                    _regate = self.quality_gate.evaluate(
                         selected=selected,
                         selected_title=best_title.title,
                         html=html,
@@ -1301,7 +1305,20 @@ class NewsPipeline:
                         news_publish_mode=self.news_publish_mode,
                         extra_allowed_urls=_llm_citation_urls,
                     )
-                    _llm_body_gate_passed = bool(publish_quality_gate.get("passed"))
+                    if bool(_regate.get("passed")) or not _pre_override_llm_ok:
+                        publish_quality_gate = _regate
+                        _llm_body_gate_passed = bool(_regate.get("passed"))
+                    else:
+                        logger.info(
+                            "news pipeline: EN mode — 슬롯 제목 재평가 실패(%s) → 본문 정합 제목 유지: %s",
+                            _regate.get("blocking_issues"),
+                            _pre_override_title.title[:60],
+                        )
+                        best_title = _pre_override_title
+                        plan.selected_title = best_title
+                        selected.candidate.raw["selected_title"] = best_title.title
+                        publish_quality_gate = _pre_override_gate
+                        _llm_body_gate_passed = _pre_override_llm_ok
 
             # article_candidate.html이 모든 GEO/SGE/품질 구조를 충족하면 그것을 publish content로 사용한다.
             # 이렇게 하면 LLM/ContrarianContentService가 GEO/SGE 구조를 빠뜨려도 publish_quality_gate를 통과한다.
