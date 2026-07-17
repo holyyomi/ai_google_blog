@@ -442,10 +442,22 @@ class NewsQualityGate:
 
         title_body_alignment = self._title_body_alignment(title=title, html=html)
         if title_body_alignment["required_terms"] and title_body_alignment["missing_terms"]:
-            blocking_issues.append(
-                "title_body_entity_mismatch:"
-                + ",".join(title_body_alignment["missing_terms"][:3])
+            _tb_missing = list(title_body_alignment["missing_terms"])
+            _tb_required = list(title_body_alignment["required_terms"])
+            # 영어 모드(2026-07-17): 제목과 본문은 별개 생성물이라 일반명사 1개의
+            # 표현차(share↔market share 미사용 등)는 흔하다. 핵심 단어의 절반
+            # 이상(최소 2개)이 본문에 없을 때만 제목-본문 괴리로 차단한다.
+            # ko 모드는 기존 그대로(1개라도 없으면 차단).
+            _tb_block = (
+                len(_tb_missing) >= max(2, (len(_tb_required) + 1) // 2)
+                if is_english_mode()
+                else True
             )
+            if _tb_block:
+                blocking_issues.append(
+                    "title_body_entity_mismatch:"
+                    + ",".join(_tb_missing[:3])
+                )
 
         # 추가: 주어가 없는 "확인할 것"/"먼저 확인" 단독 제목 차단
         # discovery 후보는 면제 (entity 검증됨)
