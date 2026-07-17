@@ -1754,6 +1754,10 @@ class NewsQualityGate:
                 continue
             if re.fullmatch(r"\d+", normalized):
                 continue
+            # 영어 모드(2026-07-17): 숫자 포함 토큰("844k", "$2b", "51%", "4.5")은
+            # 본문에서 표기가 달라진다(844K↔844,000) — 필수 등장 요건에서 제외.
+            if is_english_mode() and re.search(r"\d", normalized):
+                continue
             if normalized not in terms:
                 terms.append(normalized)
             if len(terms) >= 5:
