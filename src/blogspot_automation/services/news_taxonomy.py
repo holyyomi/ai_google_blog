@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
+
 
 STRONG_PUBLIC_BENEFIT_KEYWORDS = (
     "고유가 피해지원금",
@@ -714,6 +716,107 @@ def transformed_public_benefit_topic(keyword: str, text: str = "") -> str:
     return f"{core} 신청방법과 대상 조건"
 
 
+def _build_english_search_angle(*, original_topic: str, lower: str, angle: Any) -> dict[str, Any]:
+    """영어 모드 검색 앵글 — 원문 헤드라인 보존 + 사건 유형별 영어 질문/프레임.
+
+    angle_type은 기존 파이프라인이 아는 값(ai_slot_enricher._ANGLE_FOCUS 키)만 쓴다.
+    """
+    topic = original_topic.strip()
+    if len(topic) > 90:
+        # 단어 경계에서 절단 — 중간 절단은 깨진 주제 표면으로 패턴 매칭이 캡된다
+        topic = topic[:90].rsplit(" ", 1)[0].rstrip(" ,;:-–—")
+    # 괄호가 열린 채 끝나면 괄호 시작부터 제거 (잘린 "(nAm" 류)
+    if topic.count("(") > topic.count(")"):
+        topic = topic[: topic.rfind("(")].rstrip(" ,;:-–—")
+    subject = topic.rstrip(".!?")
+
+    if any(k in lower for k in ("pricing", "price", "cost", "subscription", "free tier", "per month", "/month", "fee")):
+        return angle(
+            search_demand_topic=topic,
+            questions=[
+                f"How much does it cost after this change?",
+                "What do free users get versus paid plans?",
+                "Is the paid plan worth it now?",
+            ],
+            click_reason="Price and plan changes hit every user's bill, and official pages lag behind the news.",
+            reader_benefit="The verified numbers, who is affected, and an upgrade/downgrade decision rule.",
+            urgency_reason="Prices and limits change quickly after announcements; the current numbers win the search.",
+            content_promise="Verified pricing, what changed, and who should act — with as-of dates and sources.",
+            angle_type="money_compare",
+        )
+    if any(k in lower for k in (" vs ", "vs.", "versus", "compared", "comparison", "alternative")):
+        return angle(
+            search_demand_topic=topic,
+            questions=[
+                "Which one is better for everyday work?",
+                "How do pricing and limits compare?",
+                "Which one should I pick for my use case?",
+            ],
+            click_reason="Spec-sheet comparisons don't answer the reader's actual pick-this-if decision.",
+            reader_benefit="A task-by-task comparison with clear conditions for choosing each option.",
+            urgency_reason="Plans and capabilities shift often; a current comparison outranks stale ones.",
+            content_promise="A decision table comparing price, limits, and best-for, with sources.",
+            angle_type="ai_comparison",
+        )
+    if any(k in lower for k in ("outage", "not working", "down", "error", "rate limit", "limit", "bug", "fails")):
+        return angle(
+            search_demand_topic=topic,
+            questions=[
+                "Why is this happening and is it affecting everyone?",
+                "What can I do about it right now?",
+                "How do I avoid losing work when it happens again?",
+            ],
+            click_reason="When a tool breaks mid-task, users search for a fix immediately and bounce off vague posts.",
+            reader_benefit="A symptom-to-cause triage order and practical workarounds.",
+            urgency_reason="Fix-it searches spike while the issue is live.",
+            content_promise="Causes, fixes, and workarounds in the order worth trying.",
+            angle_type="ai_risk_check",
+        )
+    if any(k in lower for k in ("security", "privacy", "data", "lawsuit", "copyright", "regulation", "ban")):
+        return angle(
+            search_demand_topic=topic,
+            questions=[
+                "What exactly was confirmed here?",
+                "Does this affect my account or data?",
+                "What should I check or change today?",
+            ],
+            click_reason="Risk stories mix confirmed facts with speculation; readers need the split.",
+            reader_benefit="What's confirmed, what's unverified, and the settings worth checking.",
+            urgency_reason="Early coverage changes fast; a sourced summary earns citations.",
+            content_promise="Confirmed facts vs. open questions, plus concrete account checks.",
+            angle_type="ai_risk_check",
+        )
+    if any(k in lower for k in ("launch", "launches", "release", "releases", "announce", "announces", "announced", "unveil", "new model", "update", "rolls out", "rolling out", "introduces")):
+        return angle(
+            search_demand_topic=topic,
+            questions=[
+                "What actually changed with this release?",
+                "What can I do differently with it today?",
+                "What stays the same or is still unconfirmed?",
+            ],
+            click_reason="Big-outlet coverage summarizes the press release; readers want what changes for them.",
+            reader_benefit="What's new, what it means for daily use, and what to verify before relying on it.",
+            urgency_reason="Rollouts are gradual; readers search whether they have it and what to try first.",
+            content_promise="What changed, what it means for regular users, and what to check — with sources.",
+            angle_type="ai_model_release",
+        )
+    return angle(
+        search_demand_topic=topic,
+        questions=[
+            # 헤드라인(topic)을 질문에 삽입하지 않는다 — intent 블록에 그대로 노출돼
+            # raw_topic_repeated_in_html 카운트를 올린다 (드라이런 #8 실측).
+            "What was actually confirmed in this announcement?",
+            "How does this affect regular users?",
+            "What should I check before acting on it?",
+        ],
+        click_reason="News coverage mixes claims and facts; readers want the verified core and the personal impact.",
+        reader_benefit="The confirmed facts, the user impact, and what to verify on official pages.",
+        urgency_reason="Early reports change; a sourced, current summary wins search and AI citations.",
+        content_promise="Confirmed facts, user impact, and what to double-check — with as-of dates.",
+        angle_type="ai_service_change",
+    )
+
+
 def build_search_angle(
     topic: str,
     *,
@@ -757,6 +860,17 @@ def build_search_angle(
             "public_benefit_confidence": str(benefit_info.get("public_benefit_confidence") or "none"),
             "public_benefit_promotion_blocked": bool(benefit_info.get("public_benefit_promotion_blocked")),
         }
+
+    # ─── 영어 모드(2026-07-17): 한국어 앵글 재작성 전면 우회 ────────────────
+    # 아래 한국어 프레임("{제품} AI 소식" 등)이 영어 헤드라인을 덮어쓰면 제목·
+    # 질문·주제가 전부 한국어로 오염된다(드라이런 실측). 영어 모드에서는 원문
+    # 헤드라인을 주제로 보존하고 사건 유형만 분류해 영어 질문·앵글을 만든다.
+    if is_english_mode():
+        return _build_english_search_angle(
+            original_topic=original_topic,
+            lower=lower,
+            angle=angle,
+        )
 
     if commercial_support_signal and not benefit_keyword:
         return angle(

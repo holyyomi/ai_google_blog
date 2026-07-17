@@ -12,6 +12,7 @@ import traceback
 from typing import Any, Protocol
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate, SelectedNewsPlan, TitleCandidate
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.contrarian_content_service import ContrarianContentService
 from blogspot_automation.services.evergreen_topic_service import EvergreenTopicService
 from blogspot_automation.services.answer_engine_policy import ensure_answer_engine_optimized_html
@@ -1275,6 +1276,9 @@ class NewsPipeline:
             _sge_score = int(_candidate_meta.get("sge_score") or 0)
             _candidate_title = str(_candidate_meta.get("candidate_h1") or "").strip()
             if _candidate_title and _candidate_title != best_title.title:
+                _pre_override_title = best_title
+                _pre_override_gate = publish_quality_gate
+                _pre_override_llm_ok = _llm_body_gate_passed
                 best_title = TitleCandidate(
                     title=_candidate_title,
                     hook_type=best_title.hook_type,
@@ -1283,6 +1287,38 @@ class NewsPipeline:
                 )
                 plan.selected_title = best_title
                 selected.candidate.raw["selected_title"] = _candidate_title
+                # 영어 모드(2026-07-17): 서술 본문 게이트는 위에서 '확정 전' 빌더
+                # 제목으로 평가됐다. 슬롯 LLM 제목은 본문과 다른 생성물이라 단어가
+                # 어긋날 수 있으므로(title_body_entity_mismatch 실측) 최종 제목으로
+                # 재평가하고, 재평가가 실패하면 본문과 정합이 확인된 원래 제목을
+                # 유지한다 — 제목 채택은 게이트 통과를 전제로 한 조건부다.
+                if self._ai_blog_mode_enabled() and is_english_mode() and bool(_llm_used):
+                    _regate = self.quality_gate.evaluate(
+                        selected=selected,
+                        selected_title=best_title.title,
+                        html=html,
+                        image_prompt=image_plan.get("image_prompt", ""),
+                        image_alt_text=image_plan.get("image_alt_text", ""),
+                        labels=plan.labels,
+                        hashtags=final_hashtags,
+                        dry_run=self.dry_run,
+                        news_publish_mode=self.news_publish_mode,
+                        extra_allowed_urls=_llm_citation_urls,
+                    )
+                    if bool(_regate.get("passed")) or not _pre_override_llm_ok:
+                        publish_quality_gate = _regate
+                        _llm_body_gate_passed = bool(_regate.get("passed"))
+                    else:
+                        logger.info(
+                            "news pipeline: EN mode — 슬롯 제목 재평가 실패(%s) → 본문 정합 제목 유지: %s",
+                            _regate.get("blocking_issues"),
+                            _pre_override_title.title[:60],
+                        )
+                        best_title = _pre_override_title
+                        plan.selected_title = best_title
+                        selected.candidate.raw["selected_title"] = best_title.title
+                        publish_quality_gate = _pre_override_gate
+                        _llm_body_gate_passed = _pre_override_llm_ok
 
             # article_candidate.html이 모든 GEO/SGE/품질 구조를 충족하면 그것을 publish content로 사용한다.
             # 이렇게 하면 LLM/ContrarianContentService가 GEO/SGE 구조를 빠뜨려도 publish_quality_gate를 통과한다.
@@ -1347,7 +1383,39 @@ class NewsPipeline:
                     news_publish_mode=self.news_publish_mode,
                     extra_allowed_urls=_candidate_citation_urls,
                 )
-                if bool(_candidate_publish_gate.get("passed")):
+                # 영어 모드 강화 게이트(2026-07-17): 템플릿 candidate는 구조·헤딩이
+                # 한국어라 영어 블로그에 그대로 나가면 안 된다. LLM 영어 서술 본문이
+                # 자체 게이트를 통과했을 때만 발행을 허용하고, 아니면 이 후보를
+                # 차단해 재시도 루프가 다음 후보로 넘어가게 한다 (추가 차단 = 강화).
+                if is_english_mode() and not _llm_body_gate_passed:
+                    logger.info(
+                        "news pipeline: EN mode — LLM 영어 본문 게이트 미통과, 한국어 템플릿 폴백 발행 차단"
+                    )
+                    _candidate_publish_gate = dict(_candidate_publish_gate)
+                    _candidate_publish_gate["passed"] = False
+                    _cpg_issues = list(_candidate_publish_gate.get("blocking_issues") or [])
+                    _cpg_issues.append("en_mode_template_fallback_blocked")
+                    _candidate_publish_gate["blocking_issues"] = _cpg_issues
+                # 영어 모드 발행 판정(2026-07-17 드라이런 #4·#5 실측 교훈): candidate는
+                # 한국어 템플릿+영어 주제의 혼합물로 EN에서는 절대 발행되지 않는 게이트
+                # 판정용 아티팩트인데, 그 혼합물에서만 나는 구조적 이슈(한국어 박스에
+                # 영어 헤드라인 반복 삽입 등)가 발행을 막는 두더지잡기가 된다.
+                # EN에서는 "실제 발행본"인 LLM 영어 서술 본문이 같은 풀 게이트
+                # (quality_gate.evaluate)를 통과했으면 그 결과를 발행 판정으로 쓴다 —
+                # 발행되는 본문 기준으로는 동일 강도의 게이트가 그대로 전부 적용된다.
+                # (candidate의 구조 플래그 geo/sge/grade 요건은 바깥 if가 이미 강제.)
+                _en_narrative_publish = (
+                    is_english_mode()
+                    and _llm_body_gate_passed
+                    and not bool(_candidate_publish_gate.get("passed"))
+                )
+                if _en_narrative_publish:
+                    logger.info(
+                        "news pipeline: EN mode — 후보 게이트 대신 발행본(영어 서술) 게이트로 판정 "
+                        "(candidate-only blocking=%s)",
+                        _candidate_publish_gate.get("blocking_issues"),
+                    )
+                if bool(_candidate_publish_gate.get("passed")) or _en_narrative_publish:
                     # 템플릿 candidate가 게이트를 통과했다 — 발행 가부 판정·플래그는 이 기준을
                     # 그대로 쓴다(발행 회귀 0). 단 LLM 서술형 본문도 자체 게이트를 통과했다면
                     # 실제 발행 본문은 한 편으로 읽히는 LLM 서술형(html)을 유지하고, 통과 못
@@ -1365,7 +1433,10 @@ class NewsPipeline:
                         html=html,
                         topic=selected.candidate.topic,
                     )
-                    publish_quality_gate = _candidate_publish_gate
+                    if not _en_narrative_publish:
+                        publish_quality_gate = _candidate_publish_gate
+                    # _en_narrative_publish면 publish_quality_gate는 이미 발행본(영어
+                    # 서술) 평가 결과(passed=True)다 — 그대로 유지한다.
                     _publish_ready = True
                     self.artifact_service.update_publish_artifacts(
                         artifact_dir,
@@ -1375,6 +1446,12 @@ class NewsPipeline:
                             "final_publish_html_source": _final_html_source,
                             "promoted_article_candidate_as_publish_content": not _llm_body_gate_passed,
                             "llm_narrative_published": _llm_body_gate_passed,
+                            "en_candidate_gate_bypassed_for_narrative": _en_narrative_publish,
+                            "en_candidate_gate_blocking_issues": (
+                                list(_candidate_publish_gate.get("blocking_issues") or [])
+                                if _en_narrative_publish
+                                else []
+                            ),
                             "promoted_article_candidate_grade": _grade,
                             "promoted_article_candidate_length": len(_candidate_html),
                             "selected_title": best_title.title,

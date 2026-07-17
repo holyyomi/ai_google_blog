@@ -14,6 +14,8 @@ import os
 import re
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
+
 logger = logging.getLogger(__name__)
 
 # 앵글(사건 유형) → 글 초점. content_type(ai_work_tip)이 같아도 요금 개편 기사와
@@ -29,6 +31,18 @@ _ANGLE_FOCUS: dict[str, str] = {
     "ai_model_release": "이 발표로 새로 가능해진 것과 기존 사용자에게 달라지는 것",
     "ai_search_change": "이 검색 변화가 검색 습관과 콘텐츠 노출에 주는 실제 영향",
     "ai_comparison": "비교 대상들의 실제 차이와 상황별 선택 기준",
+}
+
+# 영어 모드 앵글 초점 (news_taxonomy._build_english_search_angle이 내는 angle_type 기준)
+_ANGLE_FOCUS_EN: dict[str, str] = {
+    "money_compare": "how this pricing/plan change affects what users pay, and a free-vs-paid decision rule",
+    "ai_comparison": "the real differences between the options and pick-this-if conditions by use case",
+    "ai_risk_check": "what is confirmed about this risk/outage, and what to check in your own account",
+    "ai_model_release": "what this release newly enables and what changes for existing users",
+    "ai_service_change": "the confirmed facts of this announcement and what actually changes for regular users",
+    "ai_setting": "the settings to check before enabling this feature and safe-usage criteria",
+    "ai_search_change": "how this search change affects daily search habits and content visibility",
+    "ai_policy_impact": "what is settled in this policy move and what users should verify now",
 }
 
 # content_type → 글 성격 힌트 (LLM 톤·초점 가이드)
@@ -71,6 +85,27 @@ _SYSTEM_PROMPT = (
     "특정 인물 비방, 허위 단정, 수익 보장 표현은 절대 쓰지 않습니다. "
     "출력 전 스스로 검수합니다: 확인 안 된 수치·경로 단정이 있으면 완화하고, 반복 문장은 제거합니다. "
     "반드시 유효한 JSON만 출력합니다(코드블록·설명 금지)."
+)
+
+# 영어 모드 시스템 프롬프트 — 슬롯 '값'은 전부 영어. JSON 키는 렌더러 계약이라
+# 한국어 키명 그대로 유지해야 한다(키를 번역하면 슬롯 적용이 통째로 폴백된다).
+_SYSTEM_PROMPT_EN = (
+    "You are a senior editor for an English-language AI blog (readers: US, UK, Canada, India). "
+    "If the topic names a specific tool, focus deeply on that one tool; if it is broad, pick 1-3 "
+    "representative tools (e.g. ChatGPT, Claude, Gemini) and write concretely about them — never "
+    "anonymous 'AI tools' vagueness. The tool name must appear in the title and the first paragraph. "
+    "Every sentence must be specific to this topic — generic 'AI productivity' filler is a failure. "
+    "[FACT SAFETY — top rule for auto-publishing] Never assert release dates, prices, plan limits, "
+    "model names/versions, feature availability, menu paths, data policies, or defaults that are not "
+    "in the provided evidence. Write 'as of the stated date' style attributions; when unsure, say "
+    "'check the official pricing page'. Never invent benchmarks, statistics, or first-person test "
+    "results. Banned: 'guaranteed income', '100% safe', 'works for everyone', income amounts, "
+    "affiliate wording, clickbait. Include at least 3 little-known practical tips (hidden menus, "
+    "free-tier-saving usage order, common mistakes and recovery). Be concise and information-dense. "
+    "No hashtags anywhere. "
+    "Output VALID JSON only (no code fences, no commentary). CRITICAL: keep every JSON key EXACTLY "
+    "as specified in the instructions — including Korean-named keys — and write every VALUE in "
+    "natural English."
 )
 
 # LLM이 채울 수 있는 텍스트형 슬롯과 출력 스펙 (간결·고밀도 지향)
@@ -156,6 +191,57 @@ _ENRICH_SPEC = {
 }
 
 
+# 영어 모드 슬롯 스펙 — 값 언어를 영어로 강제한다. JSON '키'는 렌더러 계약이라
+# 한국어 스펙과 동일하게 유지(pair 필드명 "착각"/"실제" 등도 그대로).
+# 배경(드라이런 #3): 한국어 스펙 설명("자연스럽고 구체적인 한국어")이 EN 시스템
+# 프롬프트보다 강하게 작동해 LLM 제목이 한국어로 나왔다.
+_ENRICH_SPEC_EN = {
+    "title": (
+        "One article title in ENGLISH, under 70 characters. Formula: [search keyword] + "
+        "[specific angle or number] + [2026] where natural. Must contain the concrete tool/"
+        "service name (e.g. 'ChatGPT', 'Claude') — no anonymous 'AI tools' titles. "
+        "No clickbait, no hype, no 'N things' listicle endings. Center the title on what the "
+        "news is actually about (a pricing story leads with pricing, a launch with what's new)."
+    ),
+    "hook_opening": "3-4 English sentences: the reader's situation and why this matters now. Dense, no greetings.",
+    "yomi_judgment": "The core verdict in 2-3 assertive English sentences. No labels.",
+    "real_criterion": (
+        "Three practical steps as ONE string: 'Step 1: ...\\nStep 2: ...\\nStep 3: ...'. "
+        "Each step 1-2 English sentences with concrete features/menus/methods. Prefer qualitative "
+        "time-saving claims over invented numbers."
+    ),
+    "misconceptions": "3 topic-specific misconceptions as [{\"착각\":\"myth in English\",\"실제\":\"reality in English\"}].",
+    "use_cases": "3 advanced scenarios as [{\"상황\":\"situation in English\",\"활용\":\"how to use it in English\"}].",
+    "faq": "3 topic-specific questions as [{\"Q\":\"English question\",\"A\":\"1-2 sentence English answer\"}].",
+    "prompt_block": (
+        "3-5 ready-to-paste prompts as [{\"label\":\"short English purpose\",\"prompt\":\"full English prompt\"}]. "
+        "Different tasks each; include role, constraints, output format. Use -> not arrows."
+    ),
+    "quick_decision_table": (
+        "4-5 situation rows as [{\"내 상황\":\"my situation in English\",\"할 일\":\"what to do in English\"}]. "
+        "Concrete features/settings, no platitudes."
+    ),
+    "actions": "3 do-today actions as [{\"행동\":\"short English title\",\"설명\":\"1-2 English sentences\"}]. Measurable.",
+    "pricing_table": (
+        "2-4 plan rows as [{\"플랜\":\"tool + plan name\",\"가격\":\"price\",\"핵심 기능\":\"key features\",\"한계\":\"limits\"}], "
+        "all values in English. Use well-known public prices (e.g. 'ChatGPT Plus $20/month'); write "
+        "'check the official pricing page' ONLY for genuinely uncertain rows. Put free-tier limits in the limits column."
+    ),
+    "paa": (
+        "5 related search queries people actually type, as English strings (each 15-45 chars, "
+        "noun phrases like 'ChatGPT meeting notes prompt', no question marks)."
+    ),
+    "citation_summary": (
+        "3-4 complete English sentences an AI answer engine could quote verbatim: first sentence states "
+        "the core answer directly, include concrete numbers/conditions when verified. No marketing tone."
+    ),
+    "target_reader": "2-3 English sentences naming who benefits, by role/situation (e.g. 'a team lead who writes weekly reports').",
+    "confirmed_facts": "3 settled facts for this topic as English strings, one sentence each, topic-specific.",
+    "check_needed": "3 things readers must verify themselves (prices, limits, availability) as English strings.",
+    "checklist": "5-6 pre-adoption checks as English strings: data privacy, fact-checking output, company policy, cost caps.",
+}
+
+
 def _strip_internal_labels(text: str) -> str:
     text = re.sub(r'^\s*요미\s*(?:의)?\s*판단\s*[:：]\s*', '', str(text or ''))
     return text.strip()
@@ -185,11 +271,20 @@ def enrich_slots_with_llm(
         logger.warning("ai_slot_enricher: LLM 서비스 로드 실패(폴백): %s", exc)
         return slots
 
-    focus = _ANGLE_FOCUS.get((angle_type or "").strip()) or _CT_FOCUS.get(
-        content_type, "이 AI 주제의 실용적 핵심"
-    )
-    spec_lines = "\n".join(f'- "{k}": {v}' for k, v in _ENRICH_SPEC.items())
-    title_part = f"제목: {selected_title}\n" if selected_title else ""
+    if is_english_mode():
+        focus = _ANGLE_FOCUS_EN.get((angle_type or "").strip()) or (
+            "the practical core of this AI topic: what changed, the verified numbers, and what the reader should do"
+        )
+    else:
+        focus = _ANGLE_FOCUS.get((angle_type or "").strip()) or _CT_FOCUS.get(
+            content_type, "이 AI 주제의 실용적 핵심"
+        )
+    if is_english_mode():
+        spec_lines = "\n".join(f'- "{k}": {v}' for k, v in _ENRICH_SPEC_EN.items())
+        title_part = f"Title: {selected_title}\n" if selected_title else ""
+    else:
+        spec_lines = "\n".join(f'- "{k}": {v}' for k, v in _ENRICH_SPEC.items())
+        title_part = f"제목: {selected_title}\n" if selected_title else ""
 
     # 실시간 검색 팩트 주입 — 모델 지식만으로 쓰면 수치·요금이 환각된다.
     # Custom Search/Gemini 그라운딩 결과를 근거로 제공하고, 근거에 없는 수치는
@@ -217,27 +312,51 @@ def enrich_slots_with_llm(
             else:
                 facts = str(llm_service.gather_facts(topic) or "").strip()
             if facts:
-                facts_part = (
-                    "\n[웹 검색으로 수집한 최신 근거 — 오늘 날짜 기준]\n"
-                    f"{facts[:2500]}\n"
-                    "위 근거에 있는 수치·날짜·요금은 그대로 인용하고, "
-                    "근거에 없는 수치는 단정하지 말 것.\n"
-                )
+                if is_english_mode():
+                    facts_part = (
+                        "\n[LIVE SEARCH EVIDENCE — collected today]\n"
+                        f"{facts[:2500]}\n"
+                        "Quote numbers/dates/prices from this evidence verbatim; "
+                        "never assert figures that are not in it.\n"
+                    )
+                else:
+                    facts_part = (
+                        "\n[웹 검색으로 수집한 최신 근거 — 오늘 날짜 기준]\n"
+                        f"{facts[:2500]}\n"
+                        "위 근거에 있는 수치·날짜·요금은 그대로 인용하고, "
+                        "근거에 없는 수치는 단정하지 말 것.\n"
+                    )
                 logger.info("ai_slot_enricher: 검색 팩트 주입 (%d자, 인용 URL %d건)", len(facts), len(source_citations))
         except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
             logger.warning("ai_slot_enricher: 팩트 수집 실패(근거 없이 진행): %s", exc)
 
-    user_prompt = (
-        f"주제: {topic}\n{title_part}글 성격: {focus}\n"
-        f"{facts_part}\n"
-        f"아래 키를 가진 JSON 하나만 출력하세요. 각 값은 한국어로, 주제에 특화된 구체적 내용으로 채웁니다.\n"
-        f"{spec_lines}\n\n"
-        "주의: 표·가격·체크리스트는 반드시 지정된 JSON 키(quick_decision_table/pricing_table/checklist)에만 담고, "
-        "텍스트 슬롯 안에는 넣지 마세요. "
-        "사실이 불확실하면 일반적 원리로 쓰되 '직접 확인 필요'를 덧붙이세요. "
-        "독자가 이 글을 저장하고 다시 찾아올 이유(복사해 쓰는 자산, 비교 기준, 비용 전략)를 "
-        "각 슬롯에 최소 하나씩 담으세요."
-    )
+    if is_english_mode():
+        user_prompt = (
+            f"Topic: {topic}\n{title_part}Article focus: {focus}\n"
+            f"{facts_part}\n"
+            "Output exactly one JSON object with the keys below. Keep every key name EXACTLY as "
+            "written (including Korean-named keys like \"착각\"/\"실제\") and write every VALUE in "
+            "natural, specific ENGLISH.\n"
+            f"{spec_lines}\n\n"
+            "Rules: tables/pricing/checklists go ONLY in their designated JSON keys "
+            "(quick_decision_table/pricing_table/checklist), never inside text slots. "
+            "If a fact is uncertain, state the general principle and add 'verify on the official page'. "
+            "The title must follow [keyword] + [specific number or angle] + [2026] where natural, "
+            "in English, under 70 characters. "
+            "Give the reader at least one savable asset (a reusable comparison rule, cost math, or checklist) per slot group."
+        )
+    else:
+        user_prompt = (
+            f"주제: {topic}\n{title_part}글 성격: {focus}\n"
+            f"{facts_part}\n"
+            f"아래 키를 가진 JSON 하나만 출력하세요. 각 값은 한국어로, 주제에 특화된 구체적 내용으로 채웁니다.\n"
+            f"{spec_lines}\n\n"
+            "주의: 표·가격·체크리스트는 반드시 지정된 JSON 키(quick_decision_table/pricing_table/checklist)에만 담고, "
+            "텍스트 슬롯 안에는 넣지 마세요. "
+            "사실이 불확실하면 일반적 원리로 쓰되 '직접 확인 필요'를 덧붙이세요. "
+            "독자가 이 글을 저장하고 다시 찾아올 이유(복사해 쓰는 자산, 비교 기준, 비용 전략)를 "
+            "각 슬롯에 최소 하나씩 담으세요."
+        )
 
     def _validator(text: str) -> None:
         data = _parse_json(text)
@@ -254,7 +373,10 @@ def enrich_slots_with_llm(
 
     try:
         result = llm_service.call_with_fallback(
-            user_prompt, system_prompt=_SYSTEM_PROMPT, min_chars=300, validator=_validator,
+            user_prompt,
+            system_prompt=_SYSTEM_PROMPT_EN if is_english_mode() else _SYSTEM_PROMPT,
+            min_chars=300,
+            validator=_validator,
         )
     except Exception as exc:
         logger.warning("ai_slot_enricher: LLM 호출 예외(폴백): %s", exc)
@@ -330,9 +452,10 @@ def enrich_slots_with_llm(
     paa = data.get("paa")
     if isinstance(paa, list):
         keywords = []
+        _paa_max_len = 45 if is_english_mode() else 30  # 영어 검색어는 더 길다
         for item in paa:
             text = re.sub(r"\s+", " ", str(item or "")).strip().strip('"')
-            if 6 <= len(text) <= 30 and not re.search(r"(인가요|하나요|할까요|입니까)\s*\??$", text):
+            if 6 <= len(text) <= _paa_max_len and not re.search(r"(인가요|하나요|할까요|입니까)\s*\??$", text):
                 keywords.append(text)
         if len(keywords) >= 3:
             enriched["_llm_paa"] = keywords[:5]
@@ -345,7 +468,8 @@ def enrich_slots_with_llm(
     llm_title = data.get("title")
     if isinstance(llm_title, str):
         t = re.sub(r"\s+", " ", llm_title).strip().strip('"').strip()
-        if 6 <= len(t) <= 60 and not re.search(r"\d+\s*가지\s*$", t):
+        _max_title_len = 75 if is_english_mode() else 60  # 영어 제목은 더 길다
+        if 6 <= len(t) <= _max_title_len and not re.search(r"\d+\s*가지\s*$", t):
             from blogspot_automation.services.title_integrity_policy import audit_title_integrity
             integrity = audit_title_integrity(t, content_type=content_type)
             if integrity.get("passed"):

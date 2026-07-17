@@ -6,6 +6,7 @@ import re
 from html import escape, unescape
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.geo_intent_service import GeoIntentService
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.news_taxonomy import content_type_for_topic_group
@@ -23,9 +24,23 @@ _LABEL_VARIANTS: dict[str, tuple[str, ...]] = {
     "trust": ("어디서 확인했나", "참고한 보도", "근거"),
 }
 
+# 영어 모드 변주 풀 — 선택 메커니즘(seed 결정적)은 한국어와 동일.
+# 주의: 변형은 전부 '비질문형' 표현만 쓴다 — What/Why/How/Which 시작이나 '?'가
+# 들어가면 final_html_audit의 질문 헤딩 예산(≤5)을 GEO 블록이 잡아먹어
+# visible_question_headings_above_5로 발행이 차단된다 (2026-07-17 드라이런 #4 실측).
+_LABEL_VARIANTS_EN: dict[str, tuple[str, ...]] = {
+    "overview": ("The short answer", "TL;DR", "Bottom line first"),
+    "context": ("The context behind it", "The backstory in brief", "Behind this change"),
+    "context_ai": ("The change, in context", "Behind this update", "The backstory in brief"),
+    "intent": ("Reader questions, answered", "Common questions, answered", "Quick answers for searchers"),
+    "confirmed": ("Confirmed vs. still unclear", "The confirmed facts so far"),
+    "trust": ("Sources & where to verify", "Where this comes from", "Sources"),
+}
+
 
 def _varied_label(kind: str, seed: str) -> str:
-    variants = _LABEL_VARIANTS.get(kind, ())
+    pool = _LABEL_VARIANTS_EN if is_english_mode() else _LABEL_VARIANTS
+    variants = pool.get(kind, ())
     if not variants:
         return ""
     digest = hashlib.md5((seed or kind).encode("utf-8")).hexdigest()
@@ -64,7 +79,8 @@ def ensure_answer_engine_optimized_html(
     content = _collapse_visible_question_overstack(content)
     resolved_type = (content_type or content_type_for_topic_group(topic_group)).strip() or "general_life"
     today = today or kst_today("%Y-%m-%d")
-    topic_text = " ".join((topic or title or "오늘 이슈").split()).strip()
+    _default_topic = "today's story" if is_english_mode() else "오늘 이슈"
+    topic_text = " ".join((topic or title or _default_topic).split()).strip()
     slots = _build_slots_from_html(content, title=title, topic=topic_text)
     has_author_answer_sections = _has_author_answer_sections(content)
 
@@ -104,16 +120,28 @@ def ensure_answer_engine_optimized_html(
     _body_norm_for_dup = _dupcheck_norm(_plain_text(content))
     overview = _drop_sentences_already_in_body(overview, _body_norm_for_dup)
     if len(overview) < 35:
-        overview = (
-            f"{overview} {topic_text}에서 확인된 내용과 직접 확인할 것을 "
-            "본문에서 구분해 정리했습니다."
-        ).strip()
+        if is_english_mode():
+            overview = (
+                f"{overview} The article separates what's confirmed "
+                "from what you should verify yourself."
+            ).strip()
+        else:
+            overview = (
+                f"{overview} {topic_text}에서 확인된 내용과 직접 확인할 것을 "
+                "본문에서 구분해 정리했습니다."
+            ).strip()
     issue_context = _drop_sentences_already_in_body(issue_context, _body_norm_for_dup)
     if len(issue_context) < 20:
-        issue_context = (
-            f"{issue_context} {topic_text}의 배경과 영향 범위는 본문에서 "
-            "확인된 사실 기준으로 정리했습니다."
-        ).strip()
+        if is_english_mode():
+            issue_context = (
+                f"{issue_context} The background and real-world impact "
+                "are covered below, based on confirmed facts."
+            ).strip()
+        else:
+            issue_context = (
+                f"{issue_context} {topic_text}의 배경과 영향 범위는 본문에서 "
+                "확인된 사실 기준으로 정리했습니다."
+            ).strip()
     confirmed_map = service.generate_confirmed_vs_check_needed(
         content_type=resolved_type,
         topic_group=topic_group,
@@ -185,6 +213,31 @@ def ensure_answer_engine_optimized_html(
                 ]
                 _distinct.extend(_fallback_intent_answers(_extra_questions, topic_text)[: 3 - len(_distinct)])
             _intent_items = _distinct
+        if is_english_mode() and len(_intent_items) < 3:
+            # 영어 모드(2026-07-17): 본문 FAQ와 겹침 제거·LLM FAQ 부족 등 어느 경로로든
+            # intent 블록이 3개 미만이면 intent_qa_count_below_3로 발행이 막힌다
+            # (드라이런 실측). 본문 FAQ와 겹치지 않는 범용 영어 Q&A로 3개를 보장한다.
+            _dedup_keys = {
+                _normalize_question_key(str(p.get("Q") or ""))
+                for p in (slots.get("faq") or [])
+                if isinstance(p, dict)
+            }
+            _en_generic_pool = [
+                {"Q": "Is it worth paying for right now?", "A": "Try the free tier on one real task first; upgrade only if the limits actually slow you down."},
+                {"Q": "How does this affect existing users?", "A": "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."},
+                {"Q": "Where can you verify the current details?", "A": "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."},
+                {"Q": "What should you check before relying on it?", "A": "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."},
+            ]
+            _intent_items = list(_intent_items)
+            for qa in _en_generic_pool:
+                if len(_intent_items) >= 3:
+                    break
+                _qk = _normalize_question_key(qa["Q"])
+                if _qk in _dedup_keys:
+                    continue
+                if any(_qk == _normalize_question_key(str(d.get("Q") or "")) for d in _intent_items):
+                    continue
+                _intent_items.append(qa)
         head_blocks.append(_intent_answer_block(_intent_items, label=_varied_label("intent", _seed)))
     # PEOPLE_ALSO_ASK_BLOCK("이어서 찾아보면 좋은 것")는 더 이상 삽입하지 않는다
     # (2026-07-09 사용자 결정) — 답 없는 검색어 나열이라 읽는 값이 없고, 순수 SEO용
@@ -268,7 +321,68 @@ def ensure_answer_engine_optimized_html(
         r'(class=["\'][^"\']*?)\bfaq-card\b', r"\1faq-item", content, flags=re.IGNORECASE
     )
 
+    if is_english_mode():
+        # 최종 보수(2026-07-17): clean-layout 재렌더·overstack 축소 등 어느 단계가
+        # intent 항목을 떨어뜨려도, 마지막에 3개를 다시 보장한다 —
+        # intent_qa_count_below_3가 EN 발행을 반복 차단한 실측 대응.
+        content = _ensure_min_intent_items_en(content)
+
     return content
+
+
+_EN_INTENT_REPAIR_POOL: tuple[tuple[str, str], ...] = (
+    ("Is it worth paying for right now?",
+     "Try the free tier on one real task first; upgrade only if the limits actually slow you down."),
+    ("How does this affect existing users?",
+     "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."),
+    ("Where can you verify the current details?",
+     "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."),
+    ("What should you check before relying on it?",
+     "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."),
+)
+
+
+def _ensure_min_intent_items_en(content: str) -> str:
+    """INTENT_ANSWER_BLOCK의 intent-qa-item이 3개 미만이면 범용 Q&A로 채운다."""
+    count = len(re.findall(r'class=["\'][^"\']*intent-qa-item', content))
+    if count >= 3:
+        return content
+    block_match = re.search(
+        r'(<section[^>]*id="INTENT_ANSWER_BLOCK"[^>]*>)(.*?)(</section>)',
+        content,
+        flags=re.DOTALL,
+    )
+    existing_qs = {
+        _normalize_question_key(q)
+        for q in re.findall(r"Q\.\s*([^<]+)", block_match.group(2))
+    } if block_match else set()
+    additions: list[str] = []
+    for q, a in _EN_INTENT_REPAIR_POOL:
+        if count + len(additions) >= 3:
+            break
+        if _normalize_question_key(q) in existing_qs:
+            continue
+        additions.append(
+            '<div class="intent-qa-item">'
+            f'<p class="intent-q"><strong>Q. {escape(q)}</strong></p>'
+            f"<p>A. {escape(a)}</p>"
+            "</div>"
+        )
+    if not additions:
+        return content
+    if block_match:
+        return (
+            content[: block_match.end(2)]
+            + "".join(additions)
+            + content[block_match.end(2):]
+        )
+    block = (
+        '<section id="INTENT_ANSWER_BLOCK" class="yomi-faq">'
+        "<h2>Reader questions, answered</h2>"
+        + "".join(additions)
+        + "</section>"
+    )
+    return _insert_before_internal_links_or_body_end(content, block)
 
 
 def answer_engine_coverage(html: str) -> dict[str, object]:
@@ -304,6 +418,20 @@ def _build_slots_from_html(html: str, *, title: str, topic: str) -> dict[str, An
         if sentence != first_sentence and len(sentence) >= 20:
             second_sentence = sentence
             break
+    if is_english_mode():
+        # 영어 모드: 긴 헤드라인(topic)을 문장에 그대로 삽입하면 같은 문자열이
+        # 여러 블록에 반복돼 raw_topic_repeated_in_html로 발행이 막힌다
+        # (드라이런 #8 실측: 7회). 주제어 없는 중립 문장으로 만든다.
+        hook = first_sentence or "Here's what to check first before you act on this story."
+        return {
+            "hook_opening": hook,
+            "real_criterion": second_sentence or _first_sentence(plain, max_len=160) or hook,
+            "yomi_judgment": (
+                "The key here is separating the actual impact "
+                "from the noise, and knowing what to verify yourself."
+            ),
+            "faq": faq,
+        }
     hook = first_sentence or f"{topic}에 대해 독자가 먼저 확인해야 할 핵심을 정리했습니다."
     # yomi_judgment: 제목이 아니라 topic을 쓴다 — 제목은 쉼표·후킹 구두점이
     # 섞여 문장 중간에 넣으면 비문이 된다(라이브 실측: "핵심은 구글 AI 검색
@@ -323,6 +451,9 @@ def _build_slots_from_html(html: str, *, title: str, topic: str) -> dict[str, An
 
 def _object_particle(word: str) -> str:
     """목적격 조사(을/를) — 마지막 글자의 받침 여부로 고른다."""
+    if is_english_mode():
+        # 영어 모드: 조사 부착 자체를 생략한다 (단어 그대로 사용).
+        return ""
     cleaned = (word or "").strip()
     if not cleaned:
         return "을"
@@ -352,6 +483,16 @@ def _drop_sentences_already_in_body(text: str, body_norm: str, *, min_sentence_l
     if not text or not body_norm:
         return text or ""
     kept: list[str] = []
+    if is_english_mode():
+        # 영어 문장 경계: 종결부호 뒤 공백에서만 자른다.
+        for raw in re.split(r"(?<=[.!?])\s+", " ".join(text.split())):
+            sentence = raw.strip()
+            if not sentence:
+                continue
+            if len(sentence) >= min_sentence_len and _dupcheck_norm(sentence) in body_norm:
+                continue
+            kept.append(sentence)
+        return " ".join(kept).strip()
     pattern = re.compile(r".+?(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)|.+$")
     for match in pattern.finditer(" ".join(text.split())):
         sentence = match.group(0).strip()
@@ -382,14 +523,25 @@ def _merge_questions(
         if len(merged) >= 8:
             break
     if len(merged) < 5:
-        seed = topic or title or "이 이슈"
-        for q in (
-            f"{seed}에서 지금 가장 먼저 확인할 것은 무엇인가요?",
-            "나에게 직접 영향이 있는지 어떻게 확인하나요?",
-            "공식 정보는 어디에서 확인해야 하나요?",
-            "주의해야 할 오해는 무엇인가요?",
-            "오늘 바로 할 일은 무엇인가요?",
-        ):
+        if is_english_mode():
+            seed = topic or title or "this topic"
+            fallback_questions = (
+                f"What should you check first about {seed}?",
+                "Does this actually affect you, and how can you tell?",
+                "Where can you verify the official details?",
+                "What's the most common misconception?",
+                "What should you do today?",
+            )
+        else:
+            seed = topic or title or "이 이슈"
+            fallback_questions = (
+                f"{seed}에서 지금 가장 먼저 확인할 것은 무엇인가요?",
+                "나에게 직접 영향이 있는지 어떻게 확인하나요?",
+                "공식 정보는 어디에서 확인해야 하나요?",
+                "주의해야 할 오해는 무엇인가요?",
+                "오늘 바로 할 일은 무엇인가요?",
+            )
+        for q in fallback_questions:
             if q not in merged:
                 merged.append(q)
             if len(merged) >= 5:
@@ -398,14 +550,16 @@ def _merge_questions(
 
 
 def _fallback_intent_answers(questions: list[str], topic: str) -> list[dict[str, str]]:
+    if is_english_mode():
+        answer = (
+            "Availability, pricing, and rollout can vary by account and region — "
+            "check the official page for the latest details."
+        )
+    else:
+        answer = f"{topic}은 공식 안내, 적용 대상, 실제 영향 순서로 확인하는 것이 안전합니다."
     answers: list[dict[str, str]] = []
     for question in questions[:5]:
-        answers.append(
-            {
-                "Q": question,
-                "A": f"{topic}은 공식 안내, 적용 대상, 실제 영향 순서로 확인하는 것이 안전합니다.",
-            }
-        )
+        answers.append({"Q": question, "A": answer})
     return answers
 
 
@@ -432,7 +586,7 @@ def _source_trust_block(
     """
     from blogspot_automation.services.official_sources import render_official_sources_html
 
-    heading = label or "어디서 확인했나"
+    heading = label or ("Sources & where to verify" if is_english_mode() else "어디서 확인했나")
     safe_citations = [
         {"name": str(c.get("name", "")).strip(), "url": str(c.get("url", "")).strip()}
         for c in (citations or [])
@@ -462,12 +616,20 @@ def _citation_summary_block(
     if body_norm:
         sentences = [s for s in sentences if _dupcheck_norm(s) not in body_norm]
     if len(sentences) < 3:
-        fallback_topic = topic or title or "이 주제"
-        sentences.extend([
-            f"{fallback_topic}은 적용 대상과 실제 영향 범위를 나누어 확인해야 합니다.",
-            "공식 안내, 서비스 화면, 최신 변경 여부를 함께 보는 것이 안전합니다.",
-            "본문은 독자가 바로 비교할 수 있도록 핵심 조건과 주의점을 먼저 정리합니다.",
-        ])
+        if is_english_mode():
+            # 헤드라인(topic) 삽입 금지 — raw_topic_repeated_in_html 반복 카운트 방지
+            sentences.extend([
+                "It pays to separate who this applies to from what actually changes.",
+                "Check the official announcement, the product screen, and the latest updates side by side.",
+                "The article lays out the key conditions and caveats first, so you can compare quickly.",
+            ])
+        else:
+            fallback_topic = topic or title or "이 주제"
+            sentences.extend([
+                f"{fallback_topic}은 적용 대상과 실제 영향 범위를 나누어 확인해야 합니다.",
+                "공식 안내, 서비스 화면, 최신 변경 여부를 함께 보는 것이 안전합니다.",
+                "본문은 독자가 바로 비교할 수 있도록 핵심 조건과 주의점을 먼저 정리합니다.",
+            ])
     text = " ".join(dict.fromkeys(sentences[:4]))
     return (
         '<section id="AI_CITATION_SUMMARY" class="yomi-citation-summary">'
@@ -477,15 +639,27 @@ def _citation_summary_block(
 
 
 def _intent_answer_block(items: list[dict[str, str]], *, label: str = "") -> str:
-    body = "".join(
-        '<div class="intent-qa-item">'
-        f'<h3>Q. {escape(str(item.get("Q") or ""))}</h3>'
-        f'<p>A. {escape(str(item.get("A") or ""))}</p>'
-        "</div>"
-        for item in items[:3]
-        if item.get("Q") and item.get("A")
-    )
-    heading = label or "많이들 궁금해하는 것"
+    if is_english_mode():
+        # 영어: 질문을 h3로 내면 intent 3개가 곧장 질문 헤딩 예산(≤5)을 잡아먹어
+        # visible_question_headings_above_5로 발행이 막힌다 — 단락 강조로 렌더.
+        body = "".join(
+            '<div class="intent-qa-item">'
+            f'<p class="intent-q"><strong>Q. {escape(str(item.get("Q") or ""))}</strong></p>'
+            f'<p>A. {escape(str(item.get("A") or ""))}</p>'
+            "</div>"
+            for item in items[:3]
+            if item.get("Q") and item.get("A")
+        )
+    else:
+        body = "".join(
+            '<div class="intent-qa-item">'
+            f'<h3>Q. {escape(str(item.get("Q") or ""))}</h3>'
+            f'<p>A. {escape(str(item.get("A") or ""))}</p>'
+            "</div>"
+            for item in items[:3]
+            if item.get("Q") and item.get("A")
+        )
+    heading = label or ("Reader questions, answered" if is_english_mode() else "많이들 궁금해하는 것")
     return (
         '<section id="INTENT_ANSWER_BLOCK" class="yomi-faq">'
         f"<h2>{escape(heading)}</h2>"
@@ -508,7 +682,7 @@ def _people_also_ask_block(questions: list[str], *, label: str = "") -> str:
         if len(phrases) >= 5:
             break
     items = "".join(f'<li class="paa-item">{escape(p)}</li>' for p in phrases)
-    heading = label or "이어서 찾아보면 좋은 것"
+    heading = label or ("Related searches" if is_english_mode() else "이어서 찾아보면 좋은 것")
     return (
         '<section id="PEOPLE_ALSO_ASK_BLOCK" class="yomi-paa-compact">'
         f"<h2>{escape(heading)}</h2>"
@@ -520,6 +694,9 @@ def _people_also_ask_block(questions: list[str], *, label: str = "") -> str:
 def _search_phrase_from_question(question: str) -> str:
     text = " ".join((question or "").split()).strip()
     text = re.sub(r"[?？]+$", "", text)
+    if is_english_mode():
+        # 영어 질문은 물음표만 걷어내면 검색어 형태로 충분하다.
+        return text or "related things to check"
     if "무료배송" in text and "결제금액" in text and ("비교" in text or "기준" in text):
         return "무료배송 결제금액 비교 기준"
     if "쿠폰" in text and ("저렴" in text or "최종" in text):
@@ -663,13 +840,20 @@ def _is_near_duplicate_question_key(key: str, seen_keys: set[str]) -> bool:
 def _confirmed_vs_check_needed_block(items: dict[str, list[str]], *, label: str = "") -> str:
     confirmed = "".join(f"<li>{escape(str(item))}</li>" for item in items.get("confirmed", [])[:5])
     check_needed = "".join(f"<li>{escape(str(item))}</li>" for item in items.get("check_needed", [])[:5])
-    heading = label or "지금까지 확인된 것"
+    if is_english_mode():
+        heading = label or "What's confirmed so far"
+        confirmed_h3 = "What's confirmed"
+        check_needed_h3 = "Check for yourself (this changes often)"
+    else:
+        heading = label or "지금까지 확인된 것"
+        confirmed_h3 = "확인된 내용"
+        check_needed_h3 = "직접 확인 필요"
     return (
         '<section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">'
         f"<h2>{escape(heading)}</h2>"
-        '<div class="confirmed-section"><h3>확인된 내용</h3>'
+        f'<div class="confirmed-section"><h3>{escape(confirmed_h3)}</h3>'
         f"<ul>{confirmed}</ul></div>"
-        '<div class="check-needed-section"><h3>직접 확인 필요</h3>'
+        f'<div class="check-needed-section"><h3>{escape(check_needed_h3)}</h3>'
         f"<ul>{check_needed}</ul></div>"
         "</section>"
     )
@@ -684,7 +868,8 @@ def _faq_block(items: list[dict[str, str]]) -> str:
         for item in items[:5]
         if item.get("Q") and item.get("A")
     )
-    return f'<section class="yomi-faq"><h2>자주 묻는 질문</h2>{cards}</section>'
+    heading = "Frequently Asked Questions" if is_english_mode() else "자주 묻는 질문"
+    return f'<section class="yomi-faq"><h2>{heading}</h2>{cards}</section>'
 
 
 def _collapse_visible_question_overstack(html: str) -> str:
@@ -976,6 +1161,11 @@ _SITE_URL = "https://holyyomiai.blogspot.com/"
 
 
 def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any]:
+    author_description = (
+        "Editor covering AI tools, pricing, and automation with a practical, numbers-first approach."
+        if is_english_mode()
+        else "AI 도구, 자동화, 검색 경험 변화를 실무 적용 관점으로 정리하는 에디터"
+    )
     return {
         "@context": "https://schema.org",
         "@type": "BlogPosting",
@@ -987,7 +1177,7 @@ def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any
             "@type": "Person",
             "name": "holyyomi AI",
             "url": _ABOUT_PAGE_URL,
-            "description": "AI 도구, 자동화, 검색 경험 변화를 실무 적용 관점으로 정리하는 에디터",
+            "description": author_description,
         },
         "publisher": {
             "@type": "Organization",
@@ -1186,11 +1376,22 @@ def _sentences(text: str, *, max_items: int = 4) -> list[str]:
     cleaned = " ".join((text or "").split())
     if not cleaned:
         return []
+    sentences: list[str] = []
+    if is_english_mode():
+        # 영어 문장 경계: 종결부호 뒤 공백에서만 분리 (소수점 "3.5"는 공백이 없어 안전).
+        for raw in re.split(r"(?<=[.!?])\s+", cleaned):
+            sentence = raw.strip()
+            if len(sentence) >= 20 and sentence not in sentences:
+                sentences.append(sentence)
+            if len(sentences) >= max_items:
+                break
+        if not sentences and cleaned:
+            sentences.append(cleaned[:180].rstrip(" ,."))
+        return sentences[:max_items]
     # 숫자 사이의 "."(예: "제미나이 3.5")를 문장 끝으로 오인하면 "...3."/"5 소식에서..."
     # 처럼 단어 중간에서 잘려 다음 문장과 이어붙는 글리치가 난다(2026-07-09 라이브
     # 리허설 실측) — 소수점은 문장 구분자에서 제외.
     pattern = re.compile(r".+?(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)")
-    sentences: list[str] = []
     for match in pattern.finditer(cleaned):
         sentence = match.group(0).strip()
         if len(sentence) >= 20 and sentence not in sentences:
@@ -1206,6 +1407,12 @@ def _first_sentence(text: str, *, max_len: int) -> str:
     text = " ".join((text or "").split())
     if not text:
         return ""
+    if is_english_mode():
+        for match in re.finditer(r"[.!?](?=\s|$)", text):
+            end = match.end()
+            if 20 <= end <= max_len:
+                return text[:end]
+        return text[:max_len].rstrip(" ,.")
     for match in re.finditer(r"(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)", text):
         end = match.end()
         if 20 <= end <= max_len:

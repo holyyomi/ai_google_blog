@@ -12,6 +12,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Windows 로컬 콘솔(cp949)에서 영어 본문의 em-dash 등 비-cp949 문자가
+# 마지막 결과 print에서 UnicodeEncodeError로 죽는 것 방지 (GHA는 UTF-8이라 no-op).
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 — 콘솔 인코딩 보정 실패는 비치명
+            pass
+
 
 def main() -> None:
     """Compatibility entrypoint.
@@ -30,6 +39,10 @@ def main() -> None:
 
     os.environ.setdefault("NEWS_MODE", "news")
     os.environ.setdefault("AI_BLOG_MODE", "true")
+    # 2026-07-17 영어 전환: holyyomiai 블로그는 영어권(미국·영국·캐나다·인도) 대상
+    # 영어 AI 블로그다. ai_blog.yml 스케줄이 이 엔트리포인트를 쓰므로 여기 기본값이
+    # 곧 운영값이다 (BLOG_LANGUAGE=ko를 명시하면 옛 한국어 동작으로 복귀).
+    os.environ.setdefault("BLOG_LANGUAGE", "en")
     os.environ.setdefault("ALLOW_AI_NEWS_TOPICS", "true")
     os.environ.setdefault("ENABLE_NAVER_SEARCH", "false")
     os.environ.setdefault("ENABLE_NAVER_DATALAB", "false")

@@ -308,14 +308,27 @@ _QUESTION_HEADING_END = re.compile(
     r"(나요|까요|가요|은가요|는가요|인가요|을까요|일까요|할까요|될까요|하나요|되나요|합니까|입니까|습니까)\??$"
 )
 
+# 영어 전환(2026-07-17): 영어 의문문 헤딩 감지. 물음표로 끝나거나 의문사/조동사로
+# 시작하면 질문으로 본다 (additive 감지 — 한국어 판정 로직은 그대로 유지).
+_QUESTION_HEADING_START_EN = re.compile(
+    r"^(?:how|what|why|when|where|which|who|is|are|can|does|do|should)\b",
+    flags=re.IGNORECASE,
+)
+
 
 def _heading_text_is_question(text: str) -> bool:
     """헤딩이 실제 질문인지 판정. 'directly 필요/중요/내용'처럼 '요'로 끝나는
-    서술형을 질문으로 오탐하지 않도록 의문 종결어미·의문사·물음표만 인정한다."""
+    서술형을 질문으로 오탐하지 않도록 의문 종결어미·의문사·물음표만 인정한다.
+    영어 헤딩은 '?'로 끝나거나 의문사/조동사로 시작하면 질문으로 인정한다."""
     t = " ".join((text or "").split())
     if not t:
         return False
     if "?" in t or "무엇" in t or "왜" in t:
+        return True
+    # 영어: '?'로 끝나는 것만 질문으로 센다. 의문사 시작만으로 세면
+    # "What the share numbers actually measure" 같은 명사구 헤딩이 전부
+    # 오탐돼 질문 예산(≤5)을 채운다 (2026-07-17 드라이런 #8 실측).
+    if t.endswith("?"):
         return True
     return bool(_QUESTION_HEADING_END.search(t))
 

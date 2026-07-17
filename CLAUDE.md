@@ -4,6 +4,14 @@
 Blogspot 오늘의 이슈 자동화 파이프라인.
 뉴스/에버그린/AI 주제를 골든 패턴으로 매칭해 article_candidate.html을 생성하고 검토 후 발행한다.
 
+## 출력 언어 — 영어 전환 (2026-07-17)
+holyyomiai.blogspot.com은 영어권(미국·영국·캐나다·인도) 대상 **영어 AI 블로그**다.
+- 스위치: `BLOG_LANGUAGE` env (`services/blog_language.py`). 기본값 `ko`(기존 테스트·네이버 플로우 보존)이지만 **cli_ai.py가 `en`을 setdefault**하므로 ai_blog.yml 스케줄 경로는 영어 모드로 돈다.
+- 영어 모드에서 바뀌는 것: 주제 쿼리(EN_QUERY_GROUPS + en-US RSS), 에버그린 뱅크(`_ai_automation_topics_en`), 본문 프롬프트(`_SYSTEM_PROMPT_EN`), 리서치(Exa+RSS en, Naver 스킵), GEO 블록·meta description·JSON-LD 영어, 제목 빌더(`_build_english_titles`), 라벨 6종(Comparisons/Pricing/How-To/Fixes/Data & Stats/News).
+- **영어 모드 강화 게이트**: LLM 영어 서술 본문이 자체 게이트를 통과하지 못하면 한국어 템플릿 폴백 발행을 차단한다(`en_mode_template_fallback_blocked`) — 템플릿 candidate는 게이트 판정용으로만 쓰인다.
+- 게이트 영어 텀뱅크는 전부 additive — 한국어 검사·차단 조건은 그대로다. 회귀는 `tests/test_english_mode.py`가 지킨다.
+- 콘텐츠 전략(주제군 6종·글 구조·안전 규칙)은 루트의 사용자 지침 문서를 따른다.
+
 ---
 
 ## 운영 브랜치

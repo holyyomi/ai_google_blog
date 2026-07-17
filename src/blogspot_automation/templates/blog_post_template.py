@@ -5,6 +5,7 @@ from html import escape
 import json
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.seo_policy import normalize_hashtags, normalize_labels, prepare_blogspot_html
 
@@ -171,7 +172,7 @@ def render_full_post(
         "description": meta_description or title,
         "datePublished": kst_today("%Y-%m-%d"),
         "dateModified": kst_today("%Y-%m-%d"),
-        "author": {"@type": "Person", "name": "요미"},
+        "author": {"@type": "Person", "name": "holyyomi AI" if is_english_mode() else "요미"},
         "mainEntityOfPage": {"@type": "WebPage"},
         "keywords": ", ".join(normalized_labels),
     }
@@ -211,3 +212,22 @@ _TYPE_LABEL: dict[str, str] = {
     "general_life": "생활 정보",
     "digital_survival": "디지털 생존",
 }
+
+# 영어 모드 라벨 트윈 — 한국어 맵은 그대로 유지, 조회는 type_label()로.
+_TYPE_LABEL_EN: dict[str, str] = {
+    "platform_change": "Platform Change",
+    "money_checklist": "Money Checklist",
+    "tax_refund": "Tax & Refunds",
+    "policy_benefit": "Policy & Benefits",
+    "viral_issue_decode": "Issue Decode",
+    "ai_work_tip": "AI at Work",
+    "consumer_warning": "Consumer Alert",
+    "general_life": "Everyday Life",
+    "digital_survival": "Digital Survival",
+}
+
+
+def type_label(content_type: str) -> str:
+    """content_type의 표시용 라벨 — 영어 모드에서는 영어 트윈을 반환."""
+    table = _TYPE_LABEL_EN if is_english_mode() else _TYPE_LABEL
+    return table.get(content_type, content_type)

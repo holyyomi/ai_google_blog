@@ -6,6 +6,7 @@ from html import escape, unescape
 import os
 from urllib.parse import unquote, urlsplit
 
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.publish_history_service import PublishHistoryService
 from blogspot_automation.services.title_integrity_policy import audit_title_integrity
 
@@ -22,6 +23,13 @@ DEFAULT_INTERNAL_LINKS: tuple[tuple[str, str], ...] = (
     ("AI 업무 자동화 최신 글 보기", BLOGSPOT_HOME_URL),
     ("AI 도구 비교 글 모아보기", f"{BLOGSPOT_HOME_URL.rstrip('/')}/search/label/AI%EB%8F%84%EA%B5%AC"),
     ("프롬프트 실전 글 모아보기", f"{BLOGSPOT_HOME_URL.rstrip('/')}/search/label/%ED%94%84%EB%A1%AC%ED%94%84%ED%8A%B8"),
+)
+# 영어 모드 기본값 — 한국어 상수는 그대로 두고 사용 지점에서만 선택한다.
+DEFAULT_BLOGSPOT_LABELS_EN = ("How-To", "Comparisons", "Pricing")
+DEFAULT_INTERNAL_LINKS_EN: tuple[tuple[str, str], ...] = (
+    ("Latest AI guides and updates", BLOGSPOT_HOME_URL),
+    ("AI tool comparisons", f"{BLOGSPOT_HOME_URL.rstrip('/')}/search/label/Comparisons"),
+    ("Pricing breakdowns", f"{BLOGSPOT_HOME_URL.rstrip('/')}/search/label/Pricing"),
 )
 YOMI_CLEAN_ARTICLE_STYLE = """<style>
 /* ── 디자인 시스템: 잉크/그레이 중립 + 글당 악센트 1색(--a1) + 경고 1색만 사용 ──
@@ -243,6 +251,10 @@ _UNVERIFIED_EXPERIENCE_PATTERNS = (
     r"(?:월|하루|일)\s*\d[\d,]*(?:만\s*)?원\s*(?:수익|매출|벌)",
     r"\d[\d,]*\s*원(?:의)?\s*(?:수익|매출|입금)",
     r"월\s*\d[\d,]*(?:만\s*)?원\s*(?:이상|이하)?\s*(?:수익|매출|입금|벌)",
+    # 영어 무검증 수익/경험 클레임 (2026-07-17 영어 전환) — 전 모드 공통 적용
+    r"\bI\s+(?:made|earned)\s+\$\s?\d[\d,]*",
+    r"\bguaranteed\s+(?:income|profit|earnings)\b",
+    r"\$\s?\d[\d,]*\s+(?:per|a)\s+(?:month|day|week)\s+(?:from|with)\b",
 )
 
 _SLUG_KEYWORD_MAP = (
@@ -331,6 +343,9 @@ _SLUG_GENERIC_TOKENS = {
 
 
 def normalize_labels(labels: list[str] | tuple[str, ...] | None, *, fallback: tuple[str, ...] = DEFAULT_BLOGSPOT_LABELS) -> list[str]:
+    # 호출부가 fallback을 명시하지 않은 경우에만 영어 모드 기본값으로 교체
+    if fallback is DEFAULT_BLOGSPOT_LABELS and is_english_mode():
+        fallback = DEFAULT_BLOGSPOT_LABELS_EN
     cleaned: list[str] = []
     source_labels = list(labels or []) or list(fallback)
     for label in source_labels:
@@ -523,8 +538,9 @@ def append_hashtags_block(
     if not content or not tags:
         return content
     tag_text = " ".join(escape(tag) for tag in tags)
+    aria_label = "Related hashtags" if is_english_mode() else "관련 해시태그"
     block = (
-        '<section class="yomi-hashtags" data-yomi-block="hashtags" aria-label="관련 해시태그">'
+        f'<section class="yomi-hashtags" data-yomi-block="hashtags" aria-label="{aria_label}">'
         f"<p>{tag_text}</p>"
         "</section>"
     )
@@ -548,6 +564,16 @@ def append_internal_links_block(
     if not html:
         return html
     cleaned = strip_internal_link_sections(html)
+    if is_english_mode():
+        # 영어 전환 초기: 발행 이력의 내부링크는 전부 과거 한국어 글이다. 영어
+        # 독자에게 한국어 앵커를 내밀지 않도록 한글 제목 링크는 거르고, 남는 게
+        # 없으면 라벨 페이지 폴백(Related guides 클러스터 허브)으로 채운다.
+        links = tuple(
+            (title, url)
+            for title, url in tuple(links or ())
+            if not re.search(r"[가-힣]", str(title or ""))
+        )
+        include_fallbacks = include_fallbacks or not links
     selected_links = _fill_internal_links(links, include_fallbacks=include_fallbacks)
     if not selected_links:
         return cleaned
@@ -555,9 +581,10 @@ def append_internal_links_block(
         f'<li><a href="{escape(url)}">{escape(title)}</a></li>'
         for title, url in selected_links[:3]
     )
+    heading = "Related guides" if is_english_mode() else "같이 보면 좋은 내부 글"
     block = (
         '\n<section class="yomi-internal-links" data-yomi-block="internal-links">'
-        "<h2>같이 보면 좋은 내부 글</h2>"
+        f"<h2>{heading}</h2>"
         f"<ul>{items}</ul>"
         "</section>"
     )
@@ -672,7 +699,8 @@ def _fill_internal_links(
     if not include_fallbacks:
         return tuple(selected)
 
-    for title, url in DEFAULT_INTERNAL_LINKS:
+    fallback_links = DEFAULT_INTERNAL_LINKS_EN if is_english_mode() else DEFAULT_INTERNAL_LINKS
+    for title, url in fallback_links:
         if len(selected) >= target_limit:
             break
         if url == current_url or url in used_urls:
@@ -819,9 +847,14 @@ def normalize_search_description(*, title: str, description: str = "", html: str
     raw = unescape(re.sub(r"<[^>]+>", " ", raw))
     raw = " ".join(raw.split())
     if len(raw) < 80:
-        raw = (
-            f"{raw} 핵심 배경과 독자에게 미치는 영향, 확인할 지점을 한 번에 정리했습니다."
-        ).strip()
+        if is_english_mode():
+            raw = (
+                f"{raw} Here's what changed, what it costs, and what to check before you rely on it."
+            ).strip()
+        else:
+            raw = (
+                f"{raw} 핵심 배경과 독자에게 미치는 영향, 확인할 지점을 한 번에 정리했습니다."
+            ).strip()
     if len(raw) > 155:
         raw = raw[:155].rsplit(" ", 1)[0].rstrip(" .,")
     if len(raw) < 50:
@@ -841,7 +874,7 @@ def build_search_description(*, title: str, html: str = "", topic: str = "") -> 
         first = re.split(r"(?:[.!?。]\s+|다\.\s+|요\.\s+)", text)[0]
         seed = " ".join(part for part in [seed, first] if part)
     if not seed:
-        seed = "오늘의 주요 이슈"
+        seed = "Today's top AI story" if is_english_mode() else "오늘의 주요 이슈"
     return normalize_search_description(title=title, description=seed, html="", topic=topic)
 
 
@@ -942,17 +975,26 @@ def _ensure_yomi_article_class(html: str) -> str:
     return f'<article class="yomi-clean-post">\n{html.strip()}\n</article>'
 
 
+def _yomi_clean_style_for_mode() -> str:
+    """영어 모드에서는 CSS 주석(한국어)이 발행 HTML에 새지 않게 주석만 제거한다 (규칙 동일)."""
+    if not is_english_mode():
+        return YOMI_CLEAN_ARTICLE_STYLE
+    stripped = re.sub(r"/\*.*?\*/", "", YOMI_CLEAN_ARTICLE_STYLE, flags=re.DOTALL)
+    return re.sub(r"\n{2,}", "\n", stripped)
+
+
 def _ensure_yomi_clean_style(html: str) -> str:
     if ".yomi-clean-post" in (html or ""):
         return html
+    style = _yomi_clean_style_for_mode()
     if re.search(r"</head>", html or "", flags=re.IGNORECASE):
         # 함수 치환 — STYLE의 CSS 이스케이프(\2713 등)가 그룹 참조로 오해석되지 않도록.
         return re.sub(
             r"</head>",
-            lambda _m: f"{YOMI_CLEAN_ARTICLE_STYLE}\n</head>",
+            lambda _m: f"{style}\n</head>",
             html, count=1, flags=re.IGNORECASE,
         )
-    return f"{YOMI_CLEAN_ARTICLE_STYLE}\n{html}"
+    return f"{style}\n{html}"
 
 
 def _move_known_body_sections_inside_article(html: str) -> str:

@@ -6,6 +6,7 @@ import os
 import re
 from typing import Any
 
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.golden_pattern_service import GoldenPatternService
 from blogspot_automation.services.official_sources import (
     get_official_sources_for_pattern,
@@ -692,8 +693,9 @@ class GoldenArticlePreviewService:
 
         body = "\n".join(sections) if sections else "    <p>슬롯이 채워지지 않았습니다.</p>"
 
+        _html_lang = "en" if is_english_mode() else "ko"
         return f"""<!DOCTYPE html>
-<html lang="ko">
+<html lang="{_html_lang}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -2089,6 +2091,10 @@ def _build_meta_description(
 
     pattern_id별 고정 템플릿을 우선 사용하고, 없으면 슬롯 조합으로 생성한다.
     """
+    if is_english_mode():
+        return _build_meta_description_en(
+            hook=hook, real=real, topic_str=topic_str, selected_title=selected_title
+        )
     keyword = (selected_title or topic_str)[:50]
 
     if pattern_id == "policy_deadline_support":
@@ -2163,9 +2169,35 @@ def _build_meta_description(
     return desc.strip()
 
 
+def _build_meta_description_en(*, hook: str, real: str, topic_str: str, selected_title: str) -> str:
+    """영어 모드 meta description — 80~160자 계약 동일, '. ' 경계에서만 절단."""
+    keyword = " ".join((selected_title or topic_str or "this AI update").split()).strip()[:70]
+    filler = "Key facts, pricing, and what to check before you use it — updated with sources."
+    first = ""
+    for source in (hook, (real or "").split("\n")[0]):
+        text = " ".join((source or "").split())
+        match = re.match(r".+?[.!?](?=\s|$)", text)
+        candidate = (match.group(0) if match else text).strip()
+        if 30 <= len(candidate) <= 110 and candidate.endswith((".", "!", "?")):
+            first = candidate
+            break
+    desc = f"{first} {filler}".strip() if first else f"{keyword}: {filler}"
+    if len(desc) > 160:
+        cut = desc[:157]
+        pos = cut.rfind(". ")
+        if pos > 80:
+            desc = cut[: pos + 1].strip()
+        else:
+            desc = cut.rsplit(" ", 1)[0].rstrip(" ,;—-") + "."
+    if len(desc) < 80:
+        desc = f"{desc} {filler}".strip()[:160]
+    return desc.strip()
+
+
 def _unmatched_html(topic: str) -> str:
+    _html_lang = "en" if is_english_mode() else "ko"
     return (
-        f'<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">'
+        f'<!DOCTYPE html><html lang="{_html_lang}"><head><meta charset="utf-8">'
         f'<title>[PREVIEW — NO MATCH] {escape(topic)}</title></head>'
         f'<body><p>패턴 매칭 실패: <strong>{escape(topic)}</strong> — '
         f'등록된 패턴과 일치하지 않아 preview를 생성할 수 없습니다.</p></body></html>'

@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 
 from blogspot_automation.models.news_models import NewsCandidate
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.external_news_search_service import (
     ExternalNewsSearchService,
     ExternalSearchDocument,
@@ -105,6 +106,50 @@ RSS_SUFFIX_PATTERN = re.compile(
     + r"|[A-Za-z0-9_.-]+\.(?:com|co\.kr|net|kr))\s*$",
     re.IGNORECASE,
 )
+# ─── 영어 모드 쿼리 뱅크 (2026-07-17 영어 전환) ──────────────────────────────
+# 미국·영국·캐나다·인도 영어권 대상. 가격·요금제 변경이 최우선(검색 폭발 대비
+# 정리 글이 늦게 나오는 틈새), 그다음 신모델·기능 출시, 무료화/유료화 전환,
+# 장애/제한(문제해결형 롱테일) 순. 엔티티 기반 — 실제 뉴스 헤드라인에 매칭된다.
+EN_QUERY_GROUPS: dict[str, list[str]] = {
+    "ai_work": [
+        # 가격·요금제 변경 (최우선)
+        "ChatGPT pricing",
+        "OpenAI API pricing",
+        "Claude pricing",
+        "Gemini pricing",
+        "Copilot pricing",
+        "AI subscription price increase",
+        "AI free tier",
+        "GitHub Copilot price",
+        # 신모델·신기능 출시
+        "OpenAI announces",
+        "OpenAI new model",
+        "ChatGPT new feature",
+        "Anthropic Claude update",
+        "Google Gemini update",
+        "Microsoft Copilot update",
+        "Perplexity AI update",
+        "xAI Grok update",
+        "Meta Llama model",
+        "DeepSeek model",
+        "Mistral AI release",
+        "AI agent launch",
+        "AI coding assistant",
+        "Cursor AI editor",
+        "NotebookLM update",
+        "Midjourney update",
+        "ElevenLabs AI voice",
+        "Runway AI video",
+        # 장애·제한·정책 (문제해결형 소재)
+        "ChatGPT outage",
+        "ChatGPT rate limit",
+        "Claude usage limit",
+        "AI tool shutting down",
+        "AI copyright lawsuit",
+        "AI regulation bill",
+    ],
+}
+
 QUERY_GROUPS: dict[str, list[str]] = {
     "breaking_issue": [
         "오늘 갑자기 중단",
@@ -502,12 +547,20 @@ BORING_EXEMPTION_KEYWORDS = (
     "세금",
 )
 HOOK_KEYWORDS = {
-    "money": ("물가", "가격", "월급", "연봉", "세금", "대출", "금리", "지원금", "환급", "보험료", "수수료", "배달비", "구독료", "인상", "인하"),
-    "life": ("병원", "학교", "교통", "통신비", "배달", "택배", "플랫폼", "소비자", "소비자 피해", "직장인", "부모", "학생"),
-    "famous_entity": ("삼성", "애플", "쿠팡", "네이버", "카카오", "현대차", "유튜브", "인스타", "틱톡", "넷플릭스", "손흥민", "bts"),
-    "controversy": ("논란", "반발", "갑자기", "왜", "알고 보니", "결국", "중단", "변경", "오류", "해고"),
-    "mass_impact": ("직장인", "부모", "학생", "자영업자", "소상공인", "투자자", "소비자", "운전자", "청년"),
-    "trend": ("유행", "밈", "신조어", "챌린지", "오픈런", "품절", "굿즈", "인증샷", "팬덤", "릴스", "쇼츠"),
+    # 영어 토큰 추가(2026-07-17): 영어 모드 후보가 훅 0개로 전부 boring 필터에
+    # 걸리는 것을 방지. 한국어 후보에는 사실상 등장하지 않아 기존 동작 불변.
+    "money": ("물가", "가격", "월급", "연봉", "세금", "대출", "금리", "지원금", "환급", "보험료", "수수료", "배달비", "구독료", "인상", "인하",
+              "pricing", "price", "cost", "subscription", "free tier", "per month", "fee", "cheaper", "expensive", "price hike", "discount"),
+    "life": ("병원", "학교", "교통", "통신비", "배달", "택배", "플랫폼", "소비자", "소비자 피해", "직장인", "부모", "학생",
+             "users", "workers", "students", "developers", "small business"),
+    "famous_entity": ("삼성", "애플", "쿠팡", "네이버", "카카오", "현대차", "유튜브", "인스타", "틱톡", "넷플릭스", "손흥민", "bts",
+                      "openai", "chatgpt", "anthropic", "claude", "google", "gemini", "microsoft", "copilot", "perplexity", "meta", "nvidia", "apple", "grok", "deepseek", "midjourney", "cursor"),
+    "controversy": ("논란", "반발", "갑자기", "왜", "알고 보니", "결국", "중단", "변경", "오류", "해고",
+                    "backlash", "controversy", "outage", "shutting down", "discontinued", "lawsuit", "banned", "leaked", "quietly"),
+    "mass_impact": ("직장인", "부모", "학생", "자영업자", "소상공인", "투자자", "소비자", "운전자", "청년",
+                    "everyone", "millions", "all users", "free users", "subscribers"),
+    "trend": ("유행", "밈", "신조어", "챌린지", "오픈런", "품절", "굿즈", "인증샷", "팬덤", "릴스", "쇼츠",
+              "viral", "trending"),
 }
 TREND_KEYWORDS = {
     "meme": ("밈", "짤", "드립"),
@@ -525,7 +578,7 @@ CATEGORY_KEYWORDS = {
     "trend": ("트렌드", "화제", "오픈런", "품절", "굿즈", "팬덤", "sns"),
     "sports": ("스포츠", "축구", "야구", "손흥민", "경기"),
     "entertainment": ("연예", "아이돌", "드라마", "영화", "예능", "넷플릭스", "bts"),
-    "tech": ("ai", "챗gpt", "생성형 ai", "플랫폼", "앱", "서비스", "테크"),
+    "tech": ("ai", "챗gpt", "생성형 ai", "플랫폼", "앱", "서비스", "테크", "chatgpt", "openai", "claude", "gemini", "copilot", "llm", "model"),
     "money": ("물가", "가격", "월급", "연봉", "세금", "대출", "금리", "지원금", "환급", "수수료", "보험료"),
     "life": ("생활", "교통", "학교", "병원", "통신비", "배달", "배달비", "택배", "환불", "소비자 피해"),
     "global": ("글로벌", "해외", "국제", "미국", "중국", "일본"),
@@ -584,7 +637,11 @@ class NewsTopicService:
     def collect_candidates(self) -> list[NewsCandidate]:
         all_candidates: list[NewsCandidate] = []
 
-        if self.external_search_service is not None:
+        if self.external_search_service is not None and is_english_mode():
+            # 영어 모드: Naver 뉴스 검색은 한국어 소스 — 호출 낭비·노이즈라 스킵하고
+            # Google News RSS(en-US)를 1차 소스로 쓴다.
+            pass
+        elif self.external_search_service is not None:
             try:
                 naver_documents = self.external_search_service.collect_naver_documents(self._query_plan())
                 if naver_documents:
@@ -634,7 +691,9 @@ class NewsTopicService:
         unique = self._deduplicate_candidates(filtered)
         if self.external_search_service is not None:
             try:
-                unique = self.external_search_service.annotate_naver_datalab(unique)
+                if not is_english_mode():
+                    # DataLab은 한국어 검색량 API — 영어 모드에선 무의미한 호출 스킵
+                    unique = self.external_search_service.annotate_naver_datalab(unique)
                 unique = self.external_search_service.verify_candidates(unique)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("External search verification failed: %s", exc)
@@ -652,6 +711,9 @@ class NewsTopicService:
         return collected[: self.candidate_limit]
 
     def _query_plan(self) -> list[tuple[str, str]]:
+        if is_english_mode():
+            # 영어 모드: 영어 AI 쿼리 뱅크만 사용 (한국어 쿼리는 en-US RSS에서 무의미)
+            return self._randomized_query_items(EN_QUERY_GROUPS, salt="en-standard")
         priority = self._randomized_query_items(
             RSS_PRIORITY_QUERY_GROUPS,
             salt="rss-priority",
@@ -699,6 +761,14 @@ class NewsTopicService:
         return items
 
     def _secondary_query_plan(self) -> list[tuple[str, str]]:
+        if is_english_mode():
+            # 2차 확장: 1차보다 넓은 일반 쿼리 (엔티티 미포함 이슈 캐치)
+            return [
+                ("AI news today", "ai_work"),
+                ("artificial intelligence announcement", "ai_work"),
+                ("AI tool update", "ai_work"),
+                ("LLM release", "ai_work"),
+            ]
         return [
             (query, query_group)
             for query_group, queries in SECONDARY_QUERY_GROUPS.items()
@@ -770,12 +840,15 @@ class NewsTopicService:
         collected: list[NewsCandidate] = []
 
         for query, query_group in (query_plan if query_plan is not None else self._query_plan()):
-            params = {
-                "q": query,
-                "hl": "ko",
-                "gl": "KR",
-                "ceid": "KR:ko",
-            }
+            if is_english_mode():
+                params = {"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"}
+            else:
+                params = {
+                    "q": query,
+                    "hl": "ko",
+                    "gl": "KR",
+                    "ceid": "KR:ko",
+                }
             url = f"{GOOGLE_NEWS_RSS_ENDPOINT}?{urlencode(params)}"
             request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(request, timeout=9) as response:
@@ -1021,6 +1094,27 @@ class NewsTopicService:
         cleaned = clean_source_title(title)
         cleaned = RSS_SUFFIX_PATTERN.sub("", cleaned)
         cleaned = re.sub(r"\s+-\s+[^-]+(?:뉴스|일보|신문|방송|경제|닷컴)\s*$", "", cleaned, flags=re.IGNORECASE)
+        if is_english_mode():
+            # 영어 RSS 제목의 매체/저자 접미사 제거: "Headline - The Verge" /
+            # "… - De'aaron Fox (nAmerica)". 영어 헤드라인 본문은 하이픈 대신
+            # em dash·콜론을 쓰므로, 마지막 " - " 뒤 꼬리가 45자 이하면 매체·저자로
+            # 보고 통째로 잘라낸다 (드라이런 #4: 괄호 낀 저자명이 部分 절단돼
+            # 깨진 주제 표면으로 패턴 confidence가 25로 캡되던 사고).
+            # "Headline - Author - Publication"처럼 꼬리가 겹칠 수 있어 최대 3회 반복 제거
+            for _ in range(3):
+                _before = cleaned
+                for _sep in (" - ", " – ", " — ", " | "):
+                    head, sep, tail = cleaned.rpartition(_sep)
+                    if sep and head and len(tail) <= 45:
+                        cleaned = head
+                if cleaned == _before:
+                    break
+            cleaned = re.sub(r"\s+[|–—]\s+[^|–—]{1,45}$", "", cleaned)
+            # 꼬리의 "by Author Name" 제거 ("… , by Jane Doe" / "… by Jane Doe")
+            cleaned = re.sub(r",?\s+by\s+[A-Z][\w.'’-]*(?:\s+[A-Z][\w.'’-]*){0,3}\s*$", "", cleaned)
+            # 소스가 붙인 SEO 꼬리 "[2026]" 류 대괄호 조각 제거 — 바깥 strip()이
+            # 닫는 대괄호만 벗겨 "[2026" 같은 깨진 꼬리가 topic에 남는다(실측).
+            cleaned = re.sub(r"\s*\[[^\]]{0,20}\]?\s*$", "", cleaned)
         cleaned = re.sub(r"\s{2,}", " ", cleaned)
         quote_count = cleaned.count('"')
         if quote_count % 2 == 1:
@@ -1147,7 +1241,12 @@ class NewsTopicService:
         boring_keyword_hit = raw_boring_keyword_hit and not boring_exception_hit
         hook_signals = self._build_hook_signals(title, snippet)
         trend_signals = self._build_trend_signals(title, snippet)
-        reaction_signal = any(token in text for token in ("논란", "반응", "갑자기", "화제", "왜", "결국", "유행"))
+        reaction_signal = any(token in text for token in (
+            "논란", "반응", "갑자기", "화제", "왜", "결국", "유행",
+            # 영어 모드 반응/변화 신호 — 한국어 텍스트엔 등장하지 않아 기존 동작 불변
+            "launches", "launched", "announces", "announced", "unveils", "rolls out",
+            "update", "pricing", "release", "released", "new ", "cuts", "raises", "why ",
+        ))
         hook_count = sum(1 for value in hook_signals.values() if value)
         trend_count = sum(1 for value in trend_signals.values() if value)
         is_boring = boring_keyword_hit or (hook_count == 0 and trend_count == 0 and not reaction_signal and query_group != "trend_meme")

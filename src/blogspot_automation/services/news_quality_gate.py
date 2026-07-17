@@ -7,6 +7,7 @@ import re
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate
 from blogspot_automation.services.answer_engine_policy import answer_engine_coverage
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.cover_image_policy import cover_image_coverage, cover_image_required_from_env
 from blogspot_automation.services.final_html_audit_service import audit_final_html_quality
 from blogspot_automation.services.news_focus_policy import ai_blog_mode_from_env, evaluate_news_focus
@@ -44,6 +45,15 @@ _BANNED_DEFAULT_PHRASES: tuple[str, ...] = (
     "내 생활과 관련있는지 모름",
     "지금 행동이 필요한지 모름",
     "비용·시간·선택 조건 중 직접 바뀌는 항목을 먼저 봐야 합니다",
+    # 영어 전환(2026-07-17) 추가 — 영어 AI-slop 상투어. 한국어 본문에는 사실상
+    # 등장하지 않는 어구라 ko 모드에는 무해한 additive 차단이다.
+    "in today's fast-paced world",
+    "delve into",
+    "unlock the power",
+    "game-changer",
+    "game changer",
+    "revolutionize",
+    "unleash",
 )
 
 _BANNED_TITLE_PHRASES = (
@@ -67,6 +77,18 @@ _BANNED_TITLE_PHRASES = (
     "화제 된 이 반응",
     "사람들이 본 에",
     "사람들이 본 의",
+    # 영어 전환(2026-07-17) 추가 — 영어 클릭베이트/AI-slop 제목 어구.
+    # 제목 매칭은 소문자 비교(phrase.lower() in lowered_title)라 소문자로 등록.
+    "you won't believe",
+    "shocking",
+    "insane",
+    "game-changer",
+    "game changer",
+    "revolutionize",
+    "unleash",
+    "in today's fast-paced world",
+    "delve into",
+    "unlock the power",
 )
 _MALFORMED_SELECTED_TITLE_PATTERNS = (
     r"^[가-힣A-Za-z0-9·\s]{2,24\]\s+",
@@ -275,7 +297,10 @@ class NewsQualityGate:
             blocking_issues.append("missing_selected_title")
         if title in {"지원금 신청 전 이것부터 확인하세요", "세금 환급 신청 전 이것부터 확인하세요"}:
             warnings.append("selected_title_too_generic")
-        if len(title) > 45:
+        # 제목 길이 soft warning: 한국어 45자 기준 유지, 영어 모드는 단어 길이가
+        # 길어 70자까지 허용(경고일 뿐 차단 아님 — 2026-07-17 영어 전환).
+        _title_length_warn_limit = 70 if is_english_mode() else 45
+        if len(title) > _title_length_warn_limit:
             warnings.append("selected_title_longer_than_45_chars")
         if "사람들이 놓친" in title:
             blocking_issues.append("selected_title_uses_repeated_missed_people_pattern")
@@ -417,10 +442,22 @@ class NewsQualityGate:
 
         title_body_alignment = self._title_body_alignment(title=title, html=html)
         if title_body_alignment["required_terms"] and title_body_alignment["missing_terms"]:
-            blocking_issues.append(
-                "title_body_entity_mismatch:"
-                + ",".join(title_body_alignment["missing_terms"][:3])
+            _tb_missing = list(title_body_alignment["missing_terms"])
+            _tb_required = list(title_body_alignment["required_terms"])
+            # 영어 모드(2026-07-17): 제목과 본문은 별개 생성물이라 일반명사 1개의
+            # 표현차(share↔market share 미사용 등)는 흔하다. 핵심 단어의 절반
+            # 이상(최소 2개)이 본문에 없을 때만 제목-본문 괴리로 차단한다.
+            # ko 모드는 기존 그대로(1개라도 없으면 차단).
+            _tb_block = (
+                len(_tb_missing) >= max(2, (len(_tb_required) + 1) // 2)
+                if is_english_mode()
+                else True
             )
+            if _tb_block:
+                blocking_issues.append(
+                    "title_body_entity_mismatch:"
+                    + ",".join(_tb_missing[:3])
+                )
 
         # 추가: 주어가 없는 "확인할 것"/"먼저 확인" 단독 제목 차단
         # discovery 후보는 면제 (entity 검증됨)
@@ -500,8 +537,18 @@ class NewsQualityGate:
 
         lowered_html = html.lower()
         visible_html_text = _visible_text_for_debug_marker_scan(html).lower()
+        # 영어 모드(2026-07-17): "raw"/"fallback"/"scoring"은 영어 일반 단어라
+        # substring 매칭이 정상 본문("drawing", "fallback model", "scoring 90")을
+        # 오탐 차단한다(드라이런 #4 실측: drawing→raw). 영어 모드에서는 이 세
+        # 마커를 디버그 형태(raw= / "raw" / raw:)로만 매칭한다. ko 모드는 기존 그대로.
+        _en_word_markers = {"raw", "fallback", "scoring"}
         for marker in _DEBUG_HTML_MARKERS:
-            if marker.lower() in visible_html_text:
+            m = marker.lower()
+            if is_english_mode() and m in _en_word_markers:
+                if re.search(rf'(?<![a-z0-9_]){m}\s*[=:]|"{m}"', visible_html_text):
+                    blocking_issues.append(f"html_contains_debug_marker:{marker}")
+                continue
+            if m in visible_html_text:
                 blocking_issues.append(f"html_contains_debug_marker:{marker}")
 
         if not re.search(r"<h1\b[^>]*>.*?</h1>", html, flags=re.IGNORECASE | re.DOTALL):
@@ -1007,6 +1054,15 @@ class NewsQualityGate:
 
         cost_terms = ("무료", "유료", "요금", "구독", "플랜", "비용", "가격")
         cost_hits = sum(1 for term in cost_terms if term in html)
+        # 영어 전환(2026-07-17): 영어 모드에서는 영어 비용 어휘도 인정한다.
+        # ko 모드 동작을 바꾸지 않도록 is_english_mode()로만 추가 카운트
+        # ("plan"이 "explanation" 등에 substring 오탐되는 문제 차단).
+        if is_english_mode():
+            cost_terms_en = (
+                "free", "paid", "pricing", "price", "plan", "per month",
+                "/month", "$", "cost", "limit", "subscription",
+            )
+            cost_hits += sum(1 for term in cost_terms_en if term in lowered)
         if cost_hits == 0:
             blocking.append("ai_save_value_cost_strategy_missing")
         elif cost_hits < 2:
@@ -1016,6 +1072,9 @@ class NewsQualityGate:
             "체크리스트" in html
             or ("checklist" in lowered and "체크" in html)
             or "확인할 것" in html
+            # 영어 전환(2026-07-17): 영어 모드에서는 checklist 단어/quality-checklist
+            # 클래스만으로도 체크리스트 자산으로 인정 (ko 모드는 기존 조건 유지).
+            or (is_english_mode() and ("checklist" in lowered or "quality-checklist" in lowered))
         )
         if not checklist_present:
             soft.append("ai_save_value_checklist_missing")
@@ -1448,6 +1507,9 @@ class NewsQualityGate:
             "과징금", "보상", "환불", "유출", "장애", "오류", "변경", "인상", "출시", "종료",
             "신청", "마감", "지급", "지원금", "환급",
             "배달앱", "배달비", "결제금액", "최종금액", "쿠폰", "수수료", "최소주문",
+            # 영어 전환(2026-07-17) 추가 — 영어 기사에서의 가격/사건 특정성 신호.
+            "pricing", "subscription", "refund", "lawsuit", "outage",
+            "discount", "shutdown",
         )
         hits = sum(1 for kw in specific_keywords if kw in all_text)
         score += min(5, hits)
@@ -1473,6 +1535,11 @@ class NewsQualityGate:
             "TSMC", "브로드컴", "Broadcom", "ARM", "도요타", "Toyota",
             "화낙", "Fanuc", "테슬라", "Tesla", "아마존", "Amazon",
             "메타", "Meta", "화웨이", "Huawei", "IBM", "소프트뱅크", "SoftBank",
+            # 영어 전환(2026-07-17) 추가 — 영어 AI 뉴스에서 반복 등장하는
+            # 제품/기업 엔티티(매칭은 이미 대소문자 무시).
+            "Perplexity", "Midjourney", "Cursor", "Notion AI", "DeepSeek",
+            "Mistral", "Runway", "ElevenLabs", "Hugging Face", "Stability AI",
+            "xAI",
         )
         ai_event_keywords = (
             "공개", "발표", "업데이트", "도입", "돌파", "추월", "확대", "해제",
@@ -1487,6 +1554,28 @@ class NewsQualityGate:
             # "AI 협력 확대" 같은 제휴 뉴스가 이벤트 목록에 없어 오차단됐다.
             "논란", "유출", "해킹", "보안", "취약점", "소송", "제재",
             "협력", "동맹", "파트너십", "제휴",
+        )
+        # 영어 전환(2026-07-17): 영어 AI 뉴스의 사건/가격 이벤트 신호.
+        # 기존 한국어 이벤트 매칭(대소문자 구분)은 그대로 두고, 영어 이벤트는
+        # 소문자 텍스트에 추가로 매칭하는 additive 경로다. 짧은 토큰("api")이
+        # 다른 단어 안에서 오탐되지 않도록 공백/슬래시 없는 토큰은 앞 경계를
+        # 요구한다(뒤는 열어 둬 launch→launched, benchmark→benchmarks 커버).
+        ai_event_keywords_en = (
+            "pricing", "price increase", "price cut", "price hike", "launch",
+            "release", "update", "subscription", "free tier", "rate limit",
+            "api", "tokens", "context window", "discontinued", "rollout",
+            "waitlist", "benchmark", "per month", "/month", "lawsuit",
+            "acquisition", "partnership", "outage",
+            # 2026-07-17 드라이런 #3 보강: 보안/오픈소스/기능 사건 신호 —
+            # "open source 전환·저장소 유출"류 실뉴스가 5점(1점 부족)으로
+            # 막히던 케이스. 전부 사건 특정 신호라 일반론 글에는 안 잡힌다.
+            "open source", "open-source", "codebase", "repository", "repos",
+            "data leak", "breach", "exfiltrat", "security incident",
+            "jailbreak", "integration", "plugin", "extension", "dataset",
+            "fine-tun", "on-device", "voice mode", "image generation",
+            # 드라이런 #4 보강: 가격 계열 실사용 어휘 ("pricing"만으론 "costs" 기사 미검출)
+            "cost", "costs", "fee", "fees", "per user", "per seat",
+            "monthly", "annual", "enterprise", "license",
         )
         # 실측 사건(2026-07-16): 스크랩된 토픽 문자열에 "gpt-image-1",
         # "claude-4"처럼 소문자/하이픈 표기가 섞여 대소문자 구분 매칭("GPT")이
@@ -1503,6 +1592,18 @@ class NewsQualityGate:
         ]
         ai_entity_hits = len(distinct_entity_matches)
         ai_event_hits = sum(1 for kw in ai_event_keywords if kw in all_text)
+        # 영어 이벤트 additive 매칭 (한국어 매칭 결과에 더하기만 한다).
+        for kw in ai_event_keywords_en:
+            if " " in kw or "/" in kw:
+                if kw in all_text_lower:
+                    ai_event_hits += 1
+            elif re.search(rf"(?<![a-z0-9]){re.escape(kw)}", all_text_lower):
+                ai_event_hits += 1
+        # 영어 특정성 마커: "$30"/"$ 30" 금액, "4.5"/"v2.1" 버전 표기.
+        if re.search(r"\$\s?\d", all_text):
+            ai_event_hits += 1
+        if re.search(r"(?<![\d.])v?\d+\.\d+(?![\d.])", all_text_lower):
+            ai_event_hits += 1
         # 서로 다른 개체 2개 이상이 함께 언급되면(예: "엔비디아·도요타·화낙")
         # 그 자체로 구체적 사건/관계를 시사하므로, 고정 이벤트 단어가 없어도
         # 특정성으로 인정한다 — 매번 새 이벤트 단어를 추가하는 대신 "복수
@@ -1619,6 +1720,33 @@ class NewsQualityGate:
         "내는",
     })
 
+    # 영어 전환(2026-07-17): 영어 제목의 filler 단어가 본문 필수 등장 단어로
+    # 강제되면 false title_body_entity_mismatch가 난다. ko 모드 동작을 바꾸지
+    # 않도록 별도 세트로 두고 is_english_mode()에서만 적용한다.
+    _TITLE_BODY_STOP_TOKENS_EN: frozenset[str] = frozenset({
+        "the", "an", "and", "or", "for", "to", "of", "in", "on", "with",
+        "your", "you", "how", "what", "why", "when", "which", "who",
+        "is", "are", "was", "were", "it", "its", "this", "that", "these",
+        "those", "vs", "versus", "best", "guide", "i", "we", "my", "our",
+        "tested", "actually", "really", "gets", "get", "do", "does", "can",
+        "will", "should", "not", "no", "be", "has", "have", "had", "at",
+        "by", "as", "from", "into", "about", "after", "before", "still",
+        "just", "now", "new", "more", "most",
+        # 헤드라인 동사/기능어(2026-07-17 드라이런 #9: "vows"가 본문 필수 단어로
+        # 강제돼 title_body_entity_mismatch 오탐) — 본문에 재등장할 이유가 없는
+        # 뉴스 헤드라인 상투 동사·전치사류.
+        "vows", "hits", "falls", "says", "said", "plans", "wants", "warns",
+        "slams", "cuts", "raises", "drops", "launches", "unveils", "rolls",
+        "brings", "goes", "makes", "takes", "sees", "faces", "amid", "over",
+        "under", "against", "toward", "towards", "full", "dev",
+        # 발표/소개형 헤드라인 필러 (드라이런 #14: "introducing"이 본문 필수어로
+        # 강제) — 본문 prose에는 등장할 이유가 없는 단어들.
+        "introducing", "introduces", "announcing", "announces", "meet",
+        "presenting", "inside", "breaking", "exclusive", "reportedly",
+        "officially", "finally", "everything", "need", "know", "here",
+        "launch", "focus", "explained", "compared", "means",
+    })
+
     @classmethod
     def _title_body_alignment(cls, *, title: str, html: str) -> dict[str, object]:
         required = cls._title_core_terms(title)
@@ -1640,7 +1768,13 @@ class NewsQualityGate:
                 continue
             if normalized in cls._TITLE_BODY_STOP_TOKENS:
                 continue
+            if is_english_mode() and normalized in cls._TITLE_BODY_STOP_TOKENS_EN:
+                continue
             if re.fullmatch(r"\d+", normalized):
+                continue
+            # 영어 모드(2026-07-17): 숫자 포함 토큰("844k", "$2b", "51%", "4.5")은
+            # 본문에서 표기가 달라진다(844K↔844,000) — 필수 등장 요건에서 제외.
+            if is_english_mode() and re.search(r"\d", normalized):
                 continue
             if normalized not in terms:
                 terms.append(normalized)
@@ -1822,12 +1956,24 @@ class NewsQualityGate:
         search_terms = (
             "신청", "방법", "대상", "조건", "확인", "환불", "증거", "설정",
             "해지", "비교", "체크", "사용처", "지급", "마감",
+            # 영어 전환(2026-07-17) 추가 — 영어 검색 의도 신호 (additive 가산용).
+            "how to", "fix", "error", "not working", "pricing", "cost",
+            "worth it", "alternative", "vs", "best", "limit", "free",
+            "upgrade", "cancel", "compare",
         )
         pain_terms = (
             "손해", "마감", "놓치", "환불", "지원금", "지급", "사용처",
             "불편", "설정", "결제", "금액", "시간", "대상 조건",
+            # 영어 전환(2026-07-17) 추가 — 영어 pain point 신호.
+            "stuck", "fails", "blocked", "wasted", "overpaying",
+            "hidden cost", "slow", "wrong answers",
         )
-        checklist_terms = ("체크리스트", "예시", "정보표", "비교표", "오늘 바로 할 일")
+        checklist_terms = (
+            "체크리스트", "예시", "정보표", "비교표", "오늘 바로 할 일",
+            # 영어 전환(2026-07-17) 추가 — 영어 실용성/체크리스트 신호.
+            "checklist", "step", "before you", "make sure", "check",
+            "verify", "as of",
+        )
 
         search_intent = 20 if any(term in title or term in plain_text[:500] for term in search_terms) else 10
         pain_solution = 20 if sum(1 for term in pain_terms if term in plain_text) >= 3 else 12
@@ -1860,13 +2006,32 @@ class NewsQualityGate:
         topic_group: str,
         hashtags: list[str],
     ) -> dict[str, object]:
-        target_terms = ("30~50", "30대", "40대", "50대", "직장인", "소비자", "이용자", "대상")
-        conclusion_terms = ("핵심", "먼저 알아야", "결론", "읽고 나서 바로 할 일")
+        target_terms = (
+            "30~50", "30대", "40대", "50대", "직장인", "소비자", "이용자", "대상",
+            # 영어 전환(2026-07-17) 추가 — 영어 타깃 독자 신호.
+            "developers", "marketers", "students", "freelancers", "creators",
+            "small business", "beginners", "professionals", "anyone who",
+        )
+        conclusion_terms = (
+            "핵심", "먼저 알아야", "결론", "읽고 나서 바로 할 일",
+            # 영어 전환(2026-07-17) 추가 — 영어 결론/요지 신호.
+            "bottom line", "key takeaway", "in short", "the verdict",
+            "what matters most",
+        )
         search_terms = (
             "신청", "조회", "확인", "방법", "대상", "조건", "환불", "증거", "설정",
             "해지", "비교", "체크", "홈택스", "손택스", "지원 종료", "사용처",
+            # 영어 전환(2026-07-17) 추가 — 영어 검색 의도 신호.
+            "how to", "fix", "error", "not working", "pricing", "cost",
+            "worth it", "alternative", "vs", "best", "limit", "free",
+            "upgrade", "cancel", "compare", "setup",
         )
-        action_terms = ("지금 바로 할 일", "체크리스트", "확인하세요", "보관하세요", "캡처", "준비", "비교")
+        action_terms = (
+            "지금 바로 할 일", "체크리스트", "확인하세요", "보관하세요", "캡처", "준비", "비교",
+            # 영어 전환(2026-07-17) 추가 — 영어 실행 지시 신호.
+            "checklist", "step", "before you", "make sure", "check",
+            "verify", "today", "right now",
+        )
         target_clear = 20 if "target-reader-box" in html and any(term in plain_text for term in target_terms) else 10
         one_sentence_conclusion = 20 if "core-message-box" in html and any(term in plain_text for term in conclusion_terms) else 8
         search_intent_match = 20 if any(term in title or term in plain_text[:700] for term in search_terms) else 10
@@ -1954,9 +2119,13 @@ class NewsQualityGate:
             issues.append("ai_title_tool_terms_missing_in_body:" + ",".join(missing_terms[:3]))
 
         value_groups = {
-            "pricing": ("요금", "가격", "비용", "무료", "유료", "플랜", "한도", "$", "달러"),
-            "workflow": ("활용", "워크플로우", "자동화", "설정", "단계", "적용", "사용법"),
-            "risk": ("보안", "개인정보", "권한", "데이터", "주의", "검수", "정책"),
+            # 영어 전환(2026-07-17): 영어 동의어 추가 (additive — ko 동작 불변)
+            "pricing": ("요금", "가격", "비용", "무료", "유료", "플랜", "한도", "$", "달러",
+                        "pricing", "price", "cost", "free", "paid", "plan", "limit", "subscription"),
+            "workflow": ("활용", "워크플로우", "자동화", "설정", "단계", "적용", "사용법",
+                         "workflow", "step", "steps", "setup", "how to", "settings", "automat", "use it"),
+            "risk": ("보안", "개인정보", "권한", "데이터", "주의", "검수", "정책",
+                     "risk", "privacy", "security", "data", "permission", "caution", "policy", "review", "verify"),
         }
         missing_value_groups = [
             name for name, terms in value_groups.items()
@@ -1981,19 +2150,64 @@ class NewsQualityGate:
             r"검수\s*(?:없이|불필요)",
             r"수익\s*보장",
         )
-        if any(re.search(pattern, text) for pattern in overclaim_patterns):
+        # 영어 전환(2026-07-17) 추가 — 영어 과장/보장 표현도 동일 이슈로 차단
+        # (additive 강화: 기존 한국어 패턴은 그대로 유지).
+        overclaim_patterns_en = (
+            r"guaranteed\s+(?:income|profit|profits|returns?)",
+            r"100%\s*safe",
+            r"no\s+review\s+needed",
+            r"replaces?\s+(?:all|every)\s+(?:work|jobs?)",
+            r"works\s+for\s+everyone",
+            r"get\s+rich",
+        )
+        if any(re.search(pattern, text) for pattern in overclaim_patterns) or any(
+            re.search(pattern, text, flags=re.IGNORECASE) for pattern in overclaim_patterns_en
+        ):
             issues.append("ai_overclaim_or_guarantee_phrase")
 
         sensitive_terms = ("회사 기밀", "개인정보", "민감정보", "고객정보", "사내자료", "계약서 원문")
         safety_terms = ("입력하지", "넣지", "삭제", "마스킹", "익명", "주의", "금지", "제외", "확인")
         if any(term in text for term in sensitive_terms) and not any(term in text for term in safety_terms):
             issues.append("ai_sensitive_data_warning_missing")
+        # 영어 전환(2026-07-17) 추가 — 영어 민감정보 언급 시에도 안전 문구를
+        # 요구한다 (additive 강화: 기존 한국어 검사와 독립적으로 동작).
+        text_lower = text.lower()
+        sensitive_terms_en = (
+            "company confidential", "confidential document", "personal data",
+            "customer data", "trade secret",
+        )
+        safety_terms_en = (
+            "do not enter", "don't enter", "do not paste", "never paste",
+            "mask", "redact", "anonymize", "remove", "caution", "warning",
+            "never share", "avoid", "exclude",
+        )
+        if (
+            "ai_sensitive_data_warning_missing" not in issues
+            and any(term in text_lower for term in sensitive_terms_en)
+            and not any(term in text for term in safety_terms)
+            and not any(term in text_lower for term in safety_terms_en)
+        ):
+            issues.append("ai_sensitive_data_warning_missing")
 
         price_or_limit_claim = re.search(
             r"(?:월|연|하루)?\s*(?:\d[\d,]*\s*(?:원|달러)|\$\s*\d[\d,.]*)|(?:무료|유료)\s*(?:제한|플랜|요금)",
             text,
         )
-        if price_or_limit_claim and not any(term in text for term in ("공식", "기준", "확인", "변경", "다를 수", "제공된")):
+        _price_verify_context = any(
+            term in text for term in ("공식", "기준", "확인", "변경", "다를 수", "제공된")
+        )
+        # 영어 전환(2026-07-17): 영어 모드에서는 영어 검증 문맥("official",
+        # "as of", "may change" 등)도 인정 — 없으면 "$20/month" 언급만으로
+        # 영어 가격 글이 전부 차단된다. ko 모드는 기존 조건 그대로.
+        if not _price_verify_context and is_english_mode():
+            _price_verify_context = any(
+                term in text_lower
+                for term in (
+                    "official", "as of", "verify", "check", "may change",
+                    "subject to change", "according to", "at the time of writing",
+                )
+            )
+        if price_or_limit_claim and not _price_verify_context:
             issues.append("ai_price_or_plan_claim_without_verification_context")
 
         return issues

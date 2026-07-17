@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate, TitleCandidate
+from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.news_taxonomy import (
     extract_public_benefit_keyword,
     is_delivery_money_text,
@@ -177,6 +178,30 @@ class TitleGenerationService:
 
     def generate_titles(self, candidate: ScoredNewsCandidate) -> list[TitleCandidate]:
         raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+        # 영어 모드(2026-07-17): 이 서비스의 한국어 후킹 템플릿은 전부 우회하고
+        # 영어 제목 빌더([키워드]+[각도]+[연도])를 쓴다.
+        if is_english_mode():
+            from blogspot_automation.services.title_candidate_service import _build_english_titles
+
+            created_en: list[TitleCandidate] = []
+            seen_en: set[str] = set()
+            for idx, (title, title_type) in enumerate(
+                _build_english_titles(topic=candidate.candidate.topic or "", raw=raw)
+            ):
+                if title in seen_en:
+                    continue
+                seen_en.add(title)
+                created_en.append(
+                    TitleCandidate(
+                        title=title,
+                        hook_type=title_type,
+                        # 빌더 순서 = 각도 적합도 순 — 앞 후보에 가산점
+                        ctr_score=max(40, 72 - idx * 4),
+                        reason="English title formula: [keyword] + [angle] + [year].",
+                    )
+                )
+            if created_en:
+                return created_en
         hook_angle = raw.get("hook_angle", {}) if isinstance(raw.get("hook_angle"), dict) else {}
         content_angle = raw.get("content_angle", {}) if isinstance(raw.get("content_angle"), dict) else {}
         search_angle = raw.get("search_angle", {}) if isinstance(raw.get("search_angle"), dict) else {}
@@ -360,6 +385,13 @@ class TitleGenerationService:
 
     def select_best_title(self, titles: list[TitleCandidate]) -> TitleCandidate:
         if not titles:
+            if is_english_mode():
+                return TitleCandidate(
+                    title="Today's AI Update: What Actually Changed",
+                    hook_type="search",
+                    ctr_score=40,
+                    reason="No candidates — safe English default title.",
+                )
             return TitleCandidate(
                 title="지금 먼저 확인할 것",
                 hook_type="확인형",
