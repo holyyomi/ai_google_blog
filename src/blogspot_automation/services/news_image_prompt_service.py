@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate
+from blogspot_automation.services.blog_language import is_english_mode
 
 
 class NewsImagePromptService:
@@ -30,8 +31,13 @@ class NewsImagePromptService:
         concept = self._concept_for_content_type(content_type)
         safe_title = self._plain(selected_title)
         safe_topic = self._plain(topic)
+        blog_desc = (
+            "an English-language AI tools blog"
+            if is_english_mode()
+            else "a Korean lifestyle decision blog"
+        )
         prompt = (
-            f"Clean realistic editorial blog cover image for a Korean lifestyle decision blog. "
+            f"Clean realistic editorial blog cover image for {blog_desc}. "
             f"Topic: {safe_topic}. Title context: {safe_title}. "
             f"Scene: {concept}. "
             "Calm trustworthy mood, natural daylight, modern composition, practical everyday objects, "
@@ -92,6 +98,14 @@ class NewsImagePromptService:
 
     @staticmethod
     def _alt_text(*, title: str, topic: str, content_type: str) -> str:
+        if is_english_mode():
+            subject = title or topic or "today's AI story"
+            suffix_en = {
+                "ai_work_tip": "workspace scene symbolizing AI productivity and setup checks",
+                "platform_change": "app update and service change concept image",
+                "money_checklist": "cost comparison and pricing checklist concept image",
+            }.get(content_type, "practical decision checklist concept image")
+            return f"Cover image for {subject} — {suffix_en}"
         subject = title or topic or "오늘 이슈"
         suffix = {
             "policy_deadline": "신청 마감과 대상 조건 확인을 상징하는 체크리스트 이미지",
