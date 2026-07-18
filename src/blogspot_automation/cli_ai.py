@@ -51,7 +51,9 @@ def main() -> None:
 
     force_topic = os.getenv("AI_FORCE_TOPIC", "").strip()
     if force_topic:
-        logger.warning("AI_FORCE_TOPIC is ignored by cli_ai; use workflow_dispatch on cli_news for manual topic tests.")
+        # 2026-07-18: NewsTopicService._forced_topic_candidate가 이 env를 읽어
+        # 지정 주제를 1순위 실뉴스 후보로 주입한다. 품질 게이트는 전부 동일 적용.
+        logger.info("AI_FORCE_TOPIC active: %s", force_topic[:80])
 
     from blogspot_automation.cli_news import run_news_cycle
 

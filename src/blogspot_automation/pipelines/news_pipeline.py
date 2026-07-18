@@ -2516,6 +2516,8 @@ class NewsPipeline:
         "firecrawl_search",
         "naver_news_search",
         "daum_news_search",
+        # 운영자 지정 주제(AI_FORCE_TOPIC) — 팩트 수집·게이트는 일반 후보와 동일
+        "forced_manual_topic",
     })
     # AI 이슈 부스트 자격 판단용 엔티티 토큰 (도구/모델/기업명)
     _AI_ISSUE_ENTITY_TOKENS: tuple[str, ...] = (

@@ -634,8 +634,58 @@ class NewsTopicService:
         all_groups = set(QUERY_GROUPS) | set(RSS_PRIORITY_QUERY_GROUPS) | set(SECONDARY_QUERY_GROUPS)
         return tuple(sorted(group for group in all_groups if group not in allowed))
 
+    def _forced_topic_candidate(self) -> NewsCandidate | None:
+        """AI_FORCE_TOPIC env가 있으면 그 주제를 1순위 실뉴스 후보로 만든다.
+
+        2026-07-18 신설: 운영자가 특정 이슈(예: 특정 모델의 요금 전환)를 지정
+        발행하고 싶을 때 쓰는 유일한 진입점. ai_blog.yml workflow_dispatch의
+        force_topic 입력이 이 env로 들어온다. 후보는 일반 후보와 똑같이 모든
+        품질 게이트를 통과해야 발행된다 — 강제되는 것은 '주제 선정'뿐이다.
+        source_type=forced_manual_topic은 _AI_ISSUE_REAL_NEWS_SOURCES에 등록돼
+        신선 실뉴스와 같은 점수 부스트를 받는다(팩트 수집·검증은 동일 경로).
+        """
+        forced = os.getenv("AI_FORCE_TOPIC", "").strip()
+        if not forced:
+            return None
+        cleaned = self._clean_rss_title(forced) or forced
+        topic = self._short_topic(cleaned)
+        now_iso = datetime.now(UTC).isoformat()
+        hook_signals = self._build_hook_signals(topic, "")
+        trend_signals = self._build_trend_signals(topic, "")
+        boring_signals = self._build_boring_signals(topic, "", "ai_work")
+        logger.info("AI_FORCE_TOPIC: 지정 주제를 1순위 후보로 주입 — %s", topic[:80])
+        return NewsCandidate(
+            topic=topic,
+            category="tech",
+            summary=f"Operator-forced topic: {topic}",
+            source_hint="manual_force_topic",
+            published_at=now_iso,
+            url=None,
+            raw={
+                "source_type": "forced_manual_topic",
+                "source": "forced_manual_topic",
+                "query": forced,
+                "query_group": "ai_work",
+                "topic_group": "ai_work",
+                "pubDate": now_iso,
+                "parsed_pub_date": now_iso,
+                "is_stale": False,
+                "publish_allowed": True,
+                "is_test_candidate": False,
+                "original_title": forced,
+                "cleaned_title": cleaned,
+                "hook_signals": hook_signals,
+                "trend_signals": trend_signals,
+                "boring_signals": boring_signals,
+                "forced_manual_topic": True,
+            },
+        )
+
     def collect_candidates(self) -> list[NewsCandidate]:
         all_candidates: list[NewsCandidate] = []
+        forced_candidate = self._forced_topic_candidate()
+        if forced_candidate is not None:
+            all_candidates.append(forced_candidate)
 
         if self.external_search_service is not None and is_english_mode():
             # 영어 모드: Naver 뉴스 검색은 한국어 소스 — 호출 낭비·노이즈라 스킵하고
