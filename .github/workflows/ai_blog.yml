@@ -110,7 +110,13 @@ jobs:
           GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free"
-          OPENROUTER_MODEL_FALLBACK: "openai/gpt-oss-120b:free"
+          # 2026-07-18: 기존 openai/gpt-oss-120b:free가 OpenRouter 카탈로그에서
+          # 사라져 2차 폴백이 항상 실패했다(실측: 라이브 실행에서 매번 404).
+          # 1차(nemotron, NVIDIA)와 인프라를 공유하지 않도록 일부러 다른 회사
+          # 모델(Google Gemma)로 골랐다 — 같은 회사 계열 장애가 1·2차를 동시에
+          # 막는 걸 피하기 위함. openrouter.ai/collections/free-models로 생존
+          # 여부를 주기적으로 재확인할 것.
+          OPENROUTER_MODEL_FALLBACK: "google/gemma-4-31b-it:free"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: "gpt-5-mini"
           # 2026-07-10 재활성화: cover_image_service의 _STYLE_SUFFIX가 wordless/textless를
