@@ -1141,6 +1141,11 @@ class NewsPipeline:
                 for c in _llm_source_citations
                 if isinstance(c, dict) and str(c.get("url", "")).strip()
             )
+            # 최종 발행 html이 어느 소스(LLM 서술 vs article_candidate)로 확정되든
+            # 그 html의 실제 SOURCE_TRUST_BLOCK 인용 URL과 짝을 맞춰 끝까지 들고 간다
+            # (publish_args 빌드·NewsPublishService.publish까지) — 짝이 안 맞으면
+            # strip_external_anchor_links가 검증된 링크를 href만 벗겨낸다(실측 사고).
+            _final_citation_urls = _llm_citation_urls
             publish_quality_gate = self.quality_gate.evaluate(
                 selected=selected,
                 selected_title=best_title.title,
@@ -1437,6 +1442,7 @@ class NewsPipeline:
                     )
                     if not _llm_body_gate_passed:
                         html = _candidate_publish_html
+                        _final_citation_urls = _candidate_citation_urls
                     meta_description = normalize_search_description(
                         title=best_title.title,
                         description=extract_meta_description(html) or meta_description,
@@ -1506,6 +1512,7 @@ class NewsPipeline:
                         and bool(_candidate_final_audit.get("passed", True))
                     ):
                         html = _candidate_publish_html
+                        _final_citation_urls = _candidate_citation_urls
                         publish_quality_gate = _candidate_publish_gate
                         self.artifact_service.update_publish_artifacts(
                             artifact_dir,
@@ -1557,7 +1564,10 @@ class NewsPipeline:
                 hashtags=final_hashtags,
                 content_angle_summary=content_angle_summary,
                 artifact_dir=artifact_dir,
-                extra_allowed_urls=_llm_citation_urls,
+                # html이 candidate로 승격됐을 수 있으므로 그 html에 맞는 인용 URL
+                # 집합을 써야 한다(고정된 _llm_citation_urls면 candidate 인용 URL이
+                # 화이트리스트에서 빠져 게이트 재평가가 잘못된 기준으로 돈다).
+                extra_allowed_urls=_final_citation_urls,
             )
             if _title_repair:
                 html = str(_title_repair["html"])
@@ -1788,7 +1798,15 @@ class NewsPipeline:
                 topic=selected.candidate.topic,
                 publish_args={
                     "title": best_title.title,
-                    "article_html": prepare_blogspot_html(html, links=history_internal_links, strip_document=True),
+                    # extra_allowed_urls 없이 호출하면 실제 리서치로 검증된
+                    # SOURCE_TRUST_BLOCK 인용 링크의 href가 여기서 벗겨진다(2026-07-18
+                    # 실측 사고 — 잘린 앵커 텍스트만 라이브에 남고 <a href>가 사라짐).
+                    "article_html": prepare_blogspot_html(
+                        html,
+                        links=history_internal_links,
+                        strip_document=True,
+                        extra_allowed_urls=_final_citation_urls,
+                    ),
                     "labels": normalize_labels(plan.labels),
                     "meta_description": meta_description,
                     "selected_topic": selected.candidate.topic,
@@ -1798,6 +1816,9 @@ class NewsPipeline:
                     "content_type": str(content_angle_summary.get("content_type") or ""),
                     "hashtags": final_hashtags,
                     "image_alt_text": image_plan.get("image_alt_text", ""),
+                    # NewsPublishService.publish() 내부의 두 번째 anchor-strip 단계에도
+                    # 같은 화이트리스트를 넘겨야 최종 발행 HTML에서 링크가 살아남는다.
+                    "extra_allowed_urls": _final_citation_urls,
                 },
             )
             if flow["kind"] == "draft":

@@ -74,7 +74,17 @@ class NewsPublishService:
         is_draft: bool = False,
         internal_links: tuple[tuple[str, str], ...] | list[tuple[str, str]] | None = None,
         permalink_slug_hint: str = "",
+        extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
     ) -> NewsPublishOutcome:
+        """extra_allowed_urls: 실제 리서치(Naver/Exa 등)로 수집한 SOURCE_TRUST_BLOCK
+        인용 URL 화이트리스트. 2026-07-18 실측 사고: 파이프라인 단계에서는 이 URL이
+        <a href>로 정상 보존됐는데, 이 메서드의 prepare_blogspot_html/
+        strip_external_anchor_links 호출 두 곳이 자체 화이트리스트 없이 다시
+        strip_external_anchor_links를 돌려 href만 벗겨내고 앵커 텍스트(잘린 제목)만
+        남겼다 — 라이브 발행글의 "Sources & where to verify" 목록이 링크 없는 텍스트
+        조각으로 나간 원인. 호출부가 넘긴 화이트리스트를 두 스트립 지점 모두에
+        전달해 실발행 경로가 파이프라인이 검증한 링크를 그대로 유지하게 한다.
+        """
         blogger_client = self.blogger_client or BloggerClient(self.settings)
         if has_unverified_experience_or_income_claim(article_html):
             raise ValueError("News publish blocked: unverified experience or income claim detected.")
@@ -84,6 +94,7 @@ class NewsPublishService:
         prepared_html = prepare_blogspot_html(
             improve_image_alt_text(article_html, image_alt_text=image_alt_text or title),
             strip_document=True,
+            extra_allowed_urls=extra_allowed_urls,
         )
         # 내부 링크는 prepare가 기존 섹션을 strip한 뒤에 붙여야 살아남는다.
         # answer_engine tail 블록은 internal-links 섹션 앞에 삽입되므로 순서 안전.
@@ -107,7 +118,7 @@ class NewsPublishService:
             labels=normalized_labels,
         )
         prepared_html = _strip_internal_h1_for_blogger(prepared_html)
-        prepared_html = strip_external_anchor_links(prepared_html)
+        prepared_html = strip_external_anchor_links(prepared_html, extra_allowed_urls=extra_allowed_urls)
         resolved_meta_description = normalize_search_description(
             title=title,
             description=meta_description.strip() or extract_meta_description(prepared_html),
