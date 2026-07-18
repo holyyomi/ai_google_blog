@@ -334,9 +334,17 @@ def _heading_text_is_question(text: str) -> bool:
 
 
 def _question_budget_metrics(html: str) -> dict[str, int]:
+    # INTENT_ANSWER_BLOCK의 질문은 본문 밀도와 무관한 합성 AEO Q&A라 가시 질문
+    # 헤딩 예산(≤5)에서 제외한다(answer_engine_policy._demote_excess_question_
+    # headings와 같은 규칙 — 2026-07-18: 둘의 집계 기준이 어긋나면 강등해도
+    # 최종 게이트가 여전히 초과로 차단한다).
+    _content = re.sub(
+        r'<section\b[^>]*\bid=["\']INTENT_ANSWER_BLOCK["\'][^>]*>.*?</section>',
+        " ", html or "", flags=re.IGNORECASE | re.DOTALL,
+    )
     headings = [
         _visible_text(match.group(1))
-        for match in re.finditer(r"<h[123]\b[^>]*>(.*?)</h[123]>", html or "", flags=re.IGNORECASE | re.DOTALL)
+        for match in re.finditer(r"<h[123]\b[^>]*>(.*?)</h[123]>", _content, flags=re.IGNORECASE | re.DOTALL)
     ]
     question_headings = [text for text in headings if _heading_text_is_question(text)]
     return {

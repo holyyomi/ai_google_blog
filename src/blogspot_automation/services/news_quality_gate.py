@@ -1854,16 +1854,41 @@ class NewsQualityGate:
                     parts.append(text)
         return re.sub(r"\s+", " ", " ".join(parts)).lower()
 
-    @staticmethod
-    def _faq_answers(html: str) -> list[str]:
-        faq_match = re.search(
-            r'<section\b[^>]*class=["\'][^"\']*faq[^"\']*["\'][^>]*>(.*?)</section>',
+    # answer_engine_policy가 자동 삽입하는 GEO 블록 id — 전부 class에 "faq"가
+    # 안 들어가지만 INTENT_ANSWER_BLOCK만 예외로 class="yomi-faq"를 쓴다.
+    # 2026-07-18 실측 사고: TL;DR 위치 버그 수정(_has_author_answer_sections)으로
+    # 이 블록이 h1 바로 뒤(본문보다 먼저)로 오게 되자, "첫 번째 *faq* 클래스
+    # section"을 찾던 아래 두 함수가 본문의 진짜 FAQ 대신 이 블록을 잡아
+    # faq_answer_too_short로 오탐 차단했다. GEO 블록 id는 항상 제외하고
+    # 본문이 실제로 쓴 FAQ 섹션만 찾는다.
+    _GEO_INJECTED_SECTION_IDS: frozenset[str] = frozenset({
+        "AI_OVERVIEW_TARGET_ANSWER", "ISSUE_CONTEXT_BLOCK", "INTENT_ANSWER_BLOCK",
+        "PEOPLE_ALSO_ASK_BLOCK", "CONFIRMED_VS_CHECK_NEEDED_BLOCK",
+        "SOURCE_TRUST_BLOCK", "AI_CITATION_SUMMARY",
+    })
+
+    @classmethod
+    def _body_faq_section_html(cls, html: str) -> str:
+        # LLM 직접발행 본문은 FAQ를 <div class="faq-section">(→yomi-faq 정규화)으로
+        # 출력한다 — <section> 태그만 찾으면 본문 FAQ를 영영 못 찾는다
+        # (_has_faq_section과 동일하게 section/div/article 전부 인정해야 한다).
+        for match in re.finditer(
+            r'<(?P<tag>section|div|article)\b(?P<attrs>[^>]*)class=["\'][^"\']*faq[^"\']*["\'][^>]*>(?P<inner>.*?)</(?P=tag)>',
             html,
             flags=re.IGNORECASE | re.DOTALL,
-        )
-        if not faq_match:
+        ):
+            id_match = re.search(r'\bid=["\']([^"\']+)["\']', match.group("attrs"), flags=re.IGNORECASE)
+            section_id = id_match.group(1) if id_match else ""
+            if section_id.upper() in cls._GEO_INJECTED_SECTION_IDS:
+                continue
+            return match.group("inner")
+        return ""
+
+    @classmethod
+    def _faq_answers(cls, html: str) -> list[str]:
+        section = cls._body_faq_section_html(html)
+        if not section:
             return []
-        section = faq_match.group(1)
         answers = re.findall(
             r"<h3\b[^>]*>.*?</h3>\s*<p\b[^>]*>(.*?)</p>",
             section,
@@ -1871,18 +1896,14 @@ class NewsQualityGate:
         )
         return [" ".join(re.sub(r"<[^>]+>", " ", answer).split()) for answer in answers]
 
-    @staticmethod
-    def _faq_questions(html: str) -> list[str]:
-        faq_match = re.search(
-            r'<section\b[^>]*class=["\'][^"\']*faq[^"\']*["\'][^>]*>(.*?)</section>',
-            html,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if not faq_match:
+    @classmethod
+    def _faq_questions(cls, html: str) -> list[str]:
+        section = cls._body_faq_section_html(html)
+        if not section:
             return []
         return [
             " ".join(re.sub(r"<[^>]+>", " ", question).split())
-            for question in re.findall(r"<h3\b[^>]*>(.*?)</h3>", faq_match.group(1), flags=re.IGNORECASE | re.DOTALL)
+            for question in re.findall(r"<h3\b[^>]*>(.*?)</h3>", section, flags=re.IGNORECASE | re.DOTALL)
         ]
 
     @staticmethod

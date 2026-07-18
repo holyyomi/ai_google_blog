@@ -156,6 +156,88 @@ def test_news_publish_service_preserves_official_source_links_for_consumer_posts
     assert "#환불" in article_html
 
 
+def test_news_publish_service_preserves_research_citation_links_when_allowlisted(tmp_path) -> None:
+    """2026-07-18 실측 사고 회귀 테스트.
+
+    Naver/Exa 등 실제 리서치로 얻은 인용 URL(정부/공식 도메인이 아닌 일반
+    도메인, 예: dev.to)은 host allowlist(_ALLOWED_LINK_HOSTS)에 안 걸린다 —
+    호출부가 extra_allowed_urls로 명시적으로 넘겨야만 살아남는다. 파이프라인이
+    SOURCE_TRUST_BLOCK에 이 링크를 <a href>로 넣어도, publish()가
+    extra_allowed_urls 없이 내부 strip_external_anchor_links를 두 번(prepare_
+    blogspot_html 안 + 마지막 강제 strip) 돌리면 href만 벗겨지고 앵커 텍스트만
+    남는다 — 라이브 발행 글의 "Sources & where to verify" 목록이 링크 없는
+    잘린 텍스트로 나간 원인이었다.
+    """
+    client = CapturingBloggerClient()
+    service = NewsPublishService(
+        settings=Settings(blogger_blog_id="blog-1"),
+        blogger_client=client,  # type: ignore[arg-type]
+        history_path=tmp_path / "history.json",
+    )
+    citation_url = "https://dev.to/alexmercedcoder/a-frontier-model-goes-dark-ai-week"
+
+    service.publish(
+        title="Copilot Share Falls to 51% as Cursor Hits $2B ARR",
+        selected_topic="Copilot vs Cursor market share",
+        article_html=_finalized(
+            "<article><h1>Copilot Share Falls to 51% as Cursor Hits $2B ARR</h1>"
+            "<p>Verified market-share figures are covered below.</p>"
+            '<section id="SOURCE_TRUST_BLOCK" class="yomi-source">'
+            f'<a href="{citation_url}">A Frontier Model Goes Dark</a>'
+            "</section></article>",
+            title="Copilot Share Falls to 51% as Cursor Hits $2B ARR",
+            topic="Copilot vs Cursor market share",
+            topic_group="ai_work",
+        ),
+        labels=["News", "AITools"],
+        topic_group="ai_work",
+        content_type="ai_work_tip",
+        extra_allowed_urls=(citation_url,),
+    )
+
+    article_html = str(client.calls[0]["article_html"])
+    assert citation_url in article_html
+    assert f'href="{citation_url}"' in article_html
+
+
+def test_news_publish_service_strips_unallowlisted_citation_link(tmp_path) -> None:
+    """extra_allowed_urls를 넘기지 않으면 host-allowlist 밖 URL은 여전히 벗겨진다.
+
+    위 회귀 테스트와 짝을 이뤄 strip 메커니즘 자체가 살아있는지 확인한다 —
+    이 테스트가 실패(링크가 안 벗겨짐)하면 화이트리스트 우회 경로가 생겼다는
+    뜻이므로 별개의 보안 회귀다.
+    """
+    client = CapturingBloggerClient()
+    service = NewsPublishService(
+        settings=Settings(blogger_blog_id="blog-1"),
+        blogger_client=client,  # type: ignore[arg-type]
+        history_path=tmp_path / "history.json",
+    )
+    citation_url = "https://dev.to/alexmercedcoder/a-frontier-model-goes-dark-ai-week"
+
+    service.publish(
+        title="Copilot Share Falls to 51% as Cursor Hits $2B ARR",
+        selected_topic="Copilot vs Cursor market share",
+        article_html=_finalized(
+            "<article><h1>Copilot Share Falls to 51% as Cursor Hits $2B ARR</h1>"
+            "<p>Verified market-share figures are covered below.</p>"
+            '<section id="SOURCE_TRUST_BLOCK" class="yomi-source">'
+            f'<a href="{citation_url}">A Frontier Model Goes Dark</a>'
+            "</section></article>",
+            title="Copilot Share Falls to 51% as Cursor Hits $2B ARR",
+            topic="Copilot vs Cursor market share",
+            topic_group="ai_work",
+        ),
+        labels=["News", "AITools"],
+        topic_group="ai_work",
+        content_type="ai_work_tip",
+    )
+
+    article_html = str(client.calls[0]["article_html"])
+    assert citation_url not in article_html
+    assert "A Frontier Model Goes Dark" in article_html
+
+
 def test_news_publish_service_inserts_cover_image_from_env(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AI_COVER_IMAGE_URL", "https://cdn.example.com/ai-cover.jpg")
     client = CapturingBloggerClient()
