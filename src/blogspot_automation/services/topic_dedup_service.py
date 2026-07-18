@@ -201,6 +201,13 @@ class TopicDedupService:
 
         filtered: list[ScoredNewsCandidate] = []
         for candidate in candidates:
+            raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+            # 운영자 지정 주제(AI_FORCE_TOPIC)는 dedup 면제 — 2026-07-18 실측:
+            # 최근 AI 글들과의 공통 어휘(pricing/usage 등) 겹침만으로 지정 주제가
+            # 매번 걸러졌다. 같은 주제 재발행 여부는 지정한 운영자의 판단이다.
+            if raw.get("forced_manual_topic"):
+                filtered.append(candidate)
+                continue
             if not self.is_duplicate(candidate, history_records):
                 filtered.append(candidate)
         return filtered
