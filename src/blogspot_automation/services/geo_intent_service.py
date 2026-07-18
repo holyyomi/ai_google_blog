@@ -815,8 +815,19 @@ class GeoIntentService:
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 5][:2]
         if not sentences and text:
             sentences = [_ensure_sentence(text[:120])]
+        # 2026-07-18 실측: hook에서 뽑은 문장은 상류(answer_engine)의 본문 중복
+        # 제거에 전부 걸러지고 아래 canned 'why' 한 문장만 발행됐다 — 정보 0의
+        # 필러 블록. 주제가 짧으면(에버그린 검색구) why 문장 자체에 주제를 넣어
+        # 중복 제거를 통과해도 최소한의 특정성이 남게 한다. 긴 뉴스 헤드라인은
+        # 문장이 깨지므로 중립 문장 유지.
+        _subject = " ".join((topic or "").split())
+        _short = _subject if (_subject and len(_subject.split()) <= 6 and len(_subject) <= 45) else ""
         if content_type.startswith("ai_"):
-            why = "Knowing what changed — and what it costs — decides whether this is worth your time."
+            why = (
+                f"Knowing what changed with {_short} — and what it costs — decides whether this is worth your time."
+                if _short
+                else "Knowing what changed — and what it costs — decides whether this is worth your time."
+            )
         elif content_type == "today_issue_explainer":
             why = "Separating what's confirmed from what's still speculation is the only way to read this story."
         else:
