@@ -823,8 +823,10 @@ class GeoIntentService:
         _subject = " ".join((topic or "").split())
         _short = _subject if (_subject and len(_subject.split()) <= 6 and len(_subject) <= 45) else ""
         if content_type.startswith("ai_"):
+            # 주제를 따옴표로 감싼다 — "Introducing Grok 4.5"처럼 동사로 시작하는
+            # 발표 제목이 문장에 그대로 끼면 비문이 되는 것을 방지(인용 표기).
             why = (
-                f"Knowing what changed with {_short} — and what it costs — decides whether this is worth your time."
+                f'Knowing what changed with "{_short}" — and what it costs — decides whether this is worth your time.'
                 if _short
                 else "Knowing what changed — and what it costs — decides whether this is worth your time."
             )
@@ -1188,14 +1190,16 @@ def _truncate_at_sentence(text: str, *, max_len: int) -> str:
     cleaned = " ".join((text or "").split()).strip()
     if len(cleaned) <= max_len:
         return cleaned
-    cut = max(
-        cleaned.rfind(".", 0, max_len),
-        cleaned.rfind("?", 0, max_len),
-        cleaned.rfind("!", 0, max_len),
-        cleaned.rfind("。", 0, max_len),
-        cleaned.rfind("？", 0, max_len),
-        cleaned.rfind("！", 0, max_len),
-    )
+    # 문장 끝 부호는 '뒤가 공백이거나 문자열 끝'일 때만 인정한다 — 버전 번호
+    # ("Grok 4.5")·소수점·URL의 '.'을 문장 경계로 오인해 "Grok 4."에서
+    # 잘리던 실측 결함(2026-07-18) 방지.
+    cut = -1
+    for i in range(min(max_len, len(cleaned)) - 1, -1, -1):
+        if cleaned[i] in ".?!。？！":
+            nxt = cleaned[i + 1 : i + 2]
+            if nxt == "" or nxt == " ":
+                cut = i
+                break
     if cut >= 80:
         return cleaned[: cut + 1]
     return _ensure_sentence(cleaned[:max_len].rstrip(" ,.-_/\\"))

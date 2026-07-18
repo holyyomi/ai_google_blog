@@ -603,13 +603,23 @@ def _source_trust_block(
     from blogspot_automation.services.official_sources import render_official_sources_html
 
     heading = label or ("Sources & where to verify" if is_english_mode() else "어디서 확인했나")
-    safe_citations = [
-        {"name": str(c.get("name", "")).strip(), "url": str(c.get("url", "")).strip()}
-        for c in (citations or [])
-        if isinstance(c, dict)
-        and str(c.get("url", "")).strip().lower().startswith(("http://", "https://"))
-        and str(c.get("name", "")).strip()
-    ][:4]
+    # URL 중복 제거(2026-07-18): 공식 도메인 검색과 일반 검색이 같은 페이지를
+    # 각각 반환하면 출처 목록에 동일 링크가 두 번 노출됐다(실측).
+    _seen_urls: set[str] = set()
+    safe_citations: list[dict[str, str]] = []
+    for c in citations or []:
+        if not isinstance(c, dict):
+            continue
+        c_url = str(c.get("url", "")).strip()
+        c_name = str(c.get("name", "")).strip()
+        if not c_url.lower().startswith(("http://", "https://")) or not c_name:
+            continue
+        if c_url in _seen_urls:
+            continue
+        _seen_urls.add(c_url)
+        safe_citations.append({"name": c_name, "url": c_url})
+        if len(safe_citations) >= 4:
+            break
     links_html = render_official_sources_html(safe_citations)
     return (
         '<section id="SOURCE_TRUST_BLOCK" class="yomi-source">'
