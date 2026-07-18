@@ -89,6 +89,11 @@ _BANNED_TITLE_PHRASES = (
     "in today's fast-paced world",
     "delve into",
     "unlock the power",
+    # 우회/탈취·날조 테스트 제목 (2026-07-18): 애드센스 정책·신뢰 리스크
+    "bypass",
+    "unlock paid",
+    "avoid detection",
+    "i tested",
 )
 _MALFORMED_SELECTED_TITLE_PATTERNS = (
     r"^[가-힣A-Za-z0-9·\s]{2,24\]\s+",
@@ -2159,6 +2164,17 @@ class NewsQualityGate:
             r"replaces?\s+(?:all|every)\s+(?:work|jobs?)",
             r"works\s+for\s+everyone",
             r"get\s+rich",
+            # 우회/탈취 프레이밍 (2026-07-18 콘텐츠 품질 업그레이드): 애드센스
+            # 정책상 제한 우회·유료기능 탈취류 표현 차단 — 합법적 해결 프레이밍
+            # ("reduce file size", "fix upload errors")은 걸리지 않는다.
+            r"bypass(?:ing)?\s+(?:the\s+)?(?:limit|restriction|paywall|filter|detection)",
+            r"unlock\s+(?:the\s+)?paid\s+features?",
+            r"get\s+around\s+(?:the\s+)?restrictions?",
+            r"avoid\s+detection",
+            # 날조 1인칭 테스트 주장 — 자동 발행 파이프라인에서는 항상 허위
+            r"\bI\s+tested\b",
+            r"\bin\s+my\s+testing\b",
+            r"\bI\s+personally\s+used\b",
         )
         if any(re.search(pattern, text) for pattern in overclaim_patterns) or any(
             re.search(pattern, text, flags=re.IGNORECASE) for pattern in overclaim_patterns_en
