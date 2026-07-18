@@ -786,11 +786,28 @@ class NewsQualityGate:
                 .replace(">", "&gt;")
                 .replace('"', "&quot;")
             )
+            # 영어 모드(2026-07-18): 이 게이트의 의도는 '본문 산문의 키워드
+            # 스터핑' 차단인데, 전체 html.count는 정당한 구조 요소까지 센다 —
+            # 실측 6회 = h1 + JSON-LD headline + 커버 alt(제목이 헤드라인과
+            # 같은 뉴스 글에서 필연) + 공식 출처 앵커 텍스트 2(출처 페이지
+            # 제목이 곧 발표 제목인 경우) + 맥락 블록 1. 영어 모드에서는
+            # script/JSON-LD·태그 속성(alt 등)·h1·SOURCE_TRUST 링크 목록을
+            # 제외한 '가시 본문'만 센다. 한도(6)와 ko 모드 동작은 불변.
+            _count_target = html
+            if is_english_mode():
+                _count_target = re.sub(r"<script\b.*?</script>", " ", html, flags=re.IGNORECASE | re.DOTALL)
+                _count_target = re.sub(r"<h1\b[^>]*>.*?</h1>", " ", _count_target, flags=re.IGNORECASE | re.DOTALL)
+                _count_target = re.sub(
+                    r'<ul\b[^>]*class=["\'][^"\']*source-trust-links[^"\']*["\'][^>]*>.*?</ul>',
+                    " ", _count_target, flags=re.IGNORECASE | re.DOTALL,
+                )
+                # 태그 속성(alt="..." 등) 제거 — 태그 이름만 남기고 속성 전체 삭제
+                _count_target = re.sub(r"<([a-zA-Z0-9]+)\b[^>]*>", r"<\1>", _count_target)
             # escaped와 raw가 동일하면 double-count 방지
             if escaped_topic == raw_topic:
-                raw_topic_count = html.count(raw_topic)
+                raw_topic_count = _count_target.count(raw_topic)
             else:
-                raw_topic_count = html.count(raw_topic) + html.count(escaped_topic)
+                raw_topic_count = _count_target.count(raw_topic) + _count_target.count(escaped_topic)
             if content_type == "viral_issue_decode":
                 if raw_topic_count >= 14:
                     warnings.append("viral_raw_topic_repeated_many_times")
