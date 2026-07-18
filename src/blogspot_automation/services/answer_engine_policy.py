@@ -133,10 +133,22 @@ def ensure_answer_engine_optimized_html(
     issue_context = _drop_sentences_already_in_body(issue_context, _body_norm_for_dup)
     if len(issue_context) < 20:
         if is_english_mode():
-            issue_context = (
-                f"{issue_context} The background and real-world impact "
-                "are covered below, based on confirmed facts."
-            ).strip()
+            # 2026-07-18 실측: 슬롯 문장이 전부 본문 중복으로 걸러지면 이 블록이
+            # 정보 0의 범용 필러로 발행됐다. 주제가 짧으면(에버그린 검색구 형태)
+            # 주제를 명시해 최소한의 특정성을 준다 — 짧은 주제 1회 삽입은
+            # raw_topic_repeated 예산(6회)에 안전하고, 긴 뉴스 헤드라인(>6단어)은
+            # 문장이 깨지므로 기존 중립 문장을 유지한다.
+            _subject = " ".join((topic_text or "").split())
+            if _subject and len(_subject.split()) <= 6 and len(_subject) <= 45:
+                issue_context = (
+                    f"{issue_context} What follows covers the background and "
+                    f"real-world impact of {_subject}, based on confirmed facts."
+                ).strip()
+            else:
+                issue_context = (
+                    f"{issue_context} The background and real-world impact "
+                    "are covered below, based on confirmed facts."
+                ).strip()
         else:
             issue_context = (
                 f"{issue_context} {topic_text}의 배경과 영향 범위는 본문에서 "
@@ -259,7 +271,11 @@ def ensure_answer_engine_optimized_html(
     if 'id="AI_CITATION_SUMMARY"' not in content:
         tail_blocks.append(
             _citation_summary_block(
-                title=title, topic=topic_text, slots=slots, body_norm=_body_norm_for_dup
+                title=title,
+                topic=topic_text,
+                slots=slots,
+                body_norm=_body_norm_for_dup,
+                confirmed_facts=list(confirmed_map.get("confirmed") or []),
             )
         )
     if 'id="CONFIRMED_VS_CHECK_NEEDED_BLOCK"' not in content:
@@ -587,13 +603,23 @@ def _source_trust_block(
     from blogspot_automation.services.official_sources import render_official_sources_html
 
     heading = label or ("Sources & where to verify" if is_english_mode() else "어디서 확인했나")
-    safe_citations = [
-        {"name": str(c.get("name", "")).strip(), "url": str(c.get("url", "")).strip()}
-        for c in (citations or [])
-        if isinstance(c, dict)
-        and str(c.get("url", "")).strip().lower().startswith(("http://", "https://"))
-        and str(c.get("name", "")).strip()
-    ][:4]
+    # URL 중복 제거(2026-07-18): 공식 도메인 검색과 일반 검색이 같은 페이지를
+    # 각각 반환하면 출처 목록에 동일 링크가 두 번 노출됐다(실측).
+    _seen_urls: set[str] = set()
+    safe_citations: list[dict[str, str]] = []
+    for c in citations or []:
+        if not isinstance(c, dict):
+            continue
+        c_url = str(c.get("url", "")).strip()
+        c_name = str(c.get("name", "")).strip()
+        if not c_url.lower().startswith(("http://", "https://")) or not c_name:
+            continue
+        if c_url in _seen_urls:
+            continue
+        _seen_urls.add(c_url)
+        safe_citations.append({"name": c_name, "url": c_url})
+        if len(safe_citations) >= 4:
+            break
     links_html = render_official_sources_html(safe_citations)
     return (
         '<section id="SOURCE_TRUST_BLOCK" class="yomi-source">'
@@ -605,7 +631,12 @@ def _source_trust_block(
 
 
 def _citation_summary_block(
-    *, title: str, topic: str, slots: dict[str, Any], body_norm: str = ""
+    *,
+    title: str,
+    topic: str,
+    slots: dict[str, Any],
+    body_norm: str = "",
+    confirmed_facts: list[str] | None = None,
 ) -> str:
     hook = _first_sentence(str(slots.get("hook_opening") or ""), max_len=140)
     criterion = _first_sentence(str(slots.get("real_criterion") or ""), max_len=140)
@@ -617,12 +648,28 @@ def _citation_summary_block(
         sentences = [s for s in sentences if _dupcheck_norm(s) not in body_norm]
     if len(sentences) < 3:
         if is_english_mode():
-            # 헤드라인(topic) 삽입 금지 — raw_topic_repeated_in_html 반복 카운트 방지
-            sentences.extend([
-                "It pays to separate who this applies to from what actually changes.",
-                "Check the official announcement, the product screen, and the latest updates side by side.",
-                "The article lays out the key conditions and caveats first, so you can compare quickly.",
-            ])
+            # 2026-07-18 실측: 영어 서술형 글은 슬롯 추출 문장이 전부 본문
+            # 중복으로 걸러져 이 블록이 100% 범용 필러("separating the actual
+            # impact from the noise...")로 발행됐다 — AI 검색이 발췌하라고 있는
+            # 블록에 글 정보가 0이었다. 글의 확정 사실 목록(LLM이 뽑은 주제
+            # 특정 팩트)이 있으면 그걸 인용 요약의 본체로 쓴다. CONFIRMED
+            # 블록의 <li>와 겹치지만 의도된 재인용이다(멀리 떨어진 별개 블록,
+            # 이 블록의 존재 이유가 '발췌용 요약'이다).
+            fact_sentences = [
+                (" ".join(str(f).split())).rstrip(".") + "."
+                for f in (confirmed_facts or [])
+                if str(f).strip()
+            ]
+            # 팩트를 맨 앞에 — AI 검색은 첫 문장부터 발췌하므로 합성 판단 문장
+            # (yomi_judgment 폴백)보다 확정 사실이 먼저 와야 한다.
+            sentences = fact_sentences[:3] + [s for s in sentences if s not in fact_sentences]
+            if len(sentences) < 3:
+                # 헤드라인(topic) 삽입 금지 — raw_topic_repeated_in_html 반복 카운트 방지
+                sentences.extend([
+                    "It pays to separate who this applies to from what actually changes.",
+                    "Check the official announcement, the product screen, and the latest updates side by side.",
+                    "The article lays out the key conditions and caveats first, so you can compare quickly.",
+                ])
         else:
             fallback_topic = topic or title or "이 주제"
             sentences.extend([

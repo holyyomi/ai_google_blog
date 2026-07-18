@@ -1819,6 +1819,14 @@ class NewsPipeline:
                     # NewsPublishService.publish() 내부의 두 번째 anchor-strip 단계에도
                     # 같은 화이트리스트를 넘겨야 최종 발행 HTML에서 링크가 살아남는다.
                     "extra_allowed_urls": _final_citation_urls,
+                    # 2026-07-18 실측: 이 키가 없어 메인 발행 경로의 라이브 글에
+                    # 내부링크 블록(Related guides)이 한 번도 붙지 않았다 —
+                    # prepare_blogspot_html(links=...)는 include_internal_links
+                    # 기본값 False라 링크를 계산만 하고 버리고, publish() 쪽
+                    # append는 internal_links 인자가 있어야만 동작한다.
+                    # (EN 모드에선 한글 제목 링크가 걸러지고 라벨 페이지 폴백이
+                    # 들어간다 — seo_policy.append_internal_links_block.)
+                    "internal_links": history_internal_links,
                 },
             )
             if flow["kind"] == "draft":
