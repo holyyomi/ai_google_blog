@@ -4170,6 +4170,14 @@ class NewsPipeline:
         candidates: list[ScoredNewsCandidate],
         history_records: list[dict[str, Any]],
     ) -> ScoredNewsCandidate:
+        # 운영자 지정 주제(AI_FORCE_TOPIC)는 다양성/클릭 가중 오버라이드보다
+        # 우선한다 — 2026-07-18 실측: 99점 1위여도 weighted-click 오버라이드가
+        # 다른 후보를 골라 지정 주제가 4연속 밀렸다. 발행 가부는 게이트가 결정.
+        for item in candidates:
+            raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+            if raw.get("forced_manual_topic"):
+                logger.info("selection: 운영자 지정 주제 우선 선택 — %s", (item.candidate.topic or "")[:60])
+                return item
         self._annotate_golden_selection_confidence(candidates)
         golden_ready = [
             item for item in candidates
