@@ -448,6 +448,37 @@ class NewsPipeline:
         required_overlap = 3 if min(len(candidate_keywords), len(blocked_keywords)) >= 3 else 2
         return len(overlap) >= required_overlap
 
+    def _inject_forced_topic_scored(
+        self, scored: list[ScoredNewsCandidate]
+    ) -> list[ScoredNewsCandidate]:
+        """AI_FORCE_TOPIC 지정 주제를 scored 목록 선두에 보장한다 (2026-07-18).
+
+        topic_service 수집 경로에 이미 살아남았으면 그 항목에 99점만 보장하고,
+        수집 계열 필터에 걸러졌으면 단독 스코어링으로 정식 메타를 만든 뒤 주입.
+        발행 가부는 하류 품질 게이트가 그대로 결정한다.
+        """
+        forced_topic = os.getenv("AI_FORCE_TOPIC", "").strip()
+        if not forced_topic:
+            return scored
+        for item in scored:
+            raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+            if raw.get("forced_manual_topic"):
+                item.total_score = max(item.total_score, 99)
+                return scored
+        forced_candidate = self.topic_service._forced_topic_candidate()
+        if forced_candidate is None:
+            return scored
+        forced_scored_list = self.scoring_service.score_candidates([forced_candidate])
+        if not forced_scored_list:
+            return scored
+        forced_scored = forced_scored_list[0]
+        forced_scored.total_score = 99
+        logger.info(
+            "AI_FORCE_TOPIC: scored 단계 재주입 (수집 필터에 걸러짐) — %s",
+            (forced_scored.candidate.topic or "")[:70],
+        )
+        return [forced_scored] + scored
+
     def run_once(self) -> dict[str, Any]:
         try:
             # 깨끗한 트렌딩 선형 경로 우선 시도 (실패/없음 시 기존 파이프라인 폴백).
@@ -518,6 +549,12 @@ class NewsPipeline:
                 except Exception as _disc_exc:  # noqa: BLE001
                     logger.warning("issue_discovery_service failed: %s", _disc_exc)
             scored = self.scoring_service.score_candidates(candidates)
+            # 운영자 지정 주제(AI_FORCE_TOPIC)를 scored 직후에 확정 주입한다.
+            # 2026-07-18 실측: collect 경로 주입은 수집 계열 필터에 의해 조용히
+            # 사라지는 사례가 반복돼(5회 드라이런 전부 미선택) 원인 추적이 어려웠다.
+            # 스코어링을 정식으로 통과시킨 뒤(search_angle/content_angle 등 메타 생성)
+            # 점수만 99로 강제해 어떤 수집 필터와도 무관하게 존재를 보장한다.
+            scored = self._inject_forced_topic_scored(scored)
             topic_group_history = self._load_topic_group_history()
             recent_context = self._load_recent_context()
             recent_evergreen_axes = recent_context["recent_evergreen_axes"]
