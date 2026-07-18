@@ -105,7 +105,11 @@ def test_audit_warns_when_aeo_question_blocks_are_overstacked() -> None:
 
     result = audit_final_html_quality(html, topic="오늘 이슈", content_type="today_issue_explainer")
 
-    assert "visible_question_headings_above_5:6" in result["issues"]
+    # 2026-07-18: INTENT_ANSWER_BLOCK의 질문은 합성 AEO Q&A라 가시 질문 헤딩
+    # 예산(visible_question_headings_above_5) 집계에서 제외한다 — 본문 자체
+    # 질문(0개)만 세면 여기서는 애초에 초과가 없다. 이 테스트의 핵심 회귀는
+    # overstacked(중복 AEO 블록 과다) 탐지이므로 그 검사만 남긴다.
+    assert "visible_question_headings_above_5" not in " ".join(result["issues"])
     assert "aeo_visible_question_blocks_overstacked:intent,paa,faq" in result["issues"]
 
 

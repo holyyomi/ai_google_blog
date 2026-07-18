@@ -927,20 +927,33 @@ def _heading_text_is_question(text: str) -> bool:
 
 def _demote_excess_question_headings(html: str, *, max_count: int = 5) -> str:
     """visible 질문형 헤딩이 max_count를 넘으면 본문의 '느슨한' 질문 h2/h3를
-    문단(<p>)으로 강등해 예산 이내로 맞춘다. 구조화된 AEO 블록
-    (intent-qa-item, faq-card) 안의 질문은 보존한다."""
+    문단(<p>)으로 강등해 예산 이내로 맞춘다. 구조화된 AEO 블록(faq-card,
+    faq-item) 안의 질문은 강등 후보에서 보존하고, INTENT_ANSWER_BLOCK(합성
+    AEO Q&A로 원래 본문 밀도와 무관)은 개수 집계 자체에서 제외한다.
+
+    2026-07-18 실측 사고: _intent_answer_block은 항상 <div class="intent-qa-item">를
+    쓰는데(article 아님) 과거 코드는 <article>만 찾아 "구조화된 것"으로 한 번도
+    인식하지 못했다. TL;DR 위치 버그(has_author_answer_sections) 수정으로 이
+    블록이 문서 앞쪽에 오는 경우가 생기자, 강등 대상 선택("문서 순서상 앞의
+    것")과 맞물려 intent 블록의 Q가 먼저 강등되며 그 안 <h3>가 사라져 FAQ 답
+    추출이 깨졌다(faq_answer_too_short). 본문 자체 FAQ(faq-item)도 같은
+    이유로 보호가 필요했다. 하지만 intent 블록은 보호만으로는 부족했다 —
+    intent 3개 + 본문 FAQ 3개처럼 구조화 항목 합만으로 예산(5)을 넘으면 보호된
+    항목은 강등이 안 되니 최종 가시 질문 헤딩 수가 그대로 초과된다. 애초에
+    intent 블록의 질문은 "본문이 조밀해서 생긴 질문"이 아니라 시스템이 붙인
+    합성 Q&A이므로, 예산 집계 자체에서 완전히 제외하는 것이 맞다.
+    """
     content = html or ""
+    _intent_block_match = re.search(
+        r'<section\b[^>]*\bid=["\']INTENT_ANSWER_BLOCK["\'][^>]*>.*?</section>',
+        content, flags=re.IGNORECASE | re.DOTALL,
+    )
+    intent_span = (_intent_block_match.start(), _intent_block_match.end()) if _intent_block_match else None
+
     structured_spans: list[tuple[int, int]] = [
         (m.start(), m.end())
         for m in re.finditer(
-            r'<article\b[^>]*class=["\'][^"\']*intent-qa-item[^"\']*["\'].*?</article>',
-            content, flags=re.IGNORECASE | re.DOTALL,
-        )
-    ]
-    structured_spans += [
-        (m.start(), m.end())
-        for m in re.finditer(
-            r'<div\b[^>]*class=["\'][^"\']*faq-card[^"\']*["\'].*?</div>',
+            r'<(?P<tag>div|article)\b[^>]*class=["\'][^"\']*\bfaq-(?:card|item)\b[^"\']*["\'].*?</(?P=tag)>',
             content, flags=re.IGNORECASE | re.DOTALL,
         )
     ]
@@ -948,10 +961,14 @@ def _demote_excess_question_headings(html: str, *, max_count: int = 5) -> str:
     def _structured(pos: int) -> bool:
         return any(start <= pos < end for start, end in structured_spans)
 
+    def _in_intent_block(pos: int) -> bool:
+        return intent_span is not None and intent_span[0] <= pos < intent_span[1]
+
     headings = list(re.finditer(r"<(h[23])\b[^>]*>(.*?)</\1>", content, flags=re.IGNORECASE | re.DOTALL))
     q_headings = [
         m for m in headings
-        if _heading_text_is_question(re.sub(r"<[^>]+>", " ", m.group(2)))
+        if not _in_intent_block(m.start())
+        and _heading_text_is_question(re.sub(r"<[^>]+>", " ", m.group(2)))
     ]
     if len(q_headings) <= max_count:
         return content
@@ -1296,7 +1313,22 @@ def _has_faq_section(html: str) -> bool:
 
 
 def _has_author_answer_sections(html: str) -> bool:
-    content = html or ""
+    """본문 저자가 이미 요약형 구조(golden template 계열)를 갖춘 글인지 판별한다.
+
+    True면 자동 GEO 요약 박스(AI_OVERVIEW_TARGET_ANSWER 등)를 본문 끝에 붙이고,
+    False면 h1 바로 뒤(최상단)에 삽입한다 — 이 판정이 TL;DR 박스 위치를 결정한다.
+
+    2026-07-18 실측 버그: 호출부(ensure_answer_engine_optimized_html)는
+    prepare_blogspot_html이 이미 공유 스타일시트(YOMI_CLEAN_ARTICLE_STYLE)를
+    <style> 블록으로 앞에 붙인 뒤의 html을 받는다. 그 스타일시트는 이 9개
+    마커 클래스 전부를 CSS 선택자로 정의하고 있어, 순수 substring 검사가
+    "본문에 이 클래스가 실제로 쓰였는지"가 아니라 "이 문서에 스타일 규칙이
+    존재하는지"를 검사하게 되어 사실상 모든 글에서 True가 나왔다 — LLM 서술형
+    글의 TL;DR 박스가 항상 본문 맨 아래로 밀려나는 원인(실측: 리허설 발행글의
+    h1→h2 7개→그제서야 GEO 블록 순서). <style> 블록을 제외하고 실제 본문
+    class 속성값만 검사해야 한다.
+    """
+    content = re.sub(r"<style\b.*?</style>", " ", html or "", flags=re.IGNORECASE | re.DOTALL)
     markers = (
         "hero-summary-box",
         "core-message-box",
