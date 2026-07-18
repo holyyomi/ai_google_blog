@@ -2572,6 +2572,11 @@ class NewsPipeline:
             raw["ai_issue_boost_from_click"] = original_click
             raw["click_potential_score"] = max(original_click, 8)
             item.total_score = max(item.total_score, 82)
+            # 운영자 지정 주제(AI_FORCE_TOPIC)는 점수 경쟁 없이 1순위 보장 —
+            # 82 동점이면 다른 실뉴스에 밀린다(2026-07-18 실측: Grok 뉴스에 밀림).
+            # 발행 가부는 여전히 품질 게이트가 결정한다.
+            if bool(raw.get("forced_manual_topic")):
+                item.total_score = max(item.total_score, 99)
         return scored
 
     @staticmethod
