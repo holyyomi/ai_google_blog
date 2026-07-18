@@ -13,6 +13,7 @@ from typing import Any, Protocol
 
 from blogspot_automation.models.news_models import ScoredNewsCandidate, SelectedNewsPlan, TitleCandidate
 from blogspot_automation.services.blog_language import is_english_mode
+from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.contrarian_content_service import ContrarianContentService
 from blogspot_automation.services.evergreen_topic_service import EvergreenTopicService
 from blogspot_automation.services.answer_engine_policy import ensure_answer_engine_optimized_html
@@ -23,7 +24,7 @@ from blogspot_automation.services.issue_content_profile_service import IssueCont
 from blogspot_automation.services.title_candidate_service import TitleCandidateService
 from blogspot_automation.services.news_focus_policy import evaluate_news_focus
 from blogspot_automation.services.news_image_prompt_service import NewsImagePromptService
-from blogspot_automation.services.news_label_service import NewsLabelService
+from blogspot_automation.services.news_label_service import NewsLabelService, en_content_family
 from blogspot_automation.services.news_quality_gate import NewsQualityGate
 from blogspot_automation.services.news_scoring_service import NewsScoringService
 from blogspot_automation.services.news_topic_service import NewsTopicService
@@ -1249,6 +1250,15 @@ class NewsPipeline:
                     "label_count": len(plan.labels),
                     "hashtags": final_hashtags,
                     "hashtag_count": len(final_hashtags),
+                    # 영어 전환 성과 루프(2026-07-18): content_family별 RPM/CTR 분석용.
+                    # ko 모드에서는 빈 값 — 스키마 additive라 기존 소비자 영향 없음.
+                    "content_family": (
+                        en_content_family(selected.candidate.topic or "", best_title.title)
+                        if is_english_mode()
+                        else ""
+                    ),
+                    "official_source_count": len(_llm_source_citations),
+                    "last_checked_date": kst_today("%Y-%m-%d") if is_english_mode() else "",
                     "faq_count": publish_quality_gate.get("faq_count"),
                     "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),
                     "article_focus_score": publish_quality_gate.get("article_focus_score"),
