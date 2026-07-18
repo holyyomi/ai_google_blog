@@ -21,6 +21,17 @@ _AI_TOPIC_TERMS: tuple[str, ...] = (
     "sora",
     "llm",
     "gpt",
+    # 2026-07-18 실측 사고: 발행 후 감사(post_publish_audit_service)가 URL
+    # 슬러그만으로 이 목록을 재검사하는데(원본 raw 메타데이터 없이), 아래
+    # 브랜드가 빠져 있어 정상 AI 글(Grok 기사)이 "AI 주제 아님"으로 오판돼
+    # 라이브 발행 직후 자동 삭제·재시도됐다(ai_topic_leaked_to_news_blog).
+    "grok",
+    "xai",
+    "deepseek",
+    "mistral",
+    "llama",
+    "cursor",
+    "notebooklm",
     "인공지능",
     "챗GPT",
     "챗지피티",
@@ -40,7 +51,8 @@ _AI_TOPIC_TERMS: tuple[str, ...] = (
 )
 
 _AI_TOPIC_PATTERN = re.compile(
-    r"(?<![a-z0-9])(?:ai|chatgpt|openai|claude|gemini|copilot|perplexity|midjourney|elevenlabs|runway|sora|llm|gpt)(?![a-z0-9])",
+    r"(?<![a-z0-9])(?:ai|chatgpt|openai|claude|gemini|copilot|perplexity|midjourney|elevenlabs|runway|sora|llm|gpt"
+    r"|grok|xai|deepseek|mistral|llama|cursor|notebooklm)(?![a-z0-9])",
     flags=re.IGNORECASE,
 )
 
