@@ -4389,6 +4389,11 @@ class NewsPipeline:
         raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
         if raw.get("trending_engine") or raw.get("discovery_engine"):
             return 0
+        # 운영자 지정 주제(AI_FORCE_TOPIC)는 사전 selection 필터에서 면제한다 —
+        # 2026-07-18 실측: confidence 79(80에 1점 미달)로 여기서 잘려 지정 주제가
+        # 매번 다른 후보에 밀렸다. 발행 가부는 여전히 하류 게이트 전체가 결정.
+        if raw.get("forced_manual_topic"):
+            return 0
         source_type = str(raw.get("source_type") or raw.get("source") or "").strip().lower()
         if source_type in {"fallback", "evergreen_fallback", "viral_fallback"}:
             return 0
