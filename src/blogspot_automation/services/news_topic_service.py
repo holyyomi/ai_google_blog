@@ -106,47 +106,53 @@ RSS_SUFFIX_PATTERN = re.compile(
     + r"|[A-Za-z0-9_.-]+\.(?:com|co\.kr|net|kr))\s*$",
     re.IGNORECASE,
 )
-# ─── 영어 모드 쿼리 뱅크 (2026-07-17 영어 전환) ──────────────────────────────
-# 미국·영국·캐나다·인도 영어권 대상. 가격·요금제 변경이 최우선(검색 폭발 대비
-# 정리 글이 늦게 나오는 틈새), 그다음 신모델·기능 출시, 무료화/유료화 전환,
-# 장애/제한(문제해결형 롱테일) 순. 엔티티 기반 — 실제 뉴스 헤드라인에 매칭된다.
+# ─── 영어 모드 쿼리 뱅크 (2026-07-20 검색수요 개편) ──────────────────────────
+# 미국 우선 영어권 대상. 발표형("X announces") 쿼리는 보도자료 헤드라인만
+# 수확해 아무도 검색 안 하는 니치 뉴스로 흘렀다 → 사람들이 실제로 구글에
+# 치는 검색 의도형 문구로 재편. 블록 순서 = 우선순위:
+# 1) 브랜드+선택(vs/best/worth it — 고 CPC 결정 검색)
+# 2) 가격·한도(지갑 연 검색자, 요금 변경 뉴스도 이 쿼리로 잡힌다)
+# 3) 문제·장애(급한 의도 롱테일 — 장애 뉴스가 곧 검색 폭발 소재)
+# 4) 대형 소비자용 출시만 소수 유지(진짜 큰 뉴스는 여전히 표면화)
+# B2B/투자 노이즈만 잡던 쿼리(ARR·raises·enterprise류)는 제거.
 EN_QUERY_GROUPS: dict[str, list[str]] = {
     "ai_work": [
-        # 가격·요금제 변경 (최우선)
-        "ChatGPT pricing",
-        "OpenAI API pricing",
+        # 1) 브랜드+선택 (vs / best / worth it — 결정 의도)
+        "ChatGPT vs Gemini",
+        "Claude vs ChatGPT",
+        "ChatGPT alternatives",
+        "best AI chatbot",
+        "ChatGPT Plus worth it",
+        "Copilot vs Cursor",
+        "best AI app",
+        "Perplexity vs Google",
+        # 2) 가격·한도 (고 CPC — 요금 변경 뉴스도 여기서 잡힌다)
+        "ChatGPT price",
+        "ChatGPT Plus price",
         "Claude pricing",
-        "Gemini pricing",
-        "Copilot pricing",
-        "AI subscription price increase",
-        "AI free tier",
+        "Gemini Advanced price",
+        "AI subscription cost",
+        "ChatGPT free limit",
         "GitHub Copilot price",
-        # 신모델·신기능 출시
-        "OpenAI announces",
-        "OpenAI new model",
-        "ChatGPT new feature",
-        "Anthropic Claude update",
-        "Google Gemini update",
-        "Microsoft Copilot update",
-        "Perplexity AI update",
-        "xAI Grok update",
-        "Meta Llama model",
-        "DeepSeek model",
-        "Mistral AI release",
-        "AI agent launch",
-        "AI coding assistant",
-        "Cursor AI editor",
-        "NotebookLM update",
-        "Midjourney update",
-        "ElevenLabs AI voice",
-        "Runway AI video",
-        # 장애·제한·정책 (문제해결형 소재)
-        "ChatGPT outage",
+        "AI subscription price increase",
+        # 3) 문제·장애·제한 (급한 의도 — 문제해결형 소재)
+        "ChatGPT down",
+        "ChatGPT not working",
         "ChatGPT rate limit",
         "Claude usage limit",
-        "AI tool shutting down",
-        "AI copyright lawsuit",
-        "AI regulation bill",
+        "Gemini not working",
+        "AI chatbot error",
+        # 4) 대형 소비자용 출시 (진짜 큰 뉴스만 표면화)
+        "OpenAI GPT",
+        "OpenAI ChatGPT update",
+        "Google Gemini update",
+        "Anthropic Claude update",
+        "Microsoft Copilot update",
+        "ChatGPT new feature",
+        "ChatGPT voice mode",
+        "Gemini new feature",
+        "NotebookLM update",
+        "free AI image generator",
     ],
 }
 
@@ -762,12 +768,13 @@ class NewsTopicService:
 
     def _secondary_query_plan(self) -> list[tuple[str, str]]:
         if is_english_mode():
-            # 2차 확장: 1차보다 넓은 일반 쿼리 (엔티티 미포함 이슈 캐치)
+            # 2차 확장: 1차보다 넓지만 여전히 검색 의도형 (발표형 일반 쿼리는
+            # 보도자료 노이즈만 수확해서 제거 — 2026-07-20 검색수요 개편)
             return [
-                ("AI news today", "ai_work"),
-                ("artificial intelligence announcement", "ai_work"),
-                ("AI tool update", "ai_work"),
-                ("LLM release", "ai_work"),
+                ("best AI tools", "ai_work"),
+                ("AI chatbot comparison", "ai_work"),
+                ("ChatGPT update", "ai_work"),
+                ("free AI tools", "ai_work"),
             ]
         return [
             (query, query_group)
@@ -1275,5 +1282,7 @@ class NewsTopicService:
         return "social"
 
     def _short_topic(self, title: str) -> str:
-        compact = " ".join(title.split()).strip()
-        return compact[:90]
+        # 하드컷([:90])은 "pricing starts J"류 단어 중간 절단이 그대로 본문
+        # 템플릿 문장에 노출되는 사고를 냈다(2026-07-18 라이브 실측) — 단어 경계 절단.
+        from blogspot_automation.utils.text_clip import clip_at_word_boundary
+        return clip_at_word_boundary(title, 90)

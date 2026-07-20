@@ -1,6 +1,7 @@
-"""Google Trends (Korea) trending keyword signal.
+"""Google Trends trending keyword signal.
 
-Fetches the daily-trending RSS feed for Korea, parses keyword + approximate
+Fetches the daily-trending RSS feed for the blog's target market, parses
+keyword + approximate
 traffic, caches the result for an hour, and exposes a boost helper that scoring
 services can call when ranking candidate topics.
 
@@ -28,7 +29,18 @@ from urllib import error, request
 logger = logging.getLogger(__name__)
 
 
-_FEED_URL = "https://trends.google.com/trending/rss?geo=KR&hl=ko"
+# Google Trends RSS는 국가 단위만 지원한다(글로벌 피드 없음). 영어 블로그는
+# 영어권 최대 검색 시장인 US를 글로벌 프록시로 쓰고, 한국어 모드는 기존 KR 유지.
+# GOOGLE_TRENDS_GEO / GOOGLE_TRENDS_HL env로 오버라이드 가능.
+_FEED_URL_TEMPLATE = "https://trends.google.com/trending/rss?geo={geo}&hl={hl}"
+
+
+def _feed_url() -> str:
+    lang = (os.getenv("BLOG_LANGUAGE", "ko") or "ko").strip().lower()
+    default_geo, default_hl = ("US", "en-US") if lang == "en" else ("KR", "ko")
+    geo = (os.getenv("GOOGLE_TRENDS_GEO", "") or "").strip() or default_geo
+    hl = (os.getenv("GOOGLE_TRENDS_HL", "") or "").strip() or default_hl
+    return _FEED_URL_TEMPLATE.format(geo=geo, hl=hl)
 _DEFAULT_TTL_SECONDS = 3600
 _FETCH_TIMEOUT_SECONDS = 12
 _USER_AGENT = "Mozilla/5.0 (compatible; blogspot-automation/1.0)"
@@ -67,7 +79,7 @@ class GoogleTrendsSignal:
             )
             if cache_fresh:
                 return list(cls._cache)
-        fetched = _fetch_and_parse(_FEED_URL)
+        fetched = _fetch_and_parse(_feed_url())
         with cls._lock:
             if fetched:
                 cls._cache = list(fetched)
@@ -97,10 +109,16 @@ class GoogleTrendsSignal:
             return 0, []
         matched: list[str] = []
         boost = 0
+        text_lower = text.lower()
         for kw in keywords:
             if not kw.keyword:
                 continue
-            if kw.keyword in text:
+            # 영어 트렌드 키워드는 대소문자가 제각각이라 case-insensitive 비교.
+            # 3자 미만 키워드("AI" 등)는 substring 오탐이 커서 제외한다.
+            keyword_lower = kw.keyword.strip().lower()
+            if len(keyword_lower) < 3:
+                continue
+            if keyword_lower in text_lower:
                 matched.append(kw.keyword)
                 boost += 8 + _traffic_bonus(kw.approx_traffic)
                 if boost >= max_boost:

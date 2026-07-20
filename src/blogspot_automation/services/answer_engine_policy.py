@@ -234,12 +234,7 @@ def ensure_answer_engine_optimized_html(
                 for p in (slots.get("faq") or [])
                 if isinstance(p, dict)
             }
-            _en_generic_pool = [
-                {"Q": "Is it worth paying for right now?", "A": "Try the free tier on one real task first; upgrade only if the limits actually slow you down."},
-                {"Q": "How does this affect existing users?", "A": "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."},
-                {"Q": "Where can you verify the current details?", "A": "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."},
-                {"Q": "What should you check before relying on it?", "A": "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."},
-            ]
+            _en_generic_pool = _en_generic_intent_pool(topic_text, resolved_type)
             _intent_items = list(_intent_items)
             for qa in _en_generic_pool:
                 if len(_intent_items) >= 3:
@@ -293,6 +288,11 @@ def ensure_answer_engine_optimized_html(
 
     if not _has_faq_section(content):
         content = _insert_before_internal_links_or_body_end(content, _faq_block(intent_answers))
+    # LLM이 본문에 직접 쓴 ld+json이 깨져 있으면(제목 안 raw 개행으로 JSON 무효 —
+    # 2026-07-18 라이브 "Copilot Share Falls to 51% as \n ARR" 실측) 문자열 존재
+    # 검사가 "이미 있음"으로 오인해 유효 블록을 재생성하지 못한다. 파싱 실패한
+    # ld+json은 여기서 제거해 아래 presence 검사가 유효한 결정적 블록을 다시 넣게 한다.
+    content = _drop_invalid_json_ld_scripts(content)
     if '"@type": "FAQPage"' not in content and '"@type":"FAQPage"' not in content:
         # 본문을 쓴 LLM의 이슈 특정적 faq_items가 있으면 그것으로 FAQPage 구조화
         # 데이터를 만든다. 구글 rich result 정책상 구조화 데이터는 페이지에 visible한
@@ -341,24 +341,66 @@ def ensure_answer_engine_optimized_html(
         # 최종 보수(2026-07-17): clean-layout 재렌더·overstack 축소 등 어느 단계가
         # intent 항목을 떨어뜨려도, 마지막에 3개를 다시 보장한다 —
         # intent_qa_count_below_3가 EN 발행을 반복 차단한 실측 대응.
-        content = _ensure_min_intent_items_en(content)
+        content = _ensure_min_intent_items_en(
+            content, topic=topic_text, content_type=resolved_type
+        )
 
     return content
 
 
-_EN_INTENT_REPAIR_POOL: tuple[tuple[str, str], ...] = (
-    ("Is it worth paying for right now?",
-     "Try the free tier on one real task first; upgrade only if the limits actually slow you down."),
-    ("How does this affect existing users?",
-     "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."),
-    ("Where can you verify the current details?",
-     "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."),
-    ("What should you check before relying on it?",
-     "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."),
-)
+def _en_generic_intent_pool(topic: str, content_type: str) -> list[dict[str, str]]:
+    """주제 유형에 맞는 범용 EN Q&A 풀.
+
+    2026-07-18~19 라이브 실측: 가격 중심 3종 세트("Is it worth paying for right
+    now?" 등)가 보안 사고 글을 포함한 모든 글에 똑같이 찍혀 나갔다 — 주제와
+    무관한 보일러플레이트는 독자 신뢰·중복 콘텐츠 양쪽에 해롭다. 주제
+    키워드로 사고/가격/일반을 구분해 그나마 관련 있는 질문만 쓴다.
+    """
+    haystack = f" {(topic or '').lower()} {(content_type or '').lower()} "
+    incident_terms = (
+        "leak", "breach", "exfiltrat", "outage", " down", "not working", "lawsuit",
+        "hack", "vulnerab", "security", "stolen", "exposed", "incident", "open source",
+        "open-source",
+    )
+    pricing_terms = (
+        "price", "pricing", "cost", "subscription", " plan", "free tier", "free limit",
+        " paid", "worth it", "hidden cost",
+    )
+    if any(t in haystack for t in incident_terms):
+        return [
+            {"Q": "What actually happened?",
+             "A": "The short version is in the summary above — read the timeline in the article for the confirmed sequence of events."},
+            {"Q": "Who is affected?",
+             "A": "Check whether you used the tool or service involved during the affected window; if not, no action is usually needed."},
+            {"Q": "What should you do now?",
+             "A": "Follow the step-by-step checklist in the article — start with the highest-impact action (credentials, settings, or updates) first."},
+            {"Q": "Where can you verify the current details?",
+             "A": "Go by the vendor's official announcement or status page; treat community screenshots as secondary sources."},
+        ]
+    if any(t in haystack for t in pricing_terms):
+        return [
+            {"Q": "Is it worth paying for right now?",
+             "A": "Try the free tier on one real task first; upgrade only if the limits actually slow you down."},
+            {"Q": "How does this affect existing users?",
+             "A": "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."},
+            {"Q": "Where can you verify the current details?",
+             "A": "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."},
+            {"Q": "What should you check before relying on it?",
+             "A": "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."},
+        ]
+    return [
+        {"Q": "What does this change in practice?",
+         "A": "The article separates what is confirmed from what is still marketing — start with the confirmed list before changing your workflow."},
+        {"Q": "How can you try it safely?",
+         "A": "Test it on one low-stakes task first, review the output yourself, and only then fold it into real work."},
+        {"Q": "Where can you verify the current details?",
+         "A": "Go by the official documentation and announcement pages; treat community screenshots as secondary sources."},
+        {"Q": "What should you check before relying on it?",
+         "A": "Confirm the limits, data handling settings, and the as-of date of any numbers you saw quoted."},
+    ]
 
 
-def _ensure_min_intent_items_en(content: str) -> str:
+def _ensure_min_intent_items_en(content: str, *, topic: str = "", content_type: str = "") -> str:
     """INTENT_ANSWER_BLOCK의 intent-qa-item이 3개 미만이면 범용 Q&A로 채운다."""
     count = len(re.findall(r'class=["\'][^"\']*intent-qa-item', content))
     if count >= 3:
@@ -373,7 +415,8 @@ def _ensure_min_intent_items_en(content: str) -> str:
         for q in re.findall(r"Q\.\s*([^<]+)", block_match.group(2))
     } if block_match else set()
     additions: list[str] = []
-    for q, a in _EN_INTENT_REPAIR_POOL:
+    for qa in _en_generic_intent_pool(topic, content_type):
+        q, a = qa["Q"], qa["A"]
         if count + len(additions) >= 3:
             break
         if _normalize_question_key(q) in existing_qs:
@@ -1336,6 +1379,42 @@ def _wrap_answer_engine_support(block: str) -> str:
     )
 
 
+def _drop_invalid_json_ld_scripts(html: str) -> str:
+    """파싱 불가·내용 결함 ld+json 스크립트를 제거한다.
+
+    2026-07-18~19 라이브 실측 결함 2종:
+    1) LLM이 headline 안에 raw 개행을 넣어 JSON 전체가 무효 (구글이 스키마 폐기)
+    2) FAQPage Question.name에 질문+답변이 통짜로 들어감 ("...code?The official...")
+    제거만 하면 ensure_answer_engine의 presence 검사가 유효한 결정적 블록을
+    다시 삽입하므로 필수 블록 존재 계약은 그대로 유지된다.
+    """
+    pattern = re.compile(
+        r'<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>(?P<body>.*?)</script>\s*',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    def _check(match: re.Match[str]) -> str:
+        body = match.group("body").strip()
+        try:
+            data = json.loads(body)
+        except (ValueError, TypeError):
+            return ""
+        entities = data if isinstance(data, list) else [data]
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            if entity.get("@type") == "FAQPage":
+                for q in entity.get("mainEntity") or []:
+                    name = str((q or {}).get("name") or "") if isinstance(q, dict) else ""
+                    # 질문 뒤에 답변 본문이 이어붙은 결함: '?' 이후에 실질 텍스트 잔존
+                    head, sep, tail = name.partition("?")
+                    if sep and len(tail.strip()) > 12:
+                        return ""
+        return match.group(0)
+
+    return pattern.sub(_check, html or "")
+
+
 def _insert_json_ld(html: str, payload: dict[str, Any]) -> str:
     script = (
         '<script type="application/ld+json">'
@@ -1465,7 +1544,8 @@ def _sentences(text: str, *, max_items: int = 4) -> list[str]:
             if len(sentences) >= max_items:
                 break
         if not sentences and cleaned:
-            sentences.append(cleaned[:180].rstrip(" ,."))
+            from blogspot_automation.utils.text_clip import clip_at_word_boundary
+            sentences.append(clip_at_word_boundary(cleaned, 180))
         return sentences[:max_items]
     # 숫자 사이의 "."(예: "제미나이 3.5")를 문장 끝으로 오인하면 "...3."/"5 소식에서..."
     # 처럼 단어 중간에서 잘려 다음 문장과 이어붙는 글리치가 난다(2026-07-09 라이브
@@ -1478,7 +1558,8 @@ def _sentences(text: str, *, max_items: int = 4) -> list[str]:
         if len(sentences) >= max_items:
             break
     if not sentences and cleaned:
-        sentences.append(cleaned[:180].rstrip(" ,."))
+        from blogspot_automation.utils.text_clip import clip_at_word_boundary
+        sentences.append(clip_at_word_boundary(cleaned, 180))
     return sentences[:max_items]
 
 
@@ -1491,7 +1572,10 @@ def _first_sentence(text: str, *, max_len: int) -> str:
             end = match.end()
             if 20 <= end <= max_len:
                 return text[:end]
-        return text[:max_len].rstrip(" ,.")
+        # 문장 경계가 max_len 안에 없으면 단어 경계 절단 — 하드컷은 "rollout can
+        # vary by acco"류 단어 중간 절단을 본문에 노출시켰다(2026-07-18~19 라이브).
+        from blogspot_automation.utils.text_clip import clip_at_word_boundary
+        return clip_at_word_boundary(text, max_len, ellipsis="…")
     for match in re.finditer(r"(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)", text):
         end = match.end()
         if 20 <= end <= max_len:
