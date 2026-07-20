@@ -8,21 +8,23 @@ from blogspot_automation.services.llm_content_service import LlmContentService
 
 
 def test_llm_provider_order_free_first_then_paid_fallback() -> None:
-    # 운영자 정책: 무료(OpenRouter) 2단 시도 후에만 유료(OpenAI) 폴백.
+    # 운영자 정책: 구독 인증(claude_code_cli) -> 무료(OpenRouter) 2단 -> 유료(OpenAI) 폴백.
     names = [provider["name"] for provider in module._PROVIDERS]
 
     assert names == [
+        "claude_code_cli",
         "openrouter_primary",
         "openrouter_secondary",
         "openai_api_fallback",
     ]
     assert [p["api_key_env"] for p in module._PROVIDERS] == [
+        "CLAUDE_CODE_OAUTH_TOKEN",
         "OPENROUTER_API_KEY",
         "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
     ]
-    assert module._PROVIDERS[0]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
-    assert module._PROVIDERS[1]["model"] == "openai/gpt-oss-120b:free"
+    assert module._PROVIDERS[1]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+    assert module._PROVIDERS[2]["model"] == "openai/gpt-oss-120b:free"
 
 
 def test_llm_provider_chain_excludes_gemini_for_main_generation() -> None:
@@ -561,6 +563,96 @@ def test_asset_rich_directive_stays_off_for_unrelated_news() -> None:
         raw={},
     )
     assert directive == ""
+
+
+def test_claude_code_cli_never_uses_bare_mode(monkeypatch) -> None:
+    # --bare는 "OAuth and keychain are never read"라 구독 인증이 아예 안 먹는다
+    # (2026-07-20 gh CLI --help 실측으로 확인) — 회귀 방지.
+    captured: dict[str, object] = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = json.dumps({"result": "<p>generated</p>"})
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["env"] = kwargs.get("env")
+        return FakeResult()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    provider = next(p for p in module._PROVIDERS if p["name"] == "claude_code_cli")
+    result = LlmContentService()._call_claude_code_cli(
+        provider, "test-oauth-token", "Write a post", "System prompt"
+    )
+
+    assert result == "<p>generated</p>"
+    args = captured["args"]
+    assert "--bare" not in args
+    assert args[0:2] == ["claude", "-p"]
+    assert "--tools" in args
+    assert args[args.index("--tools") + 1] == ""
+    assert "--output-format" in args
+    assert args[args.index("--output-format") + 1] == "json"
+    assert "--system-prompt" in args
+    assert args[args.index("--system-prompt") + 1] == "System prompt"
+    assert args[-1] == "Write a post"
+    assert captured["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "test-oauth-token"
+    assert "ANTHROPIC_API_KEY" not in captured["env"]
+
+
+def test_claude_code_cli_no_model_flag_when_model_none(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = json.dumps({"result": "<p>ok</p>"})
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return FakeResult()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.delenv("CLAUDE_CODE_CLI_MODEL", raising=False)
+
+    provider = next(p for p in module._PROVIDERS if p["name"] == "claude_code_cli")
+    LlmContentService()._call_claude_code_cli(provider, "tok", "prompt", None)
+
+    assert "--model" not in captured["args"]
+
+
+def test_claude_code_cli_raises_on_nonzero_exit(monkeypatch) -> None:
+    class FakeResult:
+        returncode = 1
+        stdout = ""
+        stderr = "auth expired"
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k: FakeResult())
+
+    provider = next(p for p in module._PROVIDERS if p["name"] == "claude_code_cli")
+    try:
+        LlmContentService()._call_claude_code_cli(provider, "tok", "prompt", None)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "auth expired" in str(exc)
+
+
+def test_claude_code_cli_raises_on_empty_result_field(monkeypatch) -> None:
+    class FakeResult:
+        returncode = 0
+        stdout = json.dumps({"result": ""})
+        stderr = ""
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k: FakeResult())
+
+    provider = next(p for p in module._PROVIDERS if p["name"] == "claude_code_cli")
+    try:
+        LlmContentService()._call_claude_code_cli(provider, "tok", "prompt", None)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "result" in str(exc)
 
 
 def test_system_prompt_carries_depth_contract_and_cliche_ban() -> None:

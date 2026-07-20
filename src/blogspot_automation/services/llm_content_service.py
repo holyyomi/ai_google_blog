@@ -1,8 +1,11 @@
 """LLM 기반 블로그 콘텐츠 생성 서비스.
 
 Fallback chain:
-  1. OpenRouter primary (OPENROUTER_API_KEY, OPENROUTER_MODEL)
-  2. Official OpenAI API fallback (OPENAI_API_KEY, OPENAI_MODEL)
+  1. Claude Code CLI, 구독 인증 (CLAUDE_CODE_OAUTH_TOKEN — 토큰당 과금 없음,
+     `claude setup-token`으로 발급. Cloud Run 등 GHA 이외 환경 전용 — 이 키가
+     없으면 조용히 skip되고 기존 체인으로 폴백된다)
+  2. OpenRouter primary (OPENROUTER_API_KEY, OPENROUTER_MODEL)
+  3. Official OpenAI API fallback (OPENAI_API_KEY, OPENAI_MODEL)
 """
 from __future__ import annotations
 
@@ -10,6 +13,8 @@ import json
 import logging
 import os
 import re
+import subprocess
+import tempfile
 import time
 import urllib.parse
 import urllib.error
@@ -30,12 +35,25 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 45  # seconds
 
 # ─── Provider 설정 ────────────────────────────────────────────────────────────
-# 순서 = 폴백 체인 우선순위 (운영자 정책: 항상 무료 모델 먼저, 실패 시에만 유료).
+# 순서 = 폴백 체인 우선순위 (운영자 정책: 항상 무료/구독 먼저, 실패 시에만 유료).
+#   0) Claude Code CLI 구독 인증 (2026-07-20, GHA Actions 분당 한도 소진 대응—
+#      Cloud Run 등 컴퓨터/GHA 무관 환경에서 토큰 과금 없이 Pro/Max 구독으로 생성)
 #   1) OpenRouter 무료 플래그십 (기본: nvidia nemotron-3-ultra 550B — 2026-07 기준
 #      OpenRouter 무료 모델 중 최상위 추론 성능)
 #   2) OpenRouter 무료 2차 (1차가 429 등으로 막힐 때 다른 무료 모델로 한 번 더)
 #   3) OpenAI 유료 (무료가 모두 실패한 날만 — 정적 템플릿 폴백/발행 스킵 방지)
 _PROVIDERS: list[dict[str, Any]] = [
+    {
+        "name": "claude_code_cli",
+        "provider_type": "claude_code_cli",
+        "api_key_env": "CLAUDE_CODE_OAUTH_TOKEN",
+        "model_env": "CLAUDE_CODE_CLI_MODEL",
+        "model": None,  # None이면 claude CLI 기본 모델 사용
+        "free": True,
+        # claude -p는 풀 하네스(컨텍스트 로딩 등) 기동 비용이 있어 API 직접
+        # 호출보다 느리다 — 2000~3000단어 HTML 생성 기준 여유 있게 잡음.
+        "timeout": 180,
+    },
     {
         "name": "openrouter_primary",
         "provider_type": "openai_compatible",
@@ -1049,6 +1067,8 @@ class LlmContentService:
         system_prompt: str | None = None,
     ) -> str:
         """Configured LLM provider 호출."""
+        if provider.get("provider_type") == "claude_code_cli":
+            return self._call_claude_code_cli(provider, api_key, user_prompt, system_prompt)
         return self._call_openai_compatible_provider(provider, api_key, user_prompt, system_prompt)
 
     def _resolve_provider_model(self, provider: dict[str, Any]) -> str:
@@ -1059,8 +1079,74 @@ class LlmContentService:
                 return env_model
         model = provider.get("model")
         if model is None:
+            # claude_code_cli는 model=None이면 CLI 기본 모델을 그대로 쓴다
+            # (OpenAI 기본값 "gpt-5-mini"를 --model로 넘기면 안 됨).
+            if provider.get("provider_type") == "claude_code_cli":
+                return ""
             return os.getenv("OPENAI_MODEL", "gpt-5-mini").strip()
         return str(model).strip()
+
+    def _call_claude_code_cli(
+        self,
+        provider: dict[str, Any],
+        api_key: str,
+        user_prompt: str,
+        system_prompt: str | None = None,
+    ) -> str:
+        """Claude Code CLI(`claude -p`)로 본문을 생성한다 — 구독 인증, 토큰 과금 없음.
+
+        2026-07-20: GitHub Actions Actions 분당 무료 한도 소진 대응으로 Cloud Run
+        등 별도 인프라에서 이 경로를 1순위로 쓴다. 핵심 제약:
+        - `--bare`는 절대 쓰지 않는다 — 공식 도움말에 "OAuth and keychain are
+          never read"라고 명시돼 있어 구독 인증(CLAUDE_CODE_OAUTH_TOKEN)이 아예
+          안 먹고 조용히 API 키 과금으로 새거나 인증 실패한다.
+        - `--tools ""`로 모든 도구를 꺼서 순수 텍스트 완성만 하게 한다(파일/bash
+          접근 없이 임의 프롬프트를 안전하게 처리하기 위함).
+        - 작업 디렉터리를 리포 밖의 빈 임시 폴더로 둔다 — cwd가 리포 루트면
+          CLAUDE.md 자동 발견으로 파이프라인 운영 지침이 본문 생성 프롬프트에
+          불필요하게 섞여 들어간다.
+        """
+        model = self._resolve_provider_model(provider)
+        timeout = int(provider.get("timeout") or 180)
+        args = [
+            "claude", "-p",
+            "--tools", "",
+            "--output-format", "json",
+            "--no-session-persistence",
+            "--system-prompt", system_prompt if system_prompt is not None else _SYSTEM_PROMPT,
+        ]
+        if model:
+            args.extend(["--model", model])
+        args.append(user_prompt)
+
+        env = dict(os.environ)
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = api_key
+        # ANTHROPIC_API_KEY가 같이 설정돼 있으면 SDK가 두 인증을 동시에 보내
+        # 요청이 거부될 수 있다 — 구독 인증 경로에서는 명시적으로 비운다.
+        env.pop("ANTHROPIC_API_KEY", None)
+
+        with tempfile.TemporaryDirectory(prefix="claude_cli_cwd_") as cwd:
+            result = subprocess.run(
+                args,
+                env=env,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"claude -p exited {result.returncode}: {(result.stderr or '').strip()[:500]}"
+            )
+        stdout = (result.stdout or "").strip()
+        try:
+            payload = json.loads(stdout)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(f"claude -p produced non-JSON output: {exc}") from exc
+        text = str(payload.get("result") or "").strip()
+        if not text:
+            raise RuntimeError(f"claude -p JSON response had no 'result' field: {stdout[:300]}")
+        return _clean_llm_output(text)
 
     def _call_openai_compatible_provider(
         self,
