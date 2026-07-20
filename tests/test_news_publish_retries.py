@@ -116,7 +116,11 @@ class NewsPublishRetryTest(unittest.TestCase):
         self.assertEqual(len(result["retry_attempts"]), 2)
         self.assertEqual(pipeline.excluded_seen[1], ["topic", "topic title"])
 
-    def test_no_golden_skip_retries_and_excludes_top_scored_candidate(self) -> None:
+    def test_no_golden_skip_does_not_exclude_top_scored_candidates(self) -> None:
+        # 2026-07-20: top_scored_candidates 전체를 재시도 배제에 넣던 동작은
+        # 한 번의 게이트 실패가 그 실행의 상위 후보 전부를 퍼지 매칭으로 태워
+        # 2회 만에 풀이 고갈되는 원인이었다(7/19~20 발행 0건 사슬). 재시도
+        # 배제는 실제 선택된 주제로만 한정된다.
         pipeline = _RetryPipeline([
             {
                 "status": "skipped",
@@ -147,7 +151,8 @@ class NewsPublishRetryTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "published")
         self.assertEqual(len(result["retry_attempts"]), 2)
-        self.assertIn("티빙 개인정보 안내 먼저 확인할", pipeline.excluded_seen[1])
+        # 선택되지 않은 상위 후보는 배제 목록에 오르지 않는다.
+        self.assertEqual(pipeline.excluded_seen[1], [])
 
     def test_retry_exclusion_matches_search_demand_topic_variant(self) -> None:
         pipeline = NewsPipeline(dry_run=False, news_publish_mode="publish")

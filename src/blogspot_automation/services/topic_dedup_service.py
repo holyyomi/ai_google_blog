@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
 import re
@@ -174,6 +174,15 @@ _TOKEN_ONLY_ALIASES = {
 }
 
 
+# draft_saved_for_review 소프트 소비(2026-07-18 실측): 초안으로 끝난 주제는
+# published=False라서 record_blocks_duplicate가 걸러내고, 다음 실행이 곧바로
+# 같은 주제를 재선택해 고아 초안이 3연속 쌓였다. 초안은 실발행이 아니므로
+# 영구 dedup·엔티티 쿨다운 근거로는 계속 제외하되, 사람이 검토할 48시간
+# 동안만 같은 주제 재선택을 막는다.
+DRAFT_REVIEW_STATUS = "draft_saved_for_review"
+DRAFT_SOFT_CONSUME_HOURS = 48
+
+
 class TopicDedupService:
     def __init__(
         self,
@@ -241,6 +250,11 @@ class TopicDedupService:
 
         for record in history_records:
             if not self.record_blocks_duplicate(record):
+                # 초안(draft_saved_for_review)은 발행이 아니므로 영구 dedup·엔티티
+                # 쿨다운에는 넣지 않지만, 검토 대기 48시간 동안은 같은 주제
+                # 재선택(=고아 초안 반복 생성)만 소프트 차단한다.
+                if self._draft_soft_blocks(record, candidate_norms, candidate_keywords):
+                    return True
                 continue
 
             in_dedup_window = self._is_within_dedup_window(record)
@@ -439,6 +453,77 @@ class TopicDedupService:
         shorter_compact = shorter.replace(" ", "")
         longer_compact = longer.replace(" ", "")
         return len(shorter_compact) >= 6 and shorter_compact in longer_compact
+
+    def _draft_soft_blocks(
+        self,
+        record: dict[str, Any],
+        candidate_norms: list[str],
+        candidate_keywords: set[str],
+    ) -> bool:
+        """검토 대기 초안이 48시간 동안 같은 주제 재선택을 소프트 차단하는지 판정.
+
+        record_blocks_duplicate가 False인 레코드에만 호출된다 — 즉 초안은 여전히
+        영구 dedup·엔티티 쿨다운에는 포함되지 않는다.
+        """
+        status = str(record.get("status") or "").strip().lower()
+        if status != DRAFT_REVIEW_STATUS:
+            return False
+        if not self._is_within_hours(record, DRAFT_SOFT_CONSUME_HOURS):
+            return False
+        history_texts = self._history_texts(record)
+        if not history_texts:
+            return False
+        history_norms = [
+            norm
+            for norm in (self.normalize_text(text) for text in history_texts)
+            if norm
+        ]
+        if any(
+            self._norms_match(candidate_norm, history_norm)
+            for candidate_norm in candidate_norms
+            for history_norm in history_norms
+        ):
+            return True
+        history_keywords = self.extract_keywords(" ".join(history_texts))
+        return len(candidate_keywords & history_keywords) >= 2
+
+    def _is_within_hours(self, record: dict[str, Any], window_hours: int) -> bool:
+        if window_hours <= 0:
+            return False
+        parsed = None
+        for value in (
+            record.get("date"),
+            record.get("published_at"),
+            record.get("created_at"),
+            record.get("updated_at"),
+        ):
+            parsed = self._parse_datetime(value)
+            if parsed is not None:
+                break
+        if parsed is None:
+            # 날짜를 알 수 없으면 보수적으로 창 안으로 취급 (_is_within_window와 동일)
+            return True
+        now = datetime.now(parsed.tzinfo) if parsed.tzinfo else datetime.now()
+        return now - parsed <= timedelta(hours=window_hours)
+
+    def _parse_datetime(self, value: Any) -> datetime | None:
+        """ISO datetime을 시간 단위까지 파싱하고, 날짜만 있으면 자정으로 승격.
+
+        기존 _parse_date(날짜 단위)를 폴백으로 재사용한다.
+        """
+        if not value or not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+        parsed_date = self._parse_date(text)
+        if parsed_date is None:
+            return None
+        return datetime(parsed_date.year, parsed_date.month, parsed_date.day)
 
     def _is_within_dedup_window(self, record: dict[str, Any]) -> bool:
         return self._is_within_window(record, self.dedup_days)

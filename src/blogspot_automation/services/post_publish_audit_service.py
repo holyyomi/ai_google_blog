@@ -46,6 +46,7 @@ def fetch_and_audit_post(
     expected_labels: list[str] | tuple[str, ...] | None = None,
     content_type: str = "",
     topic_group: str = "",
+    candidate_meta: dict | None = None,
     timeout: int = 30,
 ) -> PostPublishAuditResult:
     request = Request(url, headers={"User-Agent": "blogspot-post-publish-audit/1.0"})
@@ -60,6 +61,7 @@ def fetch_and_audit_post(
         expected_labels=expected_labels,
         content_type=content_type,
         topic_group=topic_group,
+        candidate_meta=candidate_meta,
     )
 
 
@@ -73,6 +75,7 @@ def audit_post_html(
     expected_labels: list[str] | tuple[str, ...] | None = None,
     content_type: str = "",
     topic_group: str = "",
+    candidate_meta: dict | None = None,
 ) -> PostPublishAuditResult:
     content = html or ""
     issues: list[str] = []
@@ -110,7 +113,12 @@ def audit_post_html(
     if not og_description:
         warnings.append("missing_og_description")
     elif expected_title and not _description_matches_title(og_description, expected_title):
-        issues.append("og_description_not_post_specific")
+        # Blogger API v3 offers no per-post og:description control — the pipeline
+        # sends it via customMetaData, which themes don't read, so at publish time
+        # the live og:description is always the blog-level tagline. That is a
+        # structural platform limitation, not a per-post defect: keep the check
+        # for observability but never fail (and never delete a post over) it.
+        warnings.append("og_description_not_post_specific")
 
     coverage = answer_engine_coverage(content)
     answer_engine_ready = (
@@ -125,7 +133,23 @@ def audit_post_html(
     if not answer_engine_ready:
         issues.append("answer_engine_blocks_missing_or_incomplete")
 
-    focus = evaluate_news_focus(topic=slug.replace("-", " "), raw={})
+    # News-focus recheck. The slug is a lossy signal: it drops brand tokens the
+    # taxonomy relies on, and on 2026-07-18 a slug-only recheck (raw={}) declared
+    # an on-topic live post "not AI" and auto-deleted it. When the caller passes
+    # the original candidate metadata, prefer its topic text and feed its
+    # topic_group/content_type into the evaluation so slug gaps cannot trigger
+    # deletion. candidate_meta=None preserves the legacy slug-only behavior.
+    focus_payload = candidate_meta if isinstance(candidate_meta, dict) else {}
+    focus_topic = str(
+        focus_payload.get("topic")
+        or focus_payload.get("selected_topic")
+        or focus_payload.get("search_demand_topic")
+        or ""
+    ).strip()
+    focus = evaluate_news_focus(
+        topic=focus_topic or slug.replace("-", " "),
+        raw=focus_payload,
+    )
     if not focus.allowed:
         issues.append("ai_topic_leaked_to_news_blog")
 
@@ -311,15 +335,55 @@ def _og_description(head_html: str) -> str:
     return unescape(match.group(1)).strip() if match else ""
 
 
+# Template filler words that must not count as a "post-specific" signal when
+# comparing the og:description against the post title. Korean set kept for the
+# legacy Naver flow; English set added for the EN blog (converted 2026-07-17).
+_TITLE_MATCH_STOPWORDS = {
+    # Korean template fillers
+    "오늘",
+    "이슈",
+    "핵심",
+    "정리",
+    "먼저",
+    "가지",
+    # English fillers / connectives
+    "the",
+    "a",
+    "an",
+    "of",
+    "to",
+    "for",
+    "in",
+    "on",
+    "vs",
+    "versus",
+    "and",
+    "or",
+    "is",
+    "are",
+    "what",
+    "how",
+    "why",
+    "best",
+    "with",
+    "your",
+    "guide",
+    "2025",
+    "2026",
+    "2027",
+}
+
+
 def _description_matches_title(description: str, title: str) -> bool:
+    description_lower = (description or "").lower()
     title_terms = [
         term
-        for term in re.findall(r"[가-힣A-Za-z0-9]+", title or "")
-        if len(term) >= 2 and term not in {"오늘", "이슈", "핵심", "정리", "먼저", "가지"}
+        for term in re.findall(r"[가-힣A-Za-z0-9]+", (title or "").lower())
+        if len(term) >= 3 and term not in _TITLE_MATCH_STOPWORDS
     ]
     if not title_terms:
         return True
-    matched = sum(1 for term in title_terms[:6] if term in description)
+    matched = sum(1 for term in title_terms[:6] if term in description_lower)
     return matched >= min(2, len(title_terms))
 
 

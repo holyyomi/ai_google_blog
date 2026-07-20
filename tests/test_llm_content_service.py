@@ -311,7 +311,9 @@ def test_openai_primary_uses_official_url_and_current_default_model(monkeypatch)
 
     assert result == "<p>generated html</p>"
     assert captured["url"] == "https://api.openai.com/v1/chat/completions"
-    assert captured["timeout"] == 45
+    # 유료 최종 폴백은 긴 본문 생성이 45초를 상시 초과해 read timeout으로 죽었다
+    # (2026-07-19~20 발행 0건 원인) — provider별 timeout 300초.
+    assert captured["timeout"] == 300
     assert captured["payload"]["model"] == "gpt-5-mini"
     assert captured["payload"]["max_completion_tokens"] == 12000
     assert "max_tokens" not in captured["payload"]

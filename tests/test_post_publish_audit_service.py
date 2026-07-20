@@ -81,11 +81,97 @@ def test_audit_post_html_flags_body_only_meta_description() -> None:
 
     assert not result.passed
     # meta description placement is advisory (Blogger renders head meta from the
-    # dashboard search-description toggle); the hard failure here is the og mismatch
+    # dashboard search-description toggle)
     assert "missing_meta_description" in result.warnings
     assert "body_only_meta_description" in result.warnings
     assert "missing_meta_description" not in result.issues
-    assert "og_description_not_post_specific" in result.issues
+    # og:description is always the blog-level tagline on Blogger (API v3 has no
+    # per-post og control) → structural limitation, advisory only
+    assert "og_description_not_post_specific" in result.warnings
+    assert "og_description_not_post_specific" not in result.issues
+
+
+def test_og_description_mismatch_is_warning_not_issue() -> None:
+    # Blogger API v3에는 per-post og:description 수단이 없어(테마가 customMetaData를
+    # 읽지 않음) 라이브 og는 항상 블로그 태그라인이다 — 구조적 한계이므로
+    # 감사 실패(issues)가 아니라 정보성(warnings)이어야 한다.
+    url = "https://holyyomiai.blogspot.com/2026/07/chatgpt-plus-vs-claude-pro-pricing.html"
+    html = f"""
+    <html><head>
+      <link rel="canonical" href="{url}">
+      <meta name="description" content="ChatGPT Plus vs Claude Pro pricing compared with official sources.">
+      <meta property="og:description" content="Practical AI tool comparisons, pricing checks, and how-to guides.">
+    </head><body>
+      <h1>ChatGPT Plus vs Claude Pro: Pricing Breakdown</h1>
+    </body></html>
+    """
+
+    result = audit_post_html(
+        url=url,
+        html=html,
+        expected_title="ChatGPT Plus vs Claude Pro: Pricing Breakdown",
+        expected_permalink_slug="chatgpt-plus-vs-claude-pro-pricing",
+    )
+
+    assert "og_description_not_post_specific" in result.warnings
+    assert "og_description_not_post_specific" not in result.issues
+
+
+def test_description_title_match_is_case_insensitive_english() -> None:
+    from blogspot_automation.services.post_publish_audit_service import (
+        _description_matches_title,
+    )
+
+    # 대소문자만 다른 영어 제목/설명은 일치로 판정해야 한다 (영어 전환 2026-07-17).
+    assert _description_matches_title(
+        "chatgpt plus and claude pro pricing compared for US users.",
+        "ChatGPT Plus vs Claude Pro: Best AI Pricing 2026",
+    )
+    # filler 단어(the/vs/best/2026 등)와 3글자 미만 토큰은 일치 근거가 될 수 없다.
+    assert not _description_matches_title(
+        "The best guide of 2026 for what is on in AI.",
+        "Midjourney Alternatives Compared: Best 2026 Guide",
+    )
+    # 실제 엔티티 단어가 2개 이상 겹치면 일치.
+    assert _description_matches_title(
+        "Midjourney alternatives compared with pricing tables.",
+        "Midjourney Alternatives Compared: Best 2026 Guide",
+    )
+
+
+def test_candidate_meta_prevents_slug_only_news_focus_false_positive(monkeypatch) -> None:
+    # 2026-07-18 실측 사고: 발행 후 감사가 URL 슬러그만으로(raw={}) 뉴스 포커스를
+    # 재검사해, 슬러그에 브랜드 토큰이 없는 정상 AI 글을 "AI 주제 아님"으로
+    # 오판하고 라이브 글을 자동 삭제했다. candidate_meta가 주어지면 원본
+    # topic/topic_group/content_type으로 판정해 오탐이 나면 안 된다.
+    monkeypatch.setenv("AI_BLOG_MODE", "true")
+    monkeypatch.delenv("ALLOW_AI_NEWS_TOPICS", raising=False)
+    url = "https://holyyomiai.blogspot.com/2026/07/workflow-automation-time-savings-report.html"
+    html = f"""
+    <html><head>
+      <link rel="canonical" href="{url}">
+      <meta name="description" content="Weekly workflow automation time savings report.">
+      <meta property="og:description" content="Weekly workflow automation time savings report.">
+    </head><body>
+      <h1>Workflow Automation Time Savings Report</h1>
+    </body></html>
+    """
+
+    # 기본(candidate_meta 없음) = 기존 슬러그 전용 동작 그대로 → 오탐 발생.
+    slug_only = audit_post_html(url=url, html=html)
+    assert "ai_topic_leaked_to_news_blog" in slug_only.issues
+
+    # candidate_meta의 topic/topic_group/content_type이 판정에 쓰이면 오탐 없음.
+    with_meta = audit_post_html(
+        url=url,
+        html=html,
+        candidate_meta={
+            "topic": "Grok workflow automation time savings",
+            "topic_group": "ai_work",
+            "content_type": "ai_work_tip",
+        },
+    )
+    assert "ai_topic_leaked_to_news_blog" not in with_meta.issues
 
 
 def test_audit_post_html_flags_title_and_slug_mismatch() -> None:

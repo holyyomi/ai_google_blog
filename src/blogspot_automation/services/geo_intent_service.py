@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from blogspot_automation.services.blog_language import is_english_mode
+from blogspot_automation.utils.text_clip import clip_at_word_boundary as _clip_wb
 
 logger = logging.getLogger(__name__)
 
@@ -254,10 +255,10 @@ class GeoIntentService:
                 a = self._fallback_answer_for_question(q, topic, content_type)
             elif real and len(real) > 20:
                 first_line = real.split("\n")[0].strip()
-                a = first_line[:120] if first_line else a
+                a = _clip_wb(first_line, 120) if first_line else a
             elif yomi and len(yomi) > 10:
                 clean_yomi = yomi.replace("요미 판단:", "").replace("요미의 판단:", "").strip()
-                a = clean_yomi[:120] if clean_yomi else a
+                a = _clip_wb(clean_yomi, 120) if clean_yomi else a
             if self._is_low_quality_answer(a):
                 a = self._fallback_answer_for_question(q, topic, content_type)
             # 영어 모드(2026-07-17): 영어 글은 한국어 패턴 기반 슬롯 추출(real/yomi)이
@@ -814,7 +815,7 @@ class GeoIntentService:
         text = " ".join((hook or topic or "").split())
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 5][:2]
         if not sentences and text:
-            sentences = [_ensure_sentence(text[:120])]
+            sentences = [_ensure_sentence(_clip_wb(text, 120))]
         # 2026-07-18 실측: hook에서 뽑은 문장은 상류(answer_engine)의 본문 중복
         # 제거에 전부 걸러지고 아래 canned 'why' 한 문장만 발행됐다 — 정보 0의
         # 필러 블록. 주제가 짧으면(에버그린 검색구) why 문장 자체에 주제를 넣어

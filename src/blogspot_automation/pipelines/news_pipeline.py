@@ -11,7 +11,12 @@ import re
 import traceback
 from typing import Any, Protocol
 
-from blogspot_automation.models.news_models import ScoredNewsCandidate, SelectedNewsPlan, TitleCandidate
+from blogspot_automation.models.news_models import (
+    NewsCandidate,
+    ScoredNewsCandidate,
+    SelectedNewsPlan,
+    TitleCandidate,
+)
 from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.contrarian_content_service import ContrarianContentService
@@ -368,27 +373,11 @@ class NewsPipeline:
                     content_angle.get("source_title"),
                 ]
             )
-        for item in result.get("top_scored_candidates") or []:
-            if not isinstance(item, dict):
-                continue
-            values.extend(
-                [
-                    item.get("topic"),
-                    item.get("search_demand_topic"),
-                    item.get("original_topic"),
-                    item.get("transformed_topic"),
-                ]
-            )
-            search_angle = item.get("search_angle")
-            if isinstance(search_angle, dict):
-                values.extend(
-                    [
-                        search_angle.get("search_demand_topic"),
-                        search_angle.get("original_topic"),
-                        search_angle.get("transformed_topic"),
-                        search_angle.get("source_title"),
-                    ]
-                )
+        # 주의: 과거에는 top_scored_candidates 전체를 배제 목록에 넣었는데,
+        # 한 후보의 게이트 실패가 "그 실행의 상위 후보 전부"를 퍼지 매칭으로
+        # 태워버려 재시도 2회 만에 풀이 고갈됐다(2026-07-19~20 발행 0건 사슬).
+        # 재시도 배제는 실제로 시도해 실패한 주제(선택된 주제와 그 변형 각도)로만
+        # 한정한다 — 실제 중복은 어차피 dedup/품질 게이트가 다시 걸러낸다.
         return self._normalize_retry_exclusion_values(values)
 
     def _retry_exclusion_keys_from_candidate(self, candidate: ScoredNewsCandidate) -> list[str]:
@@ -463,6 +452,61 @@ class NewsPipeline:
             # 사용자 선호 반영: 대기업 corporate(노조/공시/총수) 후순위.
             if ai_blog_mode:
                 logger.info("AI_BLOG_MODE: broad trending/discovery 후보 주입 건너뜀")
+                # 커뮤니티 언급량 기반 이슈 AI 후보 주입 (2026-07-20, 운영자 요청):
+                # "사람들이 가장 많이 언급하는 AI"를 Reddit hot + HN Algolia에서
+                # 직접 수집한다. 뉴스 RSS 헤드라인(보도자료형)과 달리 실제 토론량
+                # (score/댓글수)이 실린 후보라 검색 수요의 선행 지표가 된다.
+                try:
+                    from blogspot_automation.services.community_topic_service import (
+                        collect_community_topics,
+                    )
+                    _community_topics = collect_community_topics(max_items=20)
+                    _community_candidates = []
+                    for _ct in _community_topics:
+                        _ct_title = (_ct.title or "").strip()
+                        if not _ct_title:
+                            continue
+                        _ct_source_type = (
+                            "community_reddit"
+                            if _ct.source.startswith("reddit")
+                            else "community_hackernews"
+                        )
+                        _ct_published = datetime.fromtimestamp(
+                            _ct.created_utc, tz=timezone.utc
+                        ).isoformat(timespec="seconds")
+                        from blogspot_automation.utils.text_clip import (
+                            clip_at_word_boundary as _clip_wb,
+                        )
+                        _community_candidates.append(
+                            NewsCandidate(
+                                topic=_clip_wb(_ct_title, 90),
+                                category="today_issue",
+                                summary=_ct_title,
+                                source_hint=_ct.source,
+                                published_at=_ct_published,
+                                url=_ct.url or None,
+                                raw={
+                                    "source_type": _ct_source_type,
+                                    "query": "community_mentions",
+                                    "query_group": "community_mentions",
+                                    "parsed_pub_date": _ct_published,
+                                    "is_stale": False,
+                                    "source": _ct.source,
+                                    "original_title": _ct_title,
+                                    "cleaned_title": _ct_title,
+                                    "community_mention_score": int(_ct.mention_score),
+                                    "community_comments": int(_ct.comments),
+                                },
+                            )
+                        )
+                    if _community_candidates:
+                        logger.info(
+                            "community_topics: %d개 커뮤니티 언급 후보 주입 (reddit/hn)",
+                            len(_community_candidates),
+                        )
+                        candidates = _community_candidates + candidates
+                except Exception as _comm_exc:  # noqa: BLE001
+                    logger.warning("community_topic_service failed: %s", _comm_exc)
             else:
                 try:
                     from blogspot_automation.services.trending_news_service import TrendingNewsService
@@ -704,6 +748,36 @@ class NewsPipeline:
                         }
                 else:
                     publishable = real_news_publishable
+                    # 점수 우선 경쟁(2026-07-20): 뉴스 후보가 있어도 전부 수요 신호
+                    # (트렌드/커뮤니티) 0이면, 에버그린 후보를 풀에 "합류"시켜
+                    # total_score·다양성 기준으로 같이 경쟁시킨다. 과거에는 뉴스가
+                    # 1건이라도 있으면 에버그린을 수집조차 안 해(소스 우선), 수요
+                    # 없는 니치 뉴스가 항상 고수요 에버그린을 이겼다. 뉴스가 수요
+                    # 신호를 갖고 있으면 기존 동작 그대로다(회귀 0).
+                    if ai_blog_mode and not any(
+                        int(
+                            (it.candidate.raw or {}).get("demand_signal_boost") or 0
+                        ) > 0
+                        for it in real_news_publishable
+                    ):
+                        try:
+                            (
+                                _sf_candidates,
+                                _sf_scored,
+                                _sf_publishable,
+                            ) = self._collect_evergreen_publish_fallback_candidates(
+                                topic_group_history=topic_group_history,
+                                recent_evergreen_axes=recent_evergreen_axes,
+                            )
+                            if _sf_publishable:
+                                logger.info(
+                                    "score-first: 뉴스 후보 수요 신호 0 → 에버그린 %d개 풀 합류 (점수 경쟁)",
+                                    len(_sf_publishable),
+                                )
+                                publishable = publishable + _sf_publishable
+                                scored = scored + _sf_scored
+                        except Exception as _sf_exc:  # noqa: BLE001
+                            logger.warning("score-first evergreen merge 실패(무시): %s", _sf_exc)
             dedup_history_records = self._dedup_history_records()
             manual_dedup_bypass = self._manual_dedup_bypass_enabled()
             if manual_dedup_bypass:
@@ -1035,6 +1109,7 @@ class NewsPipeline:
             # LLM 기반 고품질 생성 우선 시도, 실패 시 기존 서비스 폴백
             html = None
             _llm_used = False
+            _llm_generation_failed = False
             _llm_source_citations: list[dict[str, str]] = []
             if self.llm_content_service:
                 try:
@@ -1060,9 +1135,19 @@ class NewsPipeline:
                         )
                         logger.info("NewsPipeline: LLM 콘텐츠 생성 성공 (%d자)", len(html))
                     else:
+                        _llm_generation_failed = True
                         logger.warning("NewsPipeline: LLM 반환 None — ContrarianContentService 폴백")
                 except Exception as _llm_exc:
+                    _llm_generation_failed = True
                     logger.warning("NewsPipeline: LLM 생성 실패 (%s) — 폴백", _llm_exc)
+            if _llm_generation_failed and is_english_mode():
+                # EN 모드에서 LLM 실패는 곧 발행 불가(템플릿 폴백은 한국어라 차단됨).
+                # 표면 증상(near-duplicate 차단 등)에 묻히지 않게 여기서 크게 실패를 남긴다.
+                logger.error(
+                    "NewsPipeline: LLM 생성 전멸 — EN 모드에서는 이 실행의 발행이 사실상 불가능 "
+                    "(topic=%s). provider 로그(429/timeout)를 확인하라.",
+                    (selected.candidate.topic or "")[:60],
+                )
 
             if not html:
                 html = self.content_service.generate_html(plan)
@@ -1451,6 +1536,22 @@ class NewsPipeline:
                     )
                     if not _en_narrative_publish:
                         publish_quality_gate = _candidate_publish_gate
+                        if _llm_body_gate_passed:
+                            # 게이트 판정은 candidate 기준을 쓰더라도, 원장에 남는
+                            # content_fingerprint는 "실제 발행되는 html"(LLM 서술형)
+                            # 기준이어야 한다. candidate(템플릿) 지문이 published
+                            # 레코드에 남으면 이후 모든 템플릿 렌더가 그 레코드와
+                            # 0.85+로 충돌하는 원장 오염이 생긴다(2026-07-18 실측:
+                            # "Best AI Tools for Real Estate Agents" → 7/19~20
+                            # 에버그린 전멸 사슬).
+                            try:
+                                from blogspot_automation.services.content_similarity_service import (
+                                    sentence_fingerprints as _sentence_fps,
+                                )
+                                publish_quality_gate = dict(publish_quality_gate)
+                                publish_quality_gate["content_fingerprint"] = _sentence_fps(html)
+                            except Exception as _fp_exc:  # noqa: BLE001
+                                logger.warning("fingerprint recompute failed: %s", _fp_exc)
                     # _en_narrative_publish면 publish_quality_gate는 이미 발행본(영어
                     # 서술) 평가 결과(passed=True)다 — 그대로 유지한다.
                     _publish_ready = True
@@ -1584,6 +1685,7 @@ class NewsPipeline:
                 "artifact_dir": str(artifact_dir),
                 "dry_run": self.dry_run,
                 "news_publish_mode": self.news_publish_mode,
+                "llm_generation_failed": _llm_generation_failed,
                 "retry_attempt": self._current_retry_attempt,
                 "selected_topic": selected.candidate.topic,
                 "selected_title": best_title.title,
@@ -1753,6 +1855,39 @@ class NewsPipeline:
                     "history_recorded": history_recorded,
                     **base_result,
                 }
+
+            # EN 모드 최종 방어선(2026-07-20, 추가 차단 = 강화): 발행 직전 본문에
+            # 한국어가 실질적으로 남아 있으면 무조건 차단한다. 2026-07-18 실측 사고 —
+            # en_mode_template_fallback_blocked는 candidate 승격 경로만 막았고, LLM
+            # 실패로 폴백된 한국어 템플릿 본문(ContrarianContentService)은 한국어
+            # 기준 게이트를 passed=True로 통과해 그대로 라이브 발행됐다("Best AI
+            # Tools for Real Estate Agents" 한국어 껍데기). 게이트가 어떤 경로로
+            # 판정됐든, "실제 발행되는 html"이 영어가 아니면 여기서 끝낸다.
+            if is_english_mode():
+                _visible_for_lang = re.sub(r"<script[^>]*>.*?</script>", " ", html or "", flags=re.DOTALL)
+                _visible_for_lang = re.sub(r"<[^>]+>", " ", _visible_for_lang)
+                _hangul_chars = sum(1 for _ch in _visible_for_lang if "가" <= _ch <= "힣")
+                if _hangul_chars > 40:
+                    logger.error(
+                        "NewsPipeline: EN 모드 최종 본문에 한국어 %d자 잔존 — 발행 차단 "
+                        "(llm_generation_failed=%s)",
+                        _hangul_chars, _llm_generation_failed,
+                    )
+                    publish_quality_gate = dict(publish_quality_gate)
+                    publish_quality_gate["passed"] = False
+                    _kb_issues = list(publish_quality_gate.get("blocking_issues") or [])
+                    _kb_issues.append("en_mode_korean_body_publish_blocked")
+                    publish_quality_gate["blocking_issues"] = _kb_issues
+                    base_result["publish_quality_gate"] = publish_quality_gate
+                    history_recorded = self._try_record_history(
+                        status="blocked_by_quality_gate", result=base_result
+                    )
+                    return {
+                        "status": "blocked_by_quality_gate",
+                        "blocking_issues": publish_quality_gate["blocking_issues"],
+                        "history_recorded": history_recorded,
+                        **base_result,
+                    }
 
             auto_publish_gate = self._evaluate_auto_publish_gate(
                 base_result=base_result,
@@ -2516,6 +2651,9 @@ class NewsPipeline:
         "firecrawl_search",
         "naver_news_search",
         "daum_news_search",
+        # 커뮤니티 언급량 소스(2026-07-20) — 실제 토론량이 실린 이슈 후보
+        "community_reddit",
+        "community_hackernews",
     })
     # AI 이슈 부스트 자격 판단용 엔티티 토큰 (도구/모델/기업명)
     _AI_ISSUE_ENTITY_TOKENS: tuple[str, ...] = (
@@ -2569,7 +2707,45 @@ class NewsPipeline:
             raw["ai_issue_boost_from_score"] = original_score
             raw["ai_issue_boost_from_click"] = original_click
             raw["click_potential_score"] = max(original_click, 8)
-            item.total_score = max(item.total_score, 82)
+            # 수요 조건부 부스트(2026-07-20): 과거의 무조건 82점 평탄화는 "AI 엔티티
+            # 단어만 있으면 니치 보도자료도 자동 발행 자격"이라는 뜻이었고, 그 결과
+            # 점수 49(D등급) 뉴스가 74~77점 에버그린을 항상 이겼다(운영자 불만의
+            # 근본 원인). 이제 실제 수요 신호(Google Trends US 검색량 + 커뮤니티
+            # 언급량)가 있는 후보만 82+수요만큼 올라가고, 신호가 없는 후보는
+            # 발행 하한(76)까지만 올려 수요 있는 후보·에버그린과 점수로 경쟁한다.
+            demand_boost = 0
+            demand_keywords: list[str] = []
+            _topic_text = " ".join(
+                str(part or "")
+                for part in (item.candidate.topic, raw.get("original_title"))
+            )
+            try:
+                from blogspot_automation.services.google_trends_signal import GoogleTrendsSignal
+                _tb, _tk = GoogleTrendsSignal.score_topic_boost(_topic_text, max_boost=20)
+                demand_boost += _tb
+                demand_keywords.extend(_tk)
+            except Exception as _tr_exc:  # noqa: BLE001
+                logger.warning("trends demand signal 실패(무시): %s", _tr_exc)
+            try:
+                from blogspot_automation.services.community_topic_service import (
+                    score_topic_boost as _community_boost,
+                )
+                _cb, _ck = _community_boost(_topic_text, max_boost=15)
+                demand_boost += _cb
+                demand_keywords.extend(_ck)
+            except Exception as _cm_exc:  # noqa: BLE001
+                logger.warning("community demand signal 실패(무시): %s", _cm_exc)
+            # 커뮤니티에서 직접 수집된 후보는 언급량 자체가 수요 신호다.
+            _own_mentions = int(raw.get("community_mention_score") or 0)
+            if _own_mentions >= 200:
+                demand_boost += 8 if _own_mentions < 500 else 12
+                demand_keywords.append(f"community_mentions:{_own_mentions}")
+            raw["demand_signal_boost"] = demand_boost
+            raw["demand_signal_keywords"] = list(dict.fromkeys(demand_keywords))
+            if demand_boost > 0:
+                item.total_score = min(max(item.total_score, 82) + min(demand_boost, 18), 100)
+            else:
+                item.total_score = max(item.total_score, 76)
         return scored
 
     @staticmethod
@@ -4776,10 +4952,19 @@ class NewsPipeline:
             signals.append(f"quality_issue:{issue}")
         for reason in list(auto_publish_gate.get("blocking_reasons") or [])[:5]:
             signals.append(f"auto_publish_blocked:{reason}")
-        if post_publish_audit and not bool(post_publish_audit.get("passed")):
+        # 감사가 실제로 돌지 않은 실행(draft 등, skipped=True)은 실패가 아니다 —
+        # 이 오분류가 2026-07 원장에서 전 실행을 audit_failed로 물들여 진짜 실패를
+        # 구분 불가능하게 만들었다.
+        if (
+            post_publish_audit
+            and not bool(post_publish_audit.get("skipped"))
+            and not bool(post_publish_audit.get("passed"))
+        ):
             signals.append("post_publish_audit_failed")
         for issue in list(post_publish_audit.get("issues") or [])[:5]:
             signals.append(f"post_publish_issue:{issue}")
+        if bool(result.get("llm_generation_failed")):
+            signals.append("llm_generation_failed")
         why_held = str(result.get("why_topic_held") or "").strip()
         if why_held:
             signals.append(f"topic_held:{why_held}")
@@ -4843,6 +5028,15 @@ class NewsPipeline:
             expected_labels=list(publish_args.get("labels") or []),
             content_type=str(publish_args.get("content_type") or ""),
             topic_group=str(publish_args.get("topic_group") or ""),
+            # slug 단독 재검사 오탐 방지(2026-07-18 정상 글 자동삭제 사고):
+            # 감사에 후보 메타데이터 원본을 넘겨 news-focus 재평가가 slug 토큰이
+            # 아니라 실제 주제·그룹·타입으로 판정하게 한다.
+            candidate_meta={
+                "topic": str(publish_args.get("selected_topic") or ""),
+                "selected_topic": str(publish_args.get("selected_topic") or ""),
+                "topic_group": str(publish_args.get("topic_group") or ""),
+                "content_type": str(publish_args.get("content_type") or ""),
+            },
         )
         fatal_issues = self._post_publish_fatal_issues(post_publish_audit)
         if post_publish_audit and fatal_issues:
@@ -4927,6 +5121,7 @@ class NewsPipeline:
         expected_labels: list[str] | tuple[str, ...] | None = None,
         content_type: str = "",
         topic_group: str = "",
+        candidate_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not url:
             return {"passed": False, "issues": ["missing_post_url"]}
@@ -4938,6 +5133,7 @@ class NewsPipeline:
                 expected_labels=expected_labels,
                 content_type=content_type,
                 topic_group=topic_group,
+                candidate_meta=candidate_meta,
             ).to_dict()
         except Exception as exc:  # noqa: BLE001
             return {

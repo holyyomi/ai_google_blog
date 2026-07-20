@@ -78,6 +78,10 @@ _PROVIDERS: list[dict[str, Any]] = [
         "model": None,
         "free": False,
         "max_tokens": 12000,
+        # 유료 최종 폴백까지 read timeout으로 죽으면 그날 발행이 0이 된다.
+        # gpt-5 계열이 12,000 completion tokens를 채우는 데 45초를 넘는 일이
+        # 상시 관측됨(2026-07-19~20 전 실행 "The read operation timed out")
+        "timeout": 300,
         "extra_headers": {},
     },
 ]
@@ -759,7 +763,8 @@ class LlmContentService:
                     line += f" ({pub})"
                 lines.append(line)
                 if link.lower().startswith(("http://", "https://")) and len(citations) < 4:
-                    citations.append({"name": title[:40], "url": link})
+                    from blogspot_automation.utils.text_clip import clip_at_word_boundary
+                    citations.append({"name": clip_at_word_boundary(title, 60, ellipsis="…"), "url": link})
                 if len(lines) >= 4:
                     break
             if not lines:
@@ -861,7 +866,10 @@ class LlmContentService:
                     line += f" ({pub})"
                 lines.append(line)
                 if result_url.lower().startswith(("http://", "https://")) and len(citations) < max(3, num_results):
-                    citations.append({"name": (title or result_url)[:40], "url": result_url})
+                    from blogspot_automation.utils.text_clip import clip_at_word_boundary
+                    citations.append(
+                        {"name": clip_at_word_boundary(title or result_url, 60, ellipsis="…"), "url": result_url}
+                    )
                 if len(lines) >= num_results:
                     break
             if not lines:
@@ -1104,7 +1112,8 @@ class LlmContentService:
             headers=headers,
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        provider_timeout = int(provider.get("timeout") or _TIMEOUT)
+        with urllib.request.urlopen(req, timeout=provider_timeout) as resp:
             result = json.loads(resp.read().decode())
 
         choices = result.get("choices", [])
