@@ -8,23 +8,29 @@ from blogspot_automation.services.llm_content_service import LlmContentService
 
 
 def test_llm_provider_order_free_first_then_paid_fallback() -> None:
-    # 운영자 정책: 구독 인증(claude_code_cli) -> 무료(OpenRouter) 2단 -> 유료(OpenAI) 폴백.
+    # 운영자 정책: 구독 인증(claude_code_cli) -> 무료(OpenRouter) 3단(고정 1차/2차 +
+    # 자동 라우터) -> 유료(OpenAI) 최종 폴백.
     names = [provider["name"] for provider in module._PROVIDERS]
 
     assert names == [
         "claude_code_cli",
         "openrouter_primary",
         "openrouter_secondary",
+        "openrouter_free_router",
         "openai_api_fallback",
     ]
     assert [p["api_key_env"] for p in module._PROVIDERS] == [
         "CLAUDE_CODE_OAUTH_TOKEN",
         "OPENROUTER_API_KEY",
         "OPENROUTER_API_KEY",
+        "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
     ]
     assert module._PROVIDERS[1]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
     assert module._PROVIDERS[2]["model"] == "openai/gpt-oss-120b:free"
+    assert module._PROVIDERS[3]["model"] == "openrouter/free"
+    assert module._PROVIDERS[3]["free"] is True
+    assert module._PROVIDERS[-1]["free"] is False
 
 
 def test_llm_provider_chain_excludes_gemini_for_main_generation() -> None:
@@ -400,12 +406,9 @@ def test_call_with_fallback_uses_openai_when_both_free_models_fail(monkeypatch) 
     result = LlmContentService().call_with_fallback("Write a post", "System prompt", min_chars=20)
 
     assert result and "openai fallback" in result
-    # 무료는 혼잡 대비 provider당 2회씩 시도: 무료1×2 → 무료2×2 → 유료 = 5회
-    assert calls == [
-        "https://openrouter.ai/api/v1/chat/completions",
-        "https://openrouter.ai/api/v1/chat/completions",
-        "https://openrouter.ai/api/v1/chat/completions",
-        "https://openrouter.ai/api/v1/chat/completions",
+    # 무료는 혼잡 대비 provider당 3회씩 시도 (2026-07-20 2->3 강화):
+    # 1차×3 -> 2차×3 -> free_router×3 -> 유료(1회 성공) = 10회
+    assert calls == ["https://openrouter.ai/api/v1/chat/completions"] * 9 + [
         "https://api.openai.com/v1/chat/completions",
     ]
 
@@ -653,6 +656,57 @@ def test_claude_code_cli_raises_on_empty_result_field(monkeypatch) -> None:
         assert False, "expected RuntimeError"
     except RuntimeError as exc:
         assert "result" in str(exc)
+
+
+def test_free_providers_get_three_attempts_paid_gets_two(monkeypatch) -> None:
+    # 2026-07-20: 유료 폴백 빈도를 낮추려고 무료(구독 포함) 쪽 재시도를 2->3으로
+    # 늘렸다 — 유료는 비용 때문에 2회 유지. 실제 호출 횟수로 회귀 확인.
+    call_counts: dict[str, int] = {}
+
+    def fake_call_provider(self, provider, api_key, user_prompt, system_prompt=None):
+        call_counts[provider["name"]] = call_counts.get(provider["name"], 0) + 1
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(LlmContentService, "_call_provider", fake_call_provider)
+    monkeypatch.setattr(module.time, "sleep", lambda *_: None)
+    for name, env in (
+        ("claude_code_cli", "CLAUDE_CODE_OAUTH_TOKEN"),
+        ("openrouter_primary", "OPENROUTER_API_KEY"),
+        ("openai_api_fallback", "OPENAI_API_KEY"),
+    ):
+        monkeypatch.setenv(env, "dummy")
+
+    LlmContentService().call_with_fallback("prompt")
+
+    assert call_counts["claude_code_cli"] == 3
+    assert call_counts["openrouter_primary"] == 3
+    assert call_counts["openai_api_fallback"] == 2
+
+
+def test_backoff_widened_for_capacity_exhaustion_errors(monkeypatch) -> None:
+    # 429 리터럴만 길게 대기하던 조건을 502/ResourceExhausted/rate limit까지 넓혔다.
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "dummy")
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def fake_call_provider(self, provider, api_key, user_prompt, system_prompt=None):
+        raise RuntimeError(
+            "Upstream error from Nvidia: ResourceExhausted: Worker local total request limit reached (32/32)"
+        )
+
+    monkeypatch.setattr(LlmContentService, "_call_provider", fake_call_provider)
+    LlmContentService().call_with_fallback("prompt")
+
+    assert sleeps, "expected at least one backoff sleep"
+    assert all(s == 6.0 for s in sleeps), sleeps
+
+
+def test_openrouter_free_router_present_before_paid_fallback() -> None:
+    names = [p["name"] for p in module._PROVIDERS]
+    assert names.index("openrouter_free_router") < names.index("openai_api_fallback")
+    assert names.index("openrouter_secondary") < names.index("openrouter_free_router")
 
 
 def test_system_prompt_carries_depth_contract_and_cliche_ban() -> None:

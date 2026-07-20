@@ -1,11 +1,17 @@
 """LLM 기반 블로그 콘텐츠 생성 서비스.
 
-Fallback chain:
+Fallback chain (2026-07-20 재정렬 — 유료 폴백 빈도를 낮추기 위해 무료 단계를
+3중으로 늘렸다. OpenRouter 무료 티어는 계정 평생 충전액이 $10 미만이면 하루
+50회로 제한되고(충전 시 1000회), 고정 모델 하나에만 의존하면 그 모델의 공급자
+쪽 용량 소진에 그대로 노출된다 — 둘 다 유료 폴백을 앞당기는 실제 원인이었다):
   1. Claude Code CLI, 구독 인증 (CLAUDE_CODE_OAUTH_TOKEN — 토큰당 과금 없음,
      `claude setup-token`으로 발급. Cloud Run 등 GHA 이외 환경 전용 — 이 키가
      없으면 조용히 skip되고 기존 체인으로 폴백된다)
-  2. OpenRouter primary (OPENROUTER_API_KEY, OPENROUTER_MODEL)
-  3. Official OpenAI API fallback (OPENAI_API_KEY, OPENAI_MODEL)
+  2. OpenRouter primary — 고정 무료 모델 (OPENROUTER_API_KEY, OPENROUTER_MODEL)
+  3. OpenRouter secondary — 고정 무료 대체 모델 (OPENROUTER_MODEL_FALLBACK)
+  4. OpenRouter free router (`openrouter/free`) — 그 순간 여유 있는 무료 모델로
+     자동 라우팅, 특정 모델 용량 소진에 안 걸림
+  5. Official OpenAI API fallback (OPENAI_API_KEY, OPENAI_MODEL) — 최종 유료
 """
 from __future__ import annotations
 
@@ -79,6 +85,26 @@ _PROVIDERS: list[dict[str, Any]] = [
         "default_base_url": "https://openrouter.ai/api/v1",
         "model_env": "OPENROUTER_MODEL_FALLBACK",
         "model": "openai/gpt-oss-120b:free",
+        "free": True,
+        "max_tokens": 12000,
+        "extra_headers": {
+            "HTTP-Referer": "https://holyyomiai.blogspot.com/",
+            "X-Title": "holyyomi AI",
+        },
+    },
+    {
+        # 2026-07-20: 1·2차 무료 모델이 둘 다 고정 모델이라, 그 모델의 공급자 쪽
+        # 용량 소진(예: "Worker local total request limit reached")이나 카탈로그
+        # 이탈에 그대로 노출됐다 — OpenAI 유료 폴백 빈도가 늘어난 원인 중 하나.
+        # OpenRouter 공식 무료 라우터(`openrouter/free`)는 요청 시점에 여유 있는
+        # 무료 모델로 자동 라우팅한다 — 유료로 넘어가기 전 마지막 무료 시도.
+        "name": "openrouter_free_router",
+        "provider_type": "openai_compatible",
+        "base_url": None,
+        "base_url_env": "OPENROUTER_BASE_URL",
+        "default_base_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "model": "openrouter/free",
         "free": True,
         "max_tokens": 12000,
         "extra_headers": {
@@ -1011,8 +1037,11 @@ class LlmContentService:
                 continue
             # 순간 혼잡(429/타임아웃)이 마지막 유료 폴백까지 겹치면 그대로 발행이
             # 통째로 스킵되므로, provider 종류와 무관하게 최소 1회는 재시도한다.
-            # 무료 모델은 2회, 유료(마지막 보루)도 2회 — 유료는 비용 때문에 그 이상은 안 늘린다.
-            attempts = 2
+            # 무료(구독 포함)는 재시도가 비용이 안 들어 3회, 유료(마지막 보루)는
+            # 2회로 제한 — 2026-07-20: 유료 폴백 빈도를 낮추려고 무료 쪽 인내심을
+            # 늘렸다(자원 소진성 502/429는 짧은 대기로 안 풀리는 경우가 많아
+            # 시도를 하나 더 주는 쪽이 그대로 유료로 넘어가는 것보다 싸다).
+            attempts = 2 if provider.get("free") is False else 3
             # 영어 모드(2026-07-17): 단어 수·형식 검증 실패는 확률적(같은 모델이
             # 재호출에서 1,600단어를 내기도 함) — 전 provider가 한 번씩 짧게 쓰면
             # 그날 발행이 통째로 스킵되므로 validator 실패도 1회 재시도한다.
@@ -1054,8 +1083,17 @@ class LlmContentService:
                         provider["name"], attempt, attempts, exc,
                     )
                     if attempt < attempts:
-                        # 429(rate limit)는 짧은 대기로 안 풀리는 경우가 많아 더 길게 기다린다.
-                        time.sleep(6.0 if "429" in str(exc) else 2.5)
+                        # 자원 소진성 오류(429 rate limit, 502 ResourceExhausted 등
+                        # 공급자 쪽 용량 초과)는 짧은 대기로 안 풀리는 경우가 많아
+                        # 더 길게 기다린다. 2026-07-20: "429" 리터럴만 보던 조건을
+                        # 넓혔다 — 실측에 502 ResourceExhausted("Worker local total
+                        # request limit reached")가 짧은 backoff만 받고 있었다.
+                        exc_text = str(exc)
+                        is_capacity_exhausted = any(
+                            token in exc_text
+                            for token in ("429", "502", "ResourceExhausted", "rate limit", "Rate limit")
+                        )
+                        time.sleep(6.0 if is_capacity_exhausted else 2.5)
 
         return None
 

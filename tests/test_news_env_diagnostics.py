@@ -13,13 +13,18 @@ def test_news_env_diagnostics_reports_free_first_chain() -> None:
 
     assert diagnostics["user_required_actions"] == []
     assert [item["name"] for item in diagnostics["provider_chain"]] == [
+        "claude_code_cli",
         "openrouter_primary",
         "openrouter_secondary",
+        "openrouter_free_router",
         "openai_api_fallback",
     ]
-    assert diagnostics["provider_chain"][0]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
-    assert diagnostics["provider_chain"][1]["model"] == "openai/gpt-oss-120b:free"
-    assert diagnostics["provider_chain"][2]["model"] == "gpt-test"
+    # CLAUDE_CODE_OAUTH_TOKEN은 이 테스트 env에 없으므로 미구성으로 표시돼야 한다.
+    assert diagnostics["provider_chain"][0]["configured"] is False
+    assert diagnostics["provider_chain"][1]["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+    assert diagnostics["provider_chain"][2]["model"] == "openai/gpt-oss-120b:free"
+    assert diagnostics["provider_chain"][3]["model"] == "openrouter/free"
+    assert diagnostics["provider_chain"][4]["model"] == "gpt-test"
     assert diagnostics["checks"]["enable_google_custom_search"]["value"] == "false"
 
 
