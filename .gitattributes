@@ -1,0 +1,6 @@
+# Windows git가 자동으로 CRLF 변환하면서 컨테이너 안 셔뱅(#!/usr/bin/env bash)이
+# 깨지는 사고가 났다(2026-07-20: "env: 'bash\r': No such file or directory").
+# 셸 스크립트는 항상 LF로 강제한다.
+*.sh text eol=lf
+Dockerfile text eol=lf
+entrypoint.sh text eol=lf
