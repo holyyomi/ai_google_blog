@@ -28,6 +28,32 @@ def test_first_sentence_does_not_split_on_decimal_point() -> None:
     assert not result.endswith("3.")
 
 
+def test_first_sentence_en_returns_whole_long_sentence_no_ellipsis_fragment(monkeypatch) -> None:
+    # 2026-07-21 라이브 초안 실측: AI_CITATION_SUMMARY(=_citation_summary_block이
+    # _first_sentence로 basis/criterion 추출)에 첫 문장이 max_len(140)보다 길다는
+    # 이유로 "...training methods reward a confident guess over…"가 조각째 발행됐다.
+    # 첫 완결 문장은 통째로 반환하고 중간을 "…"로 잘라선 안 된다.
+    monkeypatch.setenv("BLOG_LANGUAGE", "en")
+    text = (
+        "This happens because these models predict the next most likely word, "
+        "not verified truth, and training methods reward a confident guess over "
+        "an honest \"I don't know,\" according to research on why models hallucinate."
+    )
+    result = _first_sentence(text, max_len=140)
+    assert result.endswith("."), f"must end on a complete sentence, got: {result!r}"
+    assert "…" not in result, f"must not publish a mid-sentence ellipsis fragment: {result!r}"
+    assert "guess over an honest" in result, "the sentence must not be cut at 'guess over'"
+
+
+def test_first_sentence_en_clips_only_true_runons(monkeypatch) -> None:
+    # 문장 경계가 전혀 없는 300자 초과 런온만 단어 경계 클립(마지막 방어).
+    monkeypatch.setenv("BLOG_LANGUAGE", "en")
+    runon = "word " * 80  # 400 chars, no sentence boundary
+    result = _first_sentence(runon.strip(), max_len=140)
+    assert len(result) <= 141 + 1  # max_len + ellipsis char
+    assert not result.rstrip("…").endswith("wor")  # word boundary, not mid-word
+
+
 def test_ensure_answer_engine_optimized_html_adds_required_blocks() -> None:
     html = """
     <html><head></head><body>

@@ -1568,12 +1568,19 @@ def _first_sentence(text: str, *, max_len: int) -> str:
     if not text:
         return ""
     if is_english_mode():
-        for match in re.finditer(r"[.!?](?=\s|$)", text):
-            end = match.end()
-            if 20 <= end <= max_len:
-                return text[:end]
-        # 문장 경계가 max_len 안에 없으면 단어 경계 절단 — 하드컷은 "rollout can
-        # vary by acco"류 단어 중간 절단을 본문에 노출시켰다(2026-07-18~19 라이브).
+        boundaries = [m.end() for m in re.finditer(r"[.!?](?=\s|$)", text) if m.end() >= 20]
+        if boundaries:
+            first_end = boundaries[0]
+            # 첫 완결 문장을 통째로 반환한다. max_len보다 길어도 문장 중간을
+            # "…"로 잘라 조각을 발행하지 않는다 — 2026-07-21 라이브 초안 실측:
+            # AI_CITATION_SUMMARY에 "...reward a confident guess over…"가 그대로
+            # 발행됐다(_citation_summary_block이 이 헬퍼로 basis/criterion을 뽑음).
+            # 비정상적으로 긴 런온(>300자)만 단어 경계 클립으로 방어한다.
+            hard_ceiling = max(max_len, 300)
+            if first_end <= hard_ceiling:
+                return text[:first_end]
+        # 문장 경계가 전혀 없거나 300자 이상 런온이면 단어 경계 절단 — 하드컷은
+        # "rollout can vary by acco"류 단어 중간 절단을 본문에 노출시켰다(2026-07-18~19).
         from blogspot_automation.utils.text_clip import clip_at_word_boundary
         return clip_at_word_boundary(text, max_len, ellipsis="…")
     for match in re.finditer(r"(?:다\.|요\.|니다\.|습니다\.|(?<!\d)[.!?](?!\d)|。)", text):
