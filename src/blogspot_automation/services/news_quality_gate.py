@@ -969,6 +969,22 @@ class NewsQualityGate:
                 f"{'+'.join(pricing_axis_overlap['shared_tools'])}"
             )
 
+        # --- 존재하지 않는 GitHub 툴 추천 감지 (2026-07-21) ---
+        # 라이브 실측: "Etsy AI Tools" 글이 존재하지 않는 저장소
+        # (PCSAdmin081/keepr-etsy-ops — 실제 404)를 추천 오픈소스 툴로 제시했다.
+        # 이 블로그는 AI 도구를 추천하는 신뢰 매체라 존재하지 않는 툴 추천은
+        # 신뢰도에 직격탄이다. 네트워크 확인 실패(타임아웃 등)는 비치명 —
+        # 확인된 404만 차단한다(오탐/과잉차단 방지, 게이트 완화 아님).
+        dead_tool_links: list[str] = []
+        try:
+            dead_tool_links = self._dead_tool_repo_links(html)
+        except Exception as _link_exc:  # noqa: BLE001
+            logger.warning("dead tool repo link check failed (skipped): %s", _link_exc)
+        if publish_mode_active and dead_tool_links:
+            blocking_issues.append(
+                f"nonexistent_tool_repo_linked:{','.join(dead_tool_links)}"
+            )
+
         practical_title_bonus = 8 if any(token in title for token in _GOOD_TITLE_SIGNALS) else 0
         score = max(0, min(100, 100 + practical_title_bonus - (len(set(blocking_issues)) * 12) - (len(warnings) * 5)))
         result = {
@@ -979,6 +995,7 @@ class NewsQualityGate:
             "pricing_comparison_axis_overlap": pricing_axis_overlap["overlap"],
             "pricing_comparison_axis_shared_tools": pricing_axis_overlap["shared_tools"],
             "pricing_comparison_axis_matched_title": pricing_axis_overlap["matched_title"],
+            "dead_tool_repo_links": dead_tool_links,
             "passed": not blocking_issues,
             "score": score,
             "topic_group": topic_group,
@@ -1117,6 +1134,57 @@ class NewsQualityGate:
             if len(shared) >= 2:
                 return {"overlap": True, "shared_tools": sorted(shared), "matched_title": record_title}
         return {"overlap": False, "shared_tools": [], "matched_title": ""}
+
+    @staticmethod
+    def _dead_tool_repo_links(html: str, *, max_checks: int = 5, timeout: float = 4.0) -> list[str]:
+        """본문에 링크된 github.com/{owner}/{repo} 중 실존하지 않는(404) 것을 찾는다.
+
+        2026-07-21 라이브 실측: LLM이 "keepr-etsy-ops"라는 존재하지 않는 저장소
+        (github.com/PCSAdmin081/keepr-etsy-ops — 실측 404)를 추천 오픈소스 툴로
+        본문에 제시했다. 이 블로그는 AI 도구를 추천하는 신뢰 매체라 존재하지
+        않는 툴 추천은 신뢰도에 직격탄이다. 확인된 404만 반환한다 — 네트워크
+        오류·타임아웃·비-404 응답은 판정 보류(호출자가 비치명으로 처리).
+        """
+        import urllib.error
+        import urllib.request
+
+        pattern = re.compile(
+            r'href=["\']https?://(?:www\.)?github\.com/'
+            r'([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/'
+            r'([A-Za-z0-9][\w.-]*?)'
+            r'(?=["\'/#?])',
+            flags=re.IGNORECASE,
+        )
+        skip_owners = {
+            "anthropics", "openai", "google", "google-gemini", "microsoft",
+            "features", "topics", "orgs", "sponsors", "marketplace", "about",
+            "settings", "collections", "trending",
+        }
+        seen: set[tuple[str, str]] = set()
+        checked = 0
+        dead: list[str] = []
+        for owner, repo in pattern.findall(html or ""):
+            key = (owner.lower(), repo.lower())
+            if key in seen or owner.lower() in skip_owners:
+                continue
+            seen.add(key)
+            if checked >= max_checks:
+                break
+            checked += 1
+            url = f"https://github.com/{owner}/{repo}"
+            try:
+                req = urllib.request.Request(
+                    url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"}
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    status = getattr(resp, "status", 200)
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+            except Exception:
+                continue  # 네트워크 실패는 판정 보류 — 과잉 차단 방지
+            if status == 404:
+                dead.append(f"{owner}/{repo}")
+        return dead
 
     @staticmethod
     def _ai_save_value_issues(*, html: str, content_type: str) -> tuple[list[str], list[str]]:
