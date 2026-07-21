@@ -15,14 +15,23 @@ set -euo pipefail
 # "fatal: credential url cannot be parsed"로 즉시 실패). 방어적으로 trim.
 GITHUB_REPO_TOKEN="$(printf '%s' "${GITHUB_REPO_TOKEN}" | tr -d '\n\r')"
 
-# ── 실행 우선순위(2026-07-20 사용자 결정): GitHub Actions가 1순위, 이 Cloud Run
-# 잡은 "GHA가 이번 스케줄 시간대에 아예 못 돌았을 때만" 실행되는 폴백이다.
-# ai_blog.yml 파일 자체는 절대 건드리지 않는다 — 대신 여기서 GitHub API로
-# "최근에 schedule 트리거 run이 실제로 생성됐는지"만 확인한다. Actions 분당
-# 한도 소진처럼 GHA가 아예 큐에 못 들어가는 실패는 run 자체가 생성되지 않으므로
-# (성공/실패 무관하게) 최근 run 존재 여부가 "GHA가 이번 슬롯을 처리했는가"의
-# 정확한 신호가 된다. Cloud Scheduler는 07:31/19:31 KST보다 살짝 늦게(예:
-# 07:50/19:50) 쏘도록 설정해 GHA가 시작할 시간을 벌어준다.
+# ── 실행 우선순위(2026-07-20 설계, 2026-07-21 사용자 결정으로 한시 변경):
+# 원래는 GitHub Actions가 1순위이고 이 Cloud Run 잡은 "GHA가 이번 스케줄
+# 시간대에 아예 못 돌았을 때만" 실행되는 폴백이었다. 그런데 실측 결과
+# (2026-07-20~21) GHA가 Actions-minute 한도 소진으로 큐에서 57분~2시간
+# 지연되다 결국 늦게라도 성공해버려서, "최근 90분 내 GHA run 없음" 체크가
+# Cloud Run 실행 *시점*엔 참이라도 그 뒤 지연된 GHA가 같은 슬롯에 또 발행해
+# 슬롯당 2건씩 중복 발행되는 사고가 있었다. ai_blog.yml에 2026-08-01 KST까지
+# schedule 자동실행을 건너뛰는 게이트를 추가했으므로, 이 기간 동안은 GHA
+# run 존재 여부를 확인할 필요가 없다 — Cloud Run이 무조건 1순위로 실행한다.
+# 2026-08-01부터는 아래 원래 로직(GHA run 존재 확인)으로 자동 복귀해 GHA가
+# 다시 1순위가 된다. Cloud Scheduler는 07:31/19:31 KST보다 살짝 늦게(예:
+# 07:50/19:50) 쏘도록 설정되어 있다(8월부터 원래 로직이 쓰는 여유 시간).
+NOW_KST="$(TZ=Asia/Seoul date +%Y-%m-%d)"
+if [[ "${NOW_KST}" < "2026-08-01" ]]; then
+  echo "[entrypoint] 2026-07 GHA 한도소진 기간 — Cloud Run이 무조건 1순위로 실행 (today KST=${NOW_KST}, 2026-08-01부터 자동 복귀)"
+  GHA_HANDLED="false"
+else
 echo "[entrypoint] checking whether GitHub Actions already handled this schedule slot"
 GHA_HANDLED=$(python3 - <<'PYEOF'
 import json
@@ -60,6 +69,7 @@ print("[entrypoint] no recent GHA scheduled run found — GHA likely blocked (qu
 print("false")
 PYEOF
 )
+fi
 
 if [ "${GHA_HANDLED}" = "true" ]; then
   echo "[entrypoint] GitHub Actions already ran this slot — Cloud Run fallback is a no-op, exiting."
