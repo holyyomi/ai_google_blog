@@ -1400,6 +1400,17 @@ class NewsScoringService:
             "루머", "출처 불명", "가짜뉴스", "사건사고", "기업 실적",
             "실적 발표", "보도자료", "정례회의", "외교 회의", "외교 회담",
             "부동산 시세", "아파트 시세",
+            # 2026-07-21 실측: 이 블로그는 "AI 도구 선택/비교/가격/활용" 독자용인데,
+            # AI_BLOG_MODE의 커뮤니티 토픽 수집(community_topic_service.py)이
+            # "GPT"/"AI" 같은 광범위 쿼리로 HN을 훑다 보니 취약점 폭로 기사("GPT-5.6
+            # WordPress RCE Discovery $500k Broker Value")가 AI 모델을 언급한다는
+            # 이유만으로 후보에 섞여 발행까지 갔다. 보안 전문 매체용 주제이지
+            # 이 블로그 독자(AI 도구를 고르는 일반 사용자)가 찾는 글이 아니다 —
+            # 완전 차단 대신 페널티로 다른 정상 후보에 밀리게 한다.
+            "remote code execution", "rce exploit", "rce vulnerability",
+            "wordpress rce", "zero-day exploit", "exploit broker",
+            "ransomware attack", "data breach", "unpatched vulnerability",
+            "cve-", "sql injection",
         )
         clickbait_keywords = ("충격", "경악", "소름", "난리났다", "무조건", "절대", "결국 터졌다")
         if any(keyword in text for keyword in high_risk_keywords):
