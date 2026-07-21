@@ -866,7 +866,12 @@ class GeoIntentService:
                 f"{result} The article separates what's confirmed about {topic} "
                 "from what you should verify yourself."
             ).strip()
-        return result[:500]
+        # 2026-07-21 라이브 실측: 이전 result[:500] 하드컷이 문장 중간(예: "check
+        # the of[ficial page]")에서 잘렸고, 뒤이은 _drop_sentences_already_in_body가
+        # 이 잘린 조각을 "마지막 문장"으로 오인해 그대로 통과시켜 발행됐다(AI_OVERVIEW_
+        # TARGET_ANSWER/TL;DR 박스 4건 연속 재발). _truncate_at_sentence는 문장
+        # 경계에서만 자르므로(버전 번호 오탐 방지 포함) 이 문제가 재발하지 않는다.
+        return _truncate_at_sentence(result, max_len=500)
 
     def _people_also_ask_en(self, *, questions: list[str], topic: str) -> list[str]:
         kw = topic.strip()[:40] if topic.strip() else "this topic"

@@ -179,6 +179,43 @@ def test_en_geo_layer_no_hangul_leak(en_mode):
         assert block_id in out, f"영어 모드에서 GEO 블록 누락: {block_id}"
 
 
+def test_en_overview_long_slots_do_not_truncate_mid_word(en_mode):
+    # 2026-07-20~21 라이브 실측 사고: hook_opening/real_criterion이 길면
+    # (LLM 서술형에서 흔함) 이 셋을 합친 문자열이 이전 result[:500] 하드컷에
+    # 걸려 yomi_judgment나 뒤이은 canned 문장 중간에서 잘렸다("check the of",
+    # "The key he" 등). 발행 4건 전부(AI_OVERVIEW_TARGET_ANSWER/TL;DR 박스)에서
+    # 재현됨 — 문장 경계에서만 잘라야 한다.
+    from blogspot_automation.services.geo_intent_service import GeoIntentService
+
+    gi = GeoIntentService()
+    long_hook = (
+        "ChatGPT, Claude, Gemini, and Perplexity all publish subscription tiers, "
+        "but the fine print on usage caps, context windows, and add-on seat pricing "
+        "rarely matches the headline number shown on the marketing page. "
+    )
+    long_real = (
+        "Independent trackers that aggregate these plans update on their own schedule, "
+        "so a number that was accurate last month can already be stale by the time "
+        "you read a comparison post, which is exactly why every claim here is labeled "
+        "as either confirmed or still needing your own verification. "
+    )
+    slots = {
+        "hook_opening": long_hook,
+        "real_criterion": long_real,
+        "yomi_judgment": (
+            "The key here is separating the actual impact from the noise, "
+            "and knowing what to verify yourself."
+        ),
+    }
+    text = gi.generate_ai_overview_target_answer(
+        topic="AI assistant pricing comparison", content_type="ai_work_tip", slots=slots,
+    )
+    assert len(long_hook) + len(long_real) > 400, "test fixture must be long enough to force the old 500-char cut"
+    assert text, "overview must not be empty"
+    assert text[-1] in ".!?", f"overview must end on a sentence boundary, got: {text!r}"
+    assert "check the of" not in text, f"mid-word truncation of the canned sentence leaked through: {text!r}"
+
+
 def test_en_dedup_english_filler_not_counted(en_mode):
     from blogspot_automation.services.topic_dedup_service import TopicDedupService
 
