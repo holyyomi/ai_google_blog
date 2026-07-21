@@ -951,6 +951,24 @@ class NewsQualityGate:
                 f"content_near_duplicate_of_recent_post:{content_rehash['ratio']:.2f}"
             )
 
+        # --- 가격/비교 축 근접 중복 감지 (2026-07-21) ---
+        # 문장 지문(위 재탕 감지)은 "같은 문장을 다시 썼는가"만 잡는다. 서로 다른
+        # 단어로 쓴 "같은 AI 툴들의 가격을 비교하는 글"은 못 잡는다 — 실제 라이브
+        # 사고: 일반형/학생형 가격비교 글이 40분 간격 발행. 생성된 제목·본문의
+        # 실제 툴 언급을 최근 발행 이력과 비교한다.
+        pricing_axis_overlap = {"overlap": False, "shared_tools": [], "matched_title": ""}
+        try:
+            pricing_axis_overlap = self._pricing_comparison_axis_overlap(
+                title=title, html=html, content_type=content_type,
+            )
+        except Exception as _axis_exc:  # noqa: BLE001 — 감지 실패는 비치명(게이트 완화 아님)
+            logger.warning("pricing comparison axis overlap check failed (skipped): %s", _axis_exc)
+        if publish_mode_active and pricing_axis_overlap["overlap"]:
+            blocking_issues.append(
+                "pricing_comparison_axis_recently_published:"
+                f"{'+'.join(pricing_axis_overlap['shared_tools'])}"
+            )
+
         practical_title_bonus = 8 if any(token in title for token in _GOOD_TITLE_SIGNALS) else 0
         score = max(0, min(100, 100 + practical_title_bonus - (len(set(blocking_issues)) * 12) - (len(warnings) * 5)))
         result = {
@@ -958,6 +976,9 @@ class NewsQualityGate:
             "content_rehash_ratio": content_rehash["ratio"],
             "content_rehash_matched_title": content_rehash["matched_title"],
             "content_rehash_compared_records": content_rehash["compared_records"],
+            "pricing_comparison_axis_overlap": pricing_axis_overlap["overlap"],
+            "pricing_comparison_axis_shared_tools": pricing_axis_overlap["shared_tools"],
+            "pricing_comparison_axis_matched_title": pricing_axis_overlap["matched_title"],
             "passed": not blocking_issues,
             "score": score,
             "topic_group": topic_group,
@@ -1049,6 +1070,53 @@ class NewsQualityGate:
         from blogspot_automation.services.publish_history_service import PublishHistoryService
         records = PublishHistoryService().recent_records(limit=60, published_only=True)
         return max_overlap_ratio(candidate_fingerprints, records)
+
+    @staticmethod
+    def _pricing_comparison_axis_overlap(
+        *, title: str, html: str, content_type: str, window_records: int = 10
+    ) -> dict[str, object]:
+        """다중 AI 툴 가격/비교 콘텐츠가 최근 발행 글과 같은 축으로 겹치는지 확인.
+
+        2026-07-21 라이브 실측: "AI Assistant Pricing Compared: ChatGPT vs Claude
+        vs Gemini"(일반형)와 "ChatGPT Gemini Copilot Student Pricing"(학생형)이
+        40분 간격으로 발행됐다. 사전 주제 문자열("AI assistant pricing and limits
+        comparison" vs "best AI tools for students")은 topic_dedup_service의
+        키워드 겹침 dedup(≥2 토큰)을 통과할 만큼 달랐지만 — 특히 "best AI tools
+        for students"는 "best"/"tools"/"for" 전부가 stopword라 실질 키워드가
+        "students" 하나뿐이었다 — 생성된 두 글은 결국 ChatGPT/Gemini/Claude/
+        Copilot 구독료를 비교하는 사실상 같은 글이었다. 사전 주제 dedup은 생성
+        *전* 텍스트만 보므로 이런 겹침을 못 잡는다. 여기서는 실제로 쓰여진
+        제목+본문에서 언급된 AI 툴 엔티티를 뽑아 최근 발행 글과 비교한다 —
+        같은 계열 툴이 2개 이상 겹치면 같은 "가격비교" 축으로 판단한다.
+        """
+        if not is_english_mode():
+            return {"overlap": False, "shared_tools": [], "matched_title": ""}
+        from blogspot_automation.services.llm_content_service import content_family_en
+        from blogspot_automation.services.publish_history_service import PublishHistoryService
+        from blogspot_automation.services.topic_dedup_service import TopicDedupService
+
+        family = content_family_en(title, content_type)
+        if family not in ("Pricing", "Comparisons"):
+            return {"overlap": False, "shared_tools": [], "matched_title": ""}
+
+        dedup = TopicDedupService()
+        plain_html = re.sub(r"<[^>]+>", " ", html or "")[:3000]
+        candidate_entities = dedup.extract_entities(f"{title} {plain_html}")
+        if len(candidate_entities) < 2:
+            return {"overlap": False, "shared_tools": [], "matched_title": ""}
+
+        for record in PublishHistoryService().recent_records(limit=window_records, published_only=True):
+            record_title = str(record.get("title") or "")
+            record_type = str(record.get("content_type") or "")
+            if content_family_en(record_title, record_type) not in ("Pricing", "Comparisons"):
+                continue
+            record_entities = dedup.extract_entities(
+                f"{record_title} {record.get('selected_topic') or ''}"
+            )
+            shared = candidate_entities & record_entities
+            if len(shared) >= 2:
+                return {"overlap": True, "shared_tools": sorted(shared), "matched_title": record_title}
+        return {"overlap": False, "shared_tools": [], "matched_title": ""}
 
     @staticmethod
     def _ai_save_value_issues(*, html: str, content_type: str) -> tuple[list[str], list[str]]:
