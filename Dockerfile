@@ -7,12 +7,19 @@ FROM python:3.11-slim
 
 # Node.js(Claude Code CLI가 npm 배포) + git(코드 clone·원장 push) + 빌드 도구
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl git ca-certificates gnupg build-essential \
+        curl git ca-certificates gnupg build-essential tzdata \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g @anthropic-ai/claude-code \
     && apt-get purge -y --auto-remove gnupg curl \
     && rm -rf /var/lib/apt/lists/*
+
+# entrypoint.sh의 7월 한도-소진 게이트가 `TZ=Asia/Seoul date`로 KST 날짜를 계산한다.
+# slim 이미지엔 tzdata가 없어 TZ 지정이 조용히 UTC로 폴백되는데, 그러면 8/1 아침
+# 전환(KST 07:50 = UTC 전날 22:50) 시 컨테이너가 아직 "7월"로 판단해 Cloud Run이
+# 무조건 실행되고 복귀한 GHA와 딱 한 번 중복 발행될 수 있다. 위 tzdata 설치 +
+# 아래 ENV TZ로 컨테이너 로컬시간을 KST로 고정해 이 경계 오차를 없앤다.
+ENV TZ=Asia/Seoul
 
 WORKDIR /app
 
