@@ -4,12 +4,14 @@ name: holyyomi Fresh AI Issue Blog
 # The retired Naver Blog rewrite path is not used; cli_ai delegates to fresh AI/news discovery.
 on:
   schedule:
-    # 하루 2회 발행 (2026-07-03 운영 방침): 아침/저녁 각 1건.
-    # 22:31 UTC = 익일 07:31 KST, 10:31 UTC = 당일 19:31 KST.
-    # 정각(0분) 회피로 GitHub cron 지연 완화. 중복 주제는 dedup +
-    # 본문 지문 재탕 게이트가 차단하므로 2회여도 같은 글이 나가지 않는다.
-    - cron: '31 22 * * *'
-    - cron: '31 10 * * *'
+    # 하루 1회 발행 (2026-07-22 운영 방침 전환): 색인 0·애드센스 심사 단계라
+    # 물량보다 품질 — 아침 슬롯은 중단(Cloud Scheduler ai-blog-morning도 PAUSED).
+    # 발행 시각은 US-first 영어 블로그 타겟 기준: 12:31 UTC ≈ 미국 동부
+    # 아침 8:31(EDT)·영국 오후 1:31·인도 저녁 6:01 — 주 독자층의 활동 시간대.
+    # Cloud Scheduler(ai-blog-evening, 12:50 UTC)와 19분 간격 유지 —
+    # entrypoint.sh의 "최근 90분 내 GHA run 존재?" 핸드셰이크 전제.
+    # 정각(0분) 회피로 GitHub cron 지연 완화.
+    - cron: '31 12 * * *'
   workflow_dispatch:
     inputs:
       publish_mode:
