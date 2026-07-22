@@ -657,8 +657,68 @@ def build_internal_links_from_history(
         candidates.append((score, title[:70], url, str(record.get("run_at") or "")))
 
     candidates.sort(key=lambda item: (item[0], item[3]), reverse=True)
-    selected = tuple((title, url) for _, title, url, _ in candidates[: max(1, limit)])
+    # 삭제된 글 링크 차단(2026-07-22): 2026-07-21 라이브 실측에서 Related guides가
+    # 전날 삭제된 글 2건(404)을 가리켰다 — 발행 원장은 API 직접 삭제를 모르므로
+    # 발행 시점에 대상 URL의 생존을 실측 확인한다. 상위 후보부터 확인해 살아있는
+    # limit개를 채우고, 네트워크 확인 실패는 생존으로 간주(과잉 제거 방지).
+    selected_live: list[tuple[str, str]] = []
+    liveness_enabled = _liveness_check_enabled()
+    liveness_checks = 0
+    for _, title, url, _ in candidates:
+        if len(selected_live) >= max(1, limit):
+            break
+        if liveness_enabled and liveness_checks < _LIVENESS_MAX_CHECKS:
+            liveness_checks += 1
+            if not _blogspot_post_url_is_live(url):
+                continue
+        selected_live.append((title, url))
+    selected = tuple(selected_live)
     return _fill_internal_links(selected, current_url=current_url, limit=limit)
+
+
+# 링크 생존 확인 상한/캐시 — 발행 1회당 여분 GET 몇 번으로 제한한다.
+_LIVENESS_MAX_CHECKS = 6
+_LIVENESS_CACHE: dict[str, bool] = {}
+
+
+def _liveness_check_enabled() -> bool:
+    """내부링크 생존 GET 검사 활성 여부.
+
+    ENABLE_INTERNAL_LINK_LIVENESS_CHECK=false로 끈다. pytest 아래에서는 자동
+    비활성 — 기존 테스트 픽스처가 실도메인(holyyomiai.blogspot.com)의 가상
+    글 URL을 쓰므로, 실검사를 돌리면 전부 404로 떨어져 테스트가 네트워크에
+    의존하게 된다. 생존검사 자체의 테스트는 checker 함수를 직접 패치한다.
+    """
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    raw = (os.getenv("ENABLE_INTERNAL_LINK_LIVENESS_CHECK", "true") or "").strip().lower()
+    return raw not in {"false", "0", "no", "off"}
+
+
+def _blogspot_post_url_is_live(url: str, *, timeout: float = 5.0) -> bool:
+    """Blogspot 글 URL이 실제로 살아있는지 GET으로 확인한다.
+
+    주의: Blogger는 삭제된 글에도 HEAD 요청엔 200을 돌려준다(2026-07-22 실측 —
+    HEAD 200, GET 404). 반드시 GET을 쓴다. 404만 죽음으로 판정하고 나머지
+    (타임아웃·5xx·기타 예외)는 생존으로 간주해 내부링크를 과잉 제거하지 않는다.
+    """
+    cached = _LIVENESS_CACHE.get(url)
+    if cached is not None:
+        return cached
+    import urllib.error
+    import urllib.request
+
+    alive = True
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            alive = getattr(resp, "status", 200) != 404
+    except urllib.error.HTTPError as exc:
+        alive = exc.code != 404
+    except Exception:  # noqa: BLE001 — 네트워크 실패는 생존 간주(비치명)
+        alive = True
+    _LIVENESS_CACHE[url] = alive
+    return alive
 
 
 def _record_title_is_safe_for_internal_link(record: dict, *, title: str) -> bool:

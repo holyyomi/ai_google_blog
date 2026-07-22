@@ -985,6 +985,48 @@ class NewsQualityGate:
                 f"nonexistent_tool_repo_linked:{','.join(dead_tool_links)}"
             )
 
+        # --- 헤지 문구 포화 감지 (2026-07-22) ---
+        # 2026-07-21 발행 2건 실측: "check the official page"/"not published"류가
+        # 글당 29·36회 — 가격비교 제목의 글에 가격이 없고 "공식 페이지 가서
+        # 확인하라"만 반복되는 껍데기였다. 팩트 안전 원칙(모르는 수치 날조 금지)의
+        # 부작용이므로 원칙은 유지하되, 헤지가 본문을 지배하면 독자 가치가 없다고
+        # 보고 차단한다. 생성기 검증기(10회)가 먼저 재생성을 시도하고, 여기는
+        # 최종 HTML(GEO 블록 보일러플레이트 포함) 기준의 마지막 방어선이다.
+        hedge_phrase_count = 0
+        hedge_phrase_samples: list[str] = []
+        try:
+            hedge_result = self._hedge_saturation(html)
+            hedge_phrase_count = int(hedge_result["count"])
+            hedge_phrase_samples = list(hedge_result["samples"])
+        except Exception as _hg_exc:  # noqa: BLE001 — 감지 실패는 비치명(게이트 완화 아님)
+            logger.warning("hedge saturation check failed (skipped): %s", _hg_exc)
+        if publish_mode_active and hedge_phrase_count >= 14:
+            blocking_issues.append(f"hedge_phrase_saturation:{hedge_phrase_count}")
+        elif hedge_phrase_count >= 9:
+            warnings.append(f"hedge_phrase_heavy:{hedge_phrase_count}")
+
+        # --- 가격축 글의 표에 실측 가격이 있는지 검사 (2026-07-22) ---
+        # 같은 실측: "Pricing Compared" 글의 비교표에 가격 컬럼 자체가 없었고
+        # ("Verify Before Subscribing" 컬럼만), "Student Pricing" 글의 가격 셀은
+        # 전부 "Not published — check official page"였다. 가격을 약속한 제목의
+        # 글은 표에 검증된 가격 수치가 최소 2셀은 있어야 발행 가치가 있다.
+        pricing_table_check = {"is_pricing_family": False, "table_present": False, "price_cell_count": 0}
+        try:
+            pricing_table_check = self._pricing_table_price_cells(
+                html, title=title, content_type=content_type
+            )
+        except Exception as _pt_exc:  # noqa: BLE001 — 감지 실패는 비치명(게이트 완화 아님)
+            logger.warning("pricing table price-cell check failed (skipped): %s", _pt_exc)
+        if (
+            publish_mode_active
+            and pricing_table_check["is_pricing_family"]
+            and pricing_table_check["table_present"]
+            and int(pricing_table_check["price_cell_count"]) < 2
+        ):
+            blocking_issues.append(
+                f"pricing_table_without_verified_prices:{pricing_table_check['price_cell_count']}"
+            )
+
         practical_title_bonus = 8 if any(token in title for token in _GOOD_TITLE_SIGNALS) else 0
         score = max(0, min(100, 100 + practical_title_bonus - (len(set(blocking_issues)) * 12) - (len(warnings) * 5)))
         result = {
@@ -996,6 +1038,10 @@ class NewsQualityGate:
             "pricing_comparison_axis_shared_tools": pricing_axis_overlap["shared_tools"],
             "pricing_comparison_axis_matched_title": pricing_axis_overlap["matched_title"],
             "dead_tool_repo_links": dead_tool_links,
+            "hedge_phrase_count": hedge_phrase_count,
+            "hedge_phrase_samples": hedge_phrase_samples[:8],
+            "pricing_table_is_pricing_family": pricing_table_check["is_pricing_family"],
+            "pricing_table_price_cell_count": pricing_table_check["price_cell_count"],
             "passed": not blocking_issues,
             "score": score,
             "topic_group": topic_group,
@@ -1134,6 +1180,70 @@ class NewsQualityGate:
             if len(shared) >= 2:
                 return {"overlap": True, "shared_tools": sorted(shared), "matched_title": record_title}
         return {"overlap": False, "shared_tools": [], "matched_title": ""}
+
+    @staticmethod
+    def _hedge_saturation(html: str) -> dict[str, object]:
+        """영어 본문의 헤지("check the official page"류) 문구 포화도를 잰다.
+
+        카운터는 생성기 검증기와 동일한 정규식(llm_content_service의
+        hedge_phrase_hits_en)을 공유한다 — 두 단계의 판정 기준이 어긋나면
+        검증기는 통과했는데 게이트에서 죽는(또는 그 반대) 원인 추적이 어려워진다.
+        """
+        if not is_english_mode():
+            return {"count": 0, "samples": []}
+        from blogspot_automation.services.llm_content_service import hedge_phrase_hits_en
+
+        hits = hedge_phrase_hits_en(html or "")
+        return {"count": len(hits), "samples": hits[:8]}
+
+    @staticmethod
+    def _pricing_table_price_cells(
+        html: str, *, title: str, content_type: str
+    ) -> dict[str, object]:
+        """가격축(Pricing family) 글의 quick-decision-table에 실제 가격 셀이 몇 개인지 센다.
+
+        가격 셀 = 통화 기호+숫자($20, $2.50, USD 20) 또는 "free"가 든 <td>.
+        "free"를 세는 이유: 무료 플랜 표기는 검증된 가격 정보다(실측 기준
+        "Free plan: unlimited chats"류). 표가 아예 없으면 판정 보류 —
+        missing_quick_decision_table 경고가 따로 있다.
+        """
+        result: dict[str, object] = {
+            "is_pricing_family": False,
+            "table_present": False,
+            "price_cell_count": 0,
+        }
+        if not is_english_mode():
+            return result
+        from blogspot_automation.services.llm_content_service import content_family_en
+
+        # 주의: family 규칙은 Comparisons가 Pricing보다 우선이라 "Pricing
+        # Compared: X vs Y"는 Comparisons로 분류된다(실사고 글이 정확히 이 꼴).
+        # family 하나로만 거르면 사고 글이 게이트를 비껴가므로, family(P/C) +
+        # 제목의 가격 토큰을 함께 요구한다 — "Claude vs ChatGPT for essays"처럼
+        # 가격 무관 비교글은 검사 대상이 아니다.
+        family = content_family_en(title, content_type)
+        title_is_pricing = bool(
+            re.search(
+                r"\b(pricing|prices?|costs?|subscriptions?|fees?)\b|/month",
+                (title or "").lower(),
+            )
+        )
+        if family not in ("Pricing", "Comparisons") or not title_is_pricing:
+            return result
+        result["is_pricing_family"] = True
+        table_match = re.search(
+            r'<div class="quick-decision-table">.*?</div>', html or "", re.DOTALL
+        )
+        if not table_match:
+            return result
+        result["table_present"] = True
+        price_cells = 0
+        for cell in re.findall(r"<td[^>]*>(.*?)</td>", table_match.group(0), re.DOTALL):
+            cell_text = re.sub(r"<[^>]+>", " ", cell)
+            if re.search(r"[$€£₹]\s*\d|USD\s*\d|\bfree\b", cell_text, re.IGNORECASE):
+                price_cells += 1
+        result["price_cell_count"] = price_cells
+        return result
 
     @staticmethod
     def _dead_tool_repo_links(html: str, *, max_checks: int = 5, timeout: float = 4.0) -> list[str]:
