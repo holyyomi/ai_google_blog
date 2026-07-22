@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -189,14 +190,19 @@ class TopicDedupService:
         *,
         state_dir: str | Path = "state",
         dedup_days: int = 7,
-        entity_cooldown_days: int | None = 7,
+        entity_cooldown_days: int | None = None,
     ) -> None:
         self.state_dir = Path(state_dir)
         self.dedup_days = max(0, dedup_days)
-        # 회사/소재 쿨다운 창. None이면 dedup_days를 따르고, 0이면 비활성.
-        self.entity_cooldown_days = (
-            self.dedup_days if entity_cooldown_days is None else max(0, entity_cooldown_days)
-        )
+        # 회사/소재 쿨다운 창. 기본 3일(2026-07-22 사용자 지시로 7→3 단축 —
+        # AI 전문 블로그에서는 ChatGPT/OpenAI/Google 같은 상시 엔티티가 거의 모든
+        # 주제에 등장해, 7일 창이 에버그린 뱅크 전체를 차단하고 발행 0건 슬롯을
+        # 만들었다: 2026-07-22 아침 슬롯 실측 skipped_after_retry_limit).
+        # ENTITY_COOLDOWN_DAYS env로 조정 가능, 0이면 비활성, 호출부 명시값 우선.
+        if entity_cooldown_days is None:
+            raw = (os.getenv("ENTITY_COOLDOWN_DAYS", "") or "").strip()
+            entity_cooldown_days = int(raw) if raw.isdigit() else 3
+        self.entity_cooldown_days = max(0, entity_cooldown_days)
 
     def exclude_recent_duplicates(
         self,
