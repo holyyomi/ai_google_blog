@@ -233,6 +233,8 @@ Never state any of the following unless it appears in the provided [SEARCH FACTS
 - SOURCE PRIORITY: official pricing pages > official release notes/changelogs > official docs > vendor blogs/newsrooms > reputable secondary coverage. Community posts (Reddit, X, forums) may inform which pain points to cover, but are NEVER the source of a price, limit, spec, or benchmark.
 - Every price, limit, or spec you do state must carry an as-of date: "as of {month_year}" — and name the source in plain text (e.g. "per OpenAI's pricing page").
 - If a number is not in the facts, do NOT invent it. Write "check the official pricing page for current rates" instead. One stale or invented price kills the article's credibility and its usefulness as a reference.
+- HEDGE BUDGET: deferrals like "check the official page", "not published", "unconfirmed" are a last resort, not a writing style — the whole article may contain AT MOST 3 of them. If the facts can't support the full breadth the title promises, NARROW THE SCOPE: cover only the tools/plans whose numbers ARE verified and go deep on those. One tool with real numbers beats five tools with "check the official page". An article that mostly tells the reader to go look somewhere else is worthless and will be rejected automatically.
+- Write about the AI tools themselves — never about the websites, GitHub tracker repos, or listicles that collect data about them. If the facts mainly describe a price-tracker project or a "top tools" roundup, extract the underlying tool facts and write about the tools. A reader searching for prices wants prices, not a tour of tracking projects; tracker/roundup sites may only be named as a source, never treated as the topic.
 - NEVER invent product names, tool names, GitHub repositories, or URLs. Only name a specific tool, app, repo, or link if it appears in the provided [SEARCH FACTS]. If you want to point readers to a resource but have no verified URL, describe how to find it ("search GitHub for an open-source Etsy listing helper") instead of fabricating an owner/repo path or link — a made-up repo like "github.com/someuser/some-tool" that 404s destroys reader trust and will block publishing.
 - Statistics: name the source, the year, and the scope (who/where was surveyed) next to every statistic — "According to [source]'s [year] survey of [scope], ..." — and never merge numbers from different surveys or methodologies into one comparison as if they measured the same thing.
 - Never invent benchmarks, statistics, or survey results. NEVER write first-person testing claims — "I tested", "in my testing", "I personally used" — this publication cannot run hands-on tests, so any such sentence is fabricated. When a walkthrough helps, present it as a reproducible recipe the reader runs themselves: the exact prompt/settings, the expected output shape, and what to measure.
@@ -248,6 +250,7 @@ Never state any of the following unless it appears in the provided [SEARCH FACTS
 
 [WRITING RULES]
 1. English only. US blog register: short sentences, second person ("you"), active voice. No throat-clearing — never open with "In this article, we will..." or "AI is evolving rapidly". Start with the reader's situation or the direct answer.
+1-0. PLAIN LANGUAGE (readability is a ranking factor): write for a smart friend, not a boardroom — 8th-grade reading level, everyday words, contractions (you're, it's, don't) welcome. Say "costs $20 a month", never "is priced at a monthly rate of $20". Define any technical term in plain words the first time it appears — "per-seat pricing (you pay separately for each team member)". No academic connectors ("thus", "moreover", "functions as", "constructs", "concentrates on") — use "so", "also", "works as", "builds", "focuses on". Facts are raw material, not quotes: never copy sentences from [SEARCH FACTS] verbatim or wrap them in quotation marks — rewrite every fact in your own plain words. Quotation marks are only for words an actual named person said.
 1-1. PARAGRAPH RHYTHM (readability contract): each paragraph is 2-3 sentences and at most 85 words; the opening paragraph stays under 60 words. Never write more than two consecutive paragraphs without a visual break — a table, list, step card, or callout box. One idea per paragraph; when the idea grows, split the paragraph instead of stretching it. Never use <br> for line breaks inside prose.
     SHORT PARAGRAPHS DO NOT MEAN A SHORT ARTICLE: keep total length at 1,600+ words by writing MORE paragraphs and sections, not longer ones. A typical section runs 3-5 short paragraphs plus a visual element. If you feel the article getting thin, add depth (another beginner blocker, another worked example, another reader profile in the judgment) — never re-inflate paragraph size.
 2. Opening = the direct answer. The first paragraph answers the title's question in 2-3 sentences WITH the key number(s). Write it so a search user — or an AI search system assembling an answer — can lift it accurately on its own. A clear, sourced, self-contained answer raises the chance of being cited; nothing guarantees it, so optimize for the reader first.
@@ -301,7 +304,7 @@ One person found this through a Google search. Write one continuous article they
      <div class="risk-note"><span class="section-label">Watch out</span><p>1-2 sentences of the real risk</p></div>
 3) MANDATORY: one comparison/pricing/spec table inside the flow, wrapped exactly like this (the wrapper enables mobile scroll + first-column emphasis):
    <div class="quick-decision-table"><table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
-   Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. NO empty cells — write "n/a" or "check official page" when a value is unknown. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. Clean, sourced tables are what readers save and what answer engines most readily cite.
+   Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. NO empty cells, and at least half of the data cells must carry REAL verified values (a number, a limit, a plan name) from the facts. "check official page" / "n/a" may fill AT MOST 2 cells in the whole table — if you can't verify enough values, drop that column or shrink the table to the tools you CAN verify; a table of deferrals is a blocked article. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. Clean, sourced tables are what readers save and what answer engines most readily cite.
 4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs (each answer 15-50 words — never a one-liner under 15 words — complete and only verified content; pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation; answers must NOT repeat body sentences):
 <section class="faq-section">
   <article class="faq-item"><h3 class="faq-q">Actual search question?</h3><p class="faq-a">Direct, complete answer.</p></article>
@@ -739,7 +742,35 @@ class LlmContentService:
             if not facts:
                 facts = self._google_news_rss_facts(topic)
         citations = official_citations + naver_citations + exa_citations
+        if is_english_mode():
+            # 2026-07-21 라이브 실측: Sources 블록이 GitHub 트래커 레포 2개 +
+            # SEO 애그리게이터 2개로 채워졌다(공식 출처 0). 블록은 앞 4개만
+            # 쓰므로 공식 벤더 도메인을 앞으로 당기고, 코드 저장소 링크는
+            # 다른 출처가 있으면 뺀다(레포는 가격·스펙의 출처가 아니다).
+            citations = self._prefer_trustworthy_citations(citations)
         return facts, citations
+
+    @classmethod
+    def _prefer_trustworthy_citations(
+        cls, citations: list[dict[str, str]]
+    ) -> list[dict[str, str]]:
+        """SOURCE_TRUST용 인용을 공식 도메인 우선으로 정렬하고 레포 링크를 강등한다."""
+        def _is_repo_link(url: str) -> bool:
+            if not re.match(r"https?://(?:www\.)?github\.com/[^/]+/[^/?#]+", url or ""):
+                return False
+            # github.com/features/* , /pricing 등 제품 페이지는 공식 출처로 유지.
+            path = re.sub(r"https?://(?:www\.)?github\.com/", "", url).lower()
+            return not path.startswith(("features/", "pricing", "customer-terms", "enterprise"))
+
+        def _is_official(url: str) -> bool:
+            host = re.sub(r"https?://(?:www\.)?", "", url or "").split("/")[0].lower()
+            return any(host == d or host.endswith("." + d) for d in cls._OFFICIAL_VENDOR_DOMAINS)
+
+        non_repo = [c for c in citations if not _is_repo_link(str(c.get("url") or ""))]
+        pool = non_repo if non_repo else citations
+        official = [c for c in pool if _is_official(str(c.get("url") or ""))]
+        rest = [c for c in pool if c not in official]
+        return official + rest
 
     def _gather_facts(self, topic: str) -> str:
         """실제 팩트 수집: Naver 뉴스 스니펫 + Exa 본문 발췌 병합 → 폴백 체인.
@@ -1304,6 +1335,32 @@ _AI_CLICHE_PHRASES_EN = (
     "avoid detection",
 )
 
+# 영어 모드 헤지(책임 회피) 문구 — 2026-07-21 발행 2건 실측에서 "check the
+# official page"류가 글당 29·36회 등장해 가격비교 글에 정작 가격이 없는 껍데기가
+# 됐다. 팩트 안전 원칙(모르는 수치는 안 쓴다)은 유지하되, 헤지가 본문을 지배하면
+# 검증기/게이트가 잡는다. 정규식 교대는 긴 패턴 우선이라 중복 계산이 없다.
+_HEDGE_PHRASES_EN_RE = re.compile(
+    r"(?:"
+    r"check\s+(?:the\s+)?official(?:\s+\w+){0,2}\s+page"
+    r"|check\s+(?:the\s+)?official\s+(?:docs|documentation|announcements?)"
+    r"|check\s+(?:each\s+|the\s+)?vendors?(?:'s?)?\s+(?:page|pages|site|sites|help)"
+    r"|consult\s+(?:the\s+|each\s+)?(?:official|vendors?)"
+    r"|not\s+published|isn'?t\s+published|aren'?t\s+published"
+    r"|don'?t\s+publish|doesn'?t\s+publish|unpublished"
+    r"|unconfirmed|not\s+confirmed|isn'?t\s+confirmed|aren'?t\s+confirmed"
+    r"|remains?\s+unverified|no\s+verified"
+    r"|not\s+disclosed|isn'?t\s+disclosed|aren'?t\s+disclosed"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def hedge_phrase_hits_en(text: str) -> list[str]:
+    """영어 본문에서 헤지 문구를 찾아 돌려준다 (HTML 태그 제거 후 비교)."""
+    plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or ""))
+    return [m.group(0) for m in _HEDGE_PHRASES_EN_RE.finditer(plain)]
+
+
 # 영어 모드 overclaim 중화 — 게이트 패턴을 깨되 의미는 보존하는 결정적 치환.
 _OVERCLAIM_SOFTENERS_EN: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"guaranteed (income|profit|returns?)", re.IGNORECASE), r"potential \1"),
@@ -1379,6 +1436,16 @@ def _validate_generated_content(html: str) -> None:
         for phrase in _AI_CLICHE_PHRASES_EN:
             if phrase in lowered:
                 raise _ContentValidationError(f"AI 상투 문구 검출(EN): {phrase}")
+
+        # 7) 헤지 포화(2026-07-22): "check the official page"류가 본문을 지배하면
+        #    가격비교 글에 가격이 없는 껍데기다(2026-07-21 발행 2건 실측 29·36회).
+        #    재시도로 회복 가능한 결함이라 게이트(최종 14회 차단)보다 낮은 10회에서
+        #    먼저 걸어 재생성을 유도한다.
+        hedge_hits = hedge_phrase_hits_en(raw)
+        if len(hedge_hits) >= 10:
+            raise _ContentValidationError(
+                f"헤지 문구 포화 ({len(hedge_hits)}회) — 검증된 팩트 중심으로 재생성 필요"
+            )
 
 
 def _close_faq_section_wrapper(html: str) -> str:

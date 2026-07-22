@@ -2740,6 +2740,18 @@ class NewsPipeline:
             if _own_mentions >= 200:
                 demand_boost += 8 if _own_mentions < 500 else 12
                 demand_keywords.append(f"community_mentions:{_own_mentions}")
+            # Google Autocomplete 상시 검색 수요(2026-07-22): Trends RSS는 "오늘
+            # 급상승"만 잡는다 — 자동완성 제안 수는 그 주제가 평소에 얼마나
+            # 검색되는지의 프록시라, 이슈성 없는 날에도 수요 있는 후보를 가려낸다.
+            try:
+                from blogspot_automation.services.search_autocomplete_signal import (
+                    score_topic_boost as _autocomplete_boost,
+                )
+                _ab, _ak = _autocomplete_boost(_topic_text, max_boost=10)
+                demand_boost += _ab
+                demand_keywords.extend(_ak)
+            except Exception as _ac_exc:  # noqa: BLE001
+                logger.warning("autocomplete demand signal 실패(무시): %s", _ac_exc)
             raw["demand_signal_boost"] = demand_boost
             raw["demand_signal_keywords"] = list(dict.fromkeys(demand_keywords))
             if demand_boost > 0:
@@ -3467,6 +3479,8 @@ class NewsPipeline:
                 preferred_axis=preferred_axis,
             ),
         )
+        if ai_blog_mode:
+            selected_pool = self._rank_evergreen_pool_by_search_demand(selected_pool)
         logger.info(
             "evergreen publish fallback: candidates=%d publishable=%d golden=%d selected=%d",
             len(candidates),
@@ -3475,6 +3489,111 @@ class NewsPipeline:
             len(selected_pool),
         )
         return candidates, scored, selected_pool
+
+    # 가격/구독 축 토큰 — 에버그린 선정 시점의 근접 중복 예방용.
+    _PRICING_FAMILY_TOKENS = (
+        "pricing", "price", "prices", "cost", "costs", "subscription",
+        "subscriptions", "plan", "plans", "fee", "fees",
+    )
+
+    @classmethod
+    def _topic_is_pricing_family(cls, text: str) -> bool:
+        lowered = (text or "").lower()
+        return any(
+            re.search(rf"\b{re.escape(token)}\b", lowered)
+            for token in cls._PRICING_FAMILY_TOKENS
+        )
+
+    def _rank_evergreen_pool_by_search_demand(
+        self, selected_pool: list[ScoredNewsCandidate]
+    ) -> list[ScoredNewsCandidate]:
+        """에버그린 폴백 풀을 실검색 수요 + 가격축 쿨다운으로 재정렬한다.
+
+        배경(2026-07-22): 2026-07-21 발행 2건이 둘 다 에버그린 폴백이었고,
+        에버그린 후보에는 수요 신호가 전혀 없어 뱅크 정렬 순서대로 뽑혔다 —
+        같은 날 가격비교 축 2건("Pricing Compared"/"Student Pricing")이 연속
+        발행됐다. 여기서는 (1) 최근 72시간 내 가격축 글이 발행됐으면 가격축
+        에버그린 후보를 뒤로 미루고(생성 후 게이트 차단으로 슬롯을 날리는 대신
+        선정 단계에서 회피), (2) Google Autocomplete 제안 수(상시 검색 수요
+        프록시)가 높은 주제를 앞으로 당긴다. 파이썬 정렬은 안정적이라 기존
+        정렬 키(골든 confidence·클릭 점수 등)는 동점 그룹 안에서 그대로 유지.
+        실패는 전부 비치명 — 어떤 예외에서도 원래 풀을 그대로 돌려준다.
+        """
+        if len(selected_pool) <= 1:
+            return selected_pool
+        try:
+            pricing_cooldown = self._recent_pricing_family_published(hours=72)
+        except Exception as _pc_exc:  # noqa: BLE001
+            logger.warning("pricing family cooldown 조회 실패(무시): %s", _pc_exc)
+            pricing_cooldown = False
+        demand_by_id: dict[int, int] = {}
+        try:
+            from blogspot_automation.services.search_autocomplete_signal import (
+                score_topic_boost as _autocomplete_boost,
+            )
+            # 네트워크 호출은 풀 상위 8개만 — 나머지는 수요 0으로 취급.
+            for item in selected_pool[:8]:
+                raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+                probe_text = str(
+                    raw.get("search_demand_topic") or item.candidate.topic or ""
+                )
+                boost, keywords = _autocomplete_boost(probe_text, max_boost=12)
+                demand_by_id[id(item)] = boost
+                if boost > 0:
+                    raw["demand_signal_boost"] = max(
+                        int(raw.get("demand_signal_boost") or 0), boost
+                    )
+                    raw["demand_signal_keywords"] = list(
+                        dict.fromkeys(
+                            [*list(raw.get("demand_signal_keywords") or []), *keywords]
+                        )
+                    )
+        except Exception as _ad_exc:  # noqa: BLE001
+            logger.warning("evergreen autocomplete demand 실패(무시): %s", _ad_exc)
+
+        def _demand_sort_key(item: ScoredNewsCandidate) -> tuple[int, int]:
+            raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+            topic_text = " ".join(
+                str(part or "")
+                for part in (item.candidate.topic, raw.get("search_demand_topic"))
+            )
+            pricing_penalty = 1 if pricing_cooldown and self._topic_is_pricing_family(topic_text) else 0
+            return (pricing_penalty, -demand_by_id.get(id(item), 0))
+
+        reranked = sorted(selected_pool, key=_demand_sort_key)
+        if reranked and selected_pool and reranked[0] is not selected_pool[0]:
+            logger.info(
+                "evergreen demand rerank: '%s' → '%s' (pricing_cooldown=%s)",
+                str(selected_pool[0].candidate.topic)[:60],
+                str(reranked[0].candidate.topic)[:60],
+                pricing_cooldown,
+            )
+        return reranked
+
+    @staticmethod
+    def _recent_pricing_family_published(*, hours: int = 72) -> bool:
+        """최근 N시간 내 발행 글 중 가격/구독 축 제목이 있는지 확인한다."""
+        from datetime import datetime, timedelta, timezone
+
+        from blogspot_automation.services.publish_history_service import PublishHistoryService
+
+        records = PublishHistoryService().recent_records(limit=10, published_only=True)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        for record in records:
+            title = str(record.get("title") or record.get("selected_title") or "")
+            if not NewsPipeline._topic_is_pricing_family(title):
+                continue
+            run_at = str(record.get("run_at") or "")
+            try:
+                stamp = datetime.fromisoformat(run_at.replace("Z", "+00:00"))
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=timezone.utc)
+            except ValueError:
+                # 타임스탬프가 깨진 레코드는 보수적으로 쿨다운 활성으로 본다.
+                return True
+            if stamp >= cutoff:
+                return True
+        return False
 
     def _is_safe_evergreen_publish_fallback_candidate(self, item: ScoredNewsCandidate) -> bool:
         raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
