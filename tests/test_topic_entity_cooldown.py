@@ -1,4 +1,4 @@
-"""회사/소재 쿨다운(같은 주체 7일 1회) 테스트.
+"""회사/소재 쿨다운(같은 주체 기본 3일 1회) 테스트.
 
 배경: 서로 다른 뉴스가 같은 회사(네이버/구글/OpenAI 등)로 며칠 연속 발행되는
 "주제 모양 중복"을 막는다. 제목·주제가 조금씩 달라 키워드 겹침 규칙을
@@ -128,3 +128,29 @@ def test_no_entity_topic_falls_back_to_keyword_rule() -> None:
     assert not dedup.is_duplicate(
         candidate, [_published("청년 운전면허 지원금 신청방법과 대상 조건", days_ago=1)]
     )
+
+
+def test_default_entity_cooldown_is_3_days(monkeypatch) -> None:
+    """2026-07-22: 기본 쿨다운 7→3일 — 4일 전 같은 회사 글은 더 이상 차단하지 않는다."""
+    monkeypatch.delenv("ENTITY_COOLDOWN_DAYS", raising=False)
+    dedup = TopicDedupService(dedup_days=7)
+    assert dedup.entity_cooldown_days == 3
+    candidate = _scored("네이버 AI 브리핑 광고 상품 정식 출시")
+    # 4일 전(창 밖) → 엔티티 쿨다운으로는 차단 안 됨. (키워드 겹침 회피를 위해
+    # 과거 레코드는 공유 키워드가 '네이버' 하나뿐인 제목을 쓴다.)
+    assert not dedup.is_duplicate(
+        candidate, [_published("네이버 쇼핑 라이브 개편", days_ago=4)]
+    )
+    # 2일 전(창 안) → 차단 유지.
+    assert dedup.is_duplicate(
+        candidate, [_published("네이버 쇼핑 라이브 개편", days_ago=2)]
+    )
+
+
+def test_entity_cooldown_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("ENTITY_COOLDOWN_DAYS", "5")
+    dedup = TopicDedupService(dedup_days=7)
+    assert dedup.entity_cooldown_days == 5
+    # 호출부 명시값은 env보다 우선.
+    explicit = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
+    assert explicit.entity_cooldown_days == 7
