@@ -149,6 +149,27 @@ ENTITY_ALIASES: dict[str, tuple[str, ...]] = {
     "apple": ("애플", "apple"),
     "amazon": ("아마존", "amazon", "알렉사", "alexa"),
     "xai": ("그록", "grok", "xai"),
+    # 2026-07-23 사용자 피드백("도구에 제한을 두지 말라") 대응: 엔티티 인식이
+    # 잘 알려진 대기업 몇 개로만 좁혀지지 않도록 신생/특화 AI 플레이어도 추가.
+    # 이 목록은 "무엇에 관한 글인가" 판별(dedup·specificity)용이라, 여기에
+    # 없는 회사/도구도 후보 선정 자체는 전혀 막히지 않는다(discovery_engine/
+    # community 경로는 이 목록과 무관하게 아무 주제나 후보로 만든다).
+    "deepseek": ("딥시크", "deepseek"),
+    "huggingface": ("허깅페이스", "hugging face", "huggingface"),
+    "cohere": ("코히어", "cohere"),
+    "stability_ai": ("스태빌리티", "stability ai", "stable diffusion"),
+    "midjourney": ("미드저니", "midjourney"),
+    "elevenlabs": ("일레븐랩스", "elevenlabs", "eleven labs"),
+    "character_ai": ("character.ai", "characterai"),
+    "runway": ("런웨이 ml", "runway ml", "runwayml"),
+    "suno": ("수노", "suno ai", "suno"),
+    "nvidia": ("엔비디아", "nvidia"),
+    "qwen": ("큐원", "qwen", "알리바바", "alibaba"),
+    "baidu": ("바이두", "baidu", "어니봇", "ernie bot"),
+    "ai21": ("ai21",),
+    "inflection": ("인플렉션 ai", "inflection ai"),
+    "ibm": ("ibm", "왓슨", "watson"),
+    "databricks": ("데이터브릭스", "databricks", "mosaic ml"),
 }
 # 짧거나 다른 단어에 섞여 오탐 위험이 큰 alias는 토큰 경계로만 매칭한다
 # (예: "메타"는 "메타버스"에, "gpt"는 "chatgpt"에 substring으로 걸리면 안 됨).
@@ -172,6 +193,10 @@ _TOKEN_ONLY_ALIASES = {
     "알렉사",
     "llama",
     "라마",
+    "watson",
+    "왓슨",
+    "suno",
+    "수노",
 }
 
 
