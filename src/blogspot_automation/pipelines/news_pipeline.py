@@ -498,6 +498,22 @@ class NewsPipeline:
                             "coverage doesn't explain what it actually changes for users."
                         )
                         _ct_reader_benefit = "A clear, sourced explanation of what changed and a concrete next step."
+                        # 2026-07-23 실측: topic_group 수정만으로는 부족했다 — 일반
+                        # 헤드라인은 키워드 기반 휴리스틱 스코어가 낮아(실측 37~53점)
+                        # min_topic_score(75)를 못 넘었다. discovery_engine 후보용
+                        # score floor(news_scoring_service._build_strategy_score_breakdown)
+                        # 를 재사용 — buzz는 실제 커뮤니티 언급량에서 유도(추측 아님).
+                        if _ct.mention_score >= 2000:
+                            _ct_buzz = 10
+                        elif _ct.mention_score >= 800:
+                            _ct_buzz = 8
+                        elif _ct.mention_score >= 300:
+                            _ct_buzz = 6
+                        else:
+                            _ct_buzz = 4
+                        _ct_specificity = (
+                            7 if self.dedup_service.extract_entities(_ct_clipped) else 6
+                        )
                         _community_candidates.append(
                             NewsCandidate(
                                 topic=_ct_clipped,
@@ -532,6 +548,10 @@ class NewsPipeline:
                                     "urgency_reason": "This is being actively discussed today; a clear explanation now wins the click.",
                                     "content_promise": f"Explain what \"{_ct_clipped}\" actually means and give a clear next step.",
                                     "angle_type": "money_compare",
+                                    "discovery_engine": True,
+                                    "today_buzz_score": _ct_buzz,
+                                    "entity_specificity_score": _ct_specificity,
+                                    "safe_commentary_score": 6,
                                 },
                             )
                         )
