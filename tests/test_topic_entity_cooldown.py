@@ -154,3 +154,40 @@ def test_entity_cooldown_env_override(monkeypatch) -> None:
     # 호출부 명시값은 env보다 우선.
     explicit = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
     assert explicit.entity_cooldown_days == 7
+
+
+def test_evergreen_fallback_candidate_exempt_from_entity_cooldown(monkeypatch) -> None:
+    """2026-07-22 실측: ai_automation 에버그린 뱅크 골든매칭 14개가 엔티티
+    쿨다운에 전부 걸려 발행 0건. AI 툴 비교 콘텐츠는 상시 엔티티(ChatGPT 등)를
+    구조적으로 반복 언급하므로 evergreen_fallback 후보는 엔티티 쿨다운을
+    면제해야 한다(콘텐츠 레벨 dedup은 계속 적용)."""
+    monkeypatch.delenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", raising=False)
+    dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
+    candidate = _scored(
+        "Claude vs ChatGPT for spreadsheet work",
+        raw={"evergreen_fallback": True},
+    )
+    # 키워드 겹침을 피하려 과거 레코드 제목을 다르게 둔다 — 엔티티 규칙만이
+    # 잡을 수 있는 쌍이어야 이 테스트가 의미 있다.
+    history = [_published("ChatGPT rolls out a new voice feature", days_ago=1)]
+    assert not dedup.is_duplicate(candidate, history)
+
+
+def test_evergreen_fallback_exemption_can_be_reverted_via_env(monkeypatch) -> None:
+    monkeypatch.setenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", "true")
+    dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
+    candidate = _scored(
+        "Claude vs ChatGPT for spreadsheet work",
+        raw={"evergreen_fallback": True},
+    )
+    history = [_published("ChatGPT rolls out a new voice feature", days_ago=1)]
+    assert dedup.is_duplicate(candidate, history)
+
+
+def test_non_evergreen_candidate_still_gets_entity_cooldown(monkeypatch) -> None:
+    # evergreen_fallback 플래그가 없는(=실제 뉴스) 후보는 예외 대상이 아니다.
+    monkeypatch.delenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", raising=False)
+    dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
+    candidate = _scored("ChatGPT outage knocks out enterprise workflows")
+    history = [_published("ChatGPT rolls out a new voice feature", days_ago=1)]
+    assert dedup.is_duplicate(candidate, history)

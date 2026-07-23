@@ -507,6 +507,24 @@ class NewsPipeline:
                         candidates = _community_candidates + candidates
                 except Exception as _comm_exc:  # noqa: BLE001
                     logger.warning("community_topic_service failed: %s", _comm_exc)
+
+                # 실검색 AI 트렌드 후보 (2026-07-23): 고정 에버그린 뱅크가 엔티티
+                # 쿨다운/dedup에 막혀 소진되는 날에도 "후보 없음 → 스킵" 대신
+                # 오늘 실제 검색 수요가 있는 AI 주제로 후보를 만든다. 기존 품질/
+                # 사실안전 게이트는 그대로 적용 — 여기서 통과 못 해도 그냥 탈락.
+                try:
+                    from blogspot_automation.services.live_ai_demand_topic_service import (
+                        collect_live_ai_demand_candidates,
+                    )
+                    _live_demand_candidates = collect_live_ai_demand_candidates(max_candidates=3)
+                    if _live_demand_candidates:
+                        logger.info(
+                            "live_ai_demand: %d개 실검색 AI 트렌드 후보 주입",
+                            len(_live_demand_candidates),
+                        )
+                        candidates = _live_demand_candidates + candidates
+                except Exception as _live_exc:  # noqa: BLE001
+                    logger.warning("live_ai_demand_topic_service failed: %s", _live_exc)
             else:
                 try:
                     from blogspot_automation.services.trending_news_service import TrendingNewsService
