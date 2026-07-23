@@ -243,6 +243,24 @@ class TopicDedupService:
                     return [item for item in value if isinstance(item, dict)]
         return []
 
+    def recent_published_entities(
+        self, *, days: int, history_records: list[dict[str, Any]]
+    ) -> set[str]:
+        """최근 N일간 실제 발행된 글들의 엔티티 합집합.
+
+        엔티티 쿨다운(하드 차단)과 달리, 이건 evergreen 폴백 후보를 정렬할 때
+        "최근에 안 다룬 AI를 우선"하는 소프트 랭킹 신호로만 쓴다 — 다양성은
+        원하지만 후보 풀이 전멸하면 안 되기 때문(2026-07-22 실측 사고).
+        """
+        entities: set[str] = set()
+        for record in history_records:
+            if not self.record_blocks_duplicate(record):
+                continue
+            if not self._is_within_window(record, days):
+                continue
+            entities |= self.extract_entities(self._history_subject_text(record))
+        return entities
+
     def is_duplicate(self, candidate: ScoredNewsCandidate, history_records: list[dict]) -> bool:
         candidate_texts = self._candidate_texts(candidate)
         candidate_norms = [
@@ -321,6 +339,9 @@ class TopicDedupService:
             return False
         raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
         return bool(raw.get("evergreen_fallback"))
+
+    def candidate_entities(self, candidate: ScoredNewsCandidate) -> set[str]:
+        return self.extract_entities(self._candidate_subject_text(candidate))
 
     def extract_entities(self, text: str) -> set[str]:
         """텍스트에서 알려진 회사/소재 엔티티를 뽑는다.

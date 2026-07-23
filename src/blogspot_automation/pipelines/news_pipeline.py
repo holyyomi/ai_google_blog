@@ -446,6 +446,10 @@ class NewsPipeline:
 
             candidates = self.topic_service.collect_candidates()
             ai_blog_mode = str(os.getenv("AI_BLOG_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+            # evergreen 폴백 단계(_collect_evergreen_publish_fallback_candidates)에도
+            # 같은 실검색 후보를 넘겨주기 위해 미리 초기화 — 메인 후보 목록이 전부
+            # 걸러져 evergreen 폴백으로 넘어가도 이 신호를 그냥 버리지 않는다.
+            _live_demand_candidates: list[NewsCandidate] = []
 
             # Trending News — 네이버 인기 기사 페이지에서 실제 클릭 데이터 수집.
             # IssueDiscoveryService(Google News broad scan + 추정 buzz)와 보완.
@@ -733,6 +737,7 @@ class NewsPipeline:
                     ) = self._collect_evergreen_publish_fallback_candidates(
                         topic_group_history=topic_group_history,
                         recent_evergreen_axes=recent_evergreen_axes,
+                        extra_candidates=_live_demand_candidates,
                     )
                     if not publishable:
                         hold_result = self._save_no_real_news_hold_report(
@@ -786,6 +791,7 @@ class NewsPipeline:
                             ) = self._collect_evergreen_publish_fallback_candidates(
                                 topic_group_history=topic_group_history,
                                 recent_evergreen_axes=recent_evergreen_axes,
+                                extra_candidates=_live_demand_candidates,
                             )
                             if _sf_publishable:
                                 logger.info(
@@ -842,6 +848,7 @@ class NewsPipeline:
                 ) = self._collect_evergreen_publish_fallback_candidates(
                     topic_group_history=topic_group_history,
                     recent_evergreen_axes=recent_evergreen_axes,
+                    extra_candidates=_live_demand_candidates,
                 )
                 if manual_dedup_bypass:
                     evergreen_after_dedup = list(evergreen_publishable)
@@ -3463,8 +3470,15 @@ class NewsPipeline:
         *,
         topic_group_history: list[dict[str, Any]],
         recent_evergreen_axes: list[str],
+        extra_candidates: list[NewsCandidate] | None = None,
     ) -> tuple[list[Any], list[ScoredNewsCandidate], list[ScoredNewsCandidate]]:
         candidates = self.evergreen_topic_service.collect_candidates()
+        if extra_candidates:
+            # 실검색 AI 수요 후보(live_ai_demand_topic_service)를 고정 뱅크와
+            # 같은 풀에 합류시켜 골든매칭·엔티티다양성 랭킹을 동등하게 받게
+            # 한다 — 메인 후보 목록이 먼저 걸러지고 evergreen 폴백으로 넘어와도
+            # 이 신호가 버려지지 않는다(2026-07-23).
+            candidates = list(extra_candidates) + candidates
         ai_blog_mode = self._ai_blog_mode_enabled()
         if ai_blog_mode:
             candidates = [
@@ -3489,12 +3503,19 @@ class NewsPipeline:
                 and item.total_score >= self.scoring_service.min_topic_score
             ])
         preferred_axis = "ai_automation" if ai_blog_mode else EvergreenTopicService.preferred_axis_by_weekday()
+        recent_entities = frozenset(
+            self.dedup_service.recent_published_entities(
+                days=self.dedup_service.entity_cooldown_days,
+                history_records=self._dedup_history_records(),
+            )
+        )
         selected_pool = sorted(
             golden_publishable,
             key=lambda item: self._evergreen_publish_fallback_sort_key(
                 item,
                 recent_evergreen_axes=recent_evergreen_axes,
                 preferred_axis=preferred_axis,
+                recent_entities=recent_entities,
             ),
         )
         if ai_blog_mode:
@@ -3638,13 +3659,14 @@ class NewsPipeline:
         )
         return focus.allowed
 
-    @staticmethod
     def _evergreen_publish_fallback_sort_key(
+        self,
         item: ScoredNewsCandidate,
         *,
         recent_evergreen_axes: list[str],
         preferred_axis: str,
-    ) -> tuple[int, int, int, int, int, int]:
+        recent_entities: frozenset[str] = frozenset(),
+    ) -> tuple[int, int, int, int, int, int, int]:
         raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
         axis = str(raw.get("evergreen_axis") or "")
         try:
@@ -3658,9 +3680,20 @@ class NewsPipeline:
         tax_rank = 1 if axis == "tax_refund_support" and axis != preferred_axis else 0
         recent_count = recent_evergreen_axes[:3].count(axis)
         preferred_rank = 0 if axis == preferred_axis else 1
+        # 엔티티 다양성(2026-07-23, 사용자 피드백): 엔티티 쿨다운은 evergreen을
+        # 하드 차단하지 않지만(풀 전멸 방지), 완전히 무신경하면 같은 AI(ChatGPT
+        # 등)가 며칠 연속 뽑힌다. 후보의 엔티티가 전부 최근 3일 발행분과
+        # 겹치면(=진짜 새로운 AI가 하나도 없으면) 뒤로 미룬다 — 겹치지 않는
+        # 후보가 하나라도 있으면 그게 이 랭크에서 이긴다. 전부 겹쳐도 탈락은
+        # 아니고 순서만 밀림(풀 전멸 재발 방지).
+        candidate_entities = self.dedup_service.candidate_entities(item)
+        entity_repeat_rank = (
+            1 if candidate_entities and candidate_entities.issubset(recent_entities) else 0
+        )
         return (
             tax_rank,
             recent_count,
+            entity_repeat_rank,
             preferred_rank,
             -confidence,
             -click_score,
