@@ -330,15 +330,27 @@ class TopicDedupService:
 
     @staticmethod
     def _is_entity_cooldown_exempt(candidate: ScoredNewsCandidate) -> bool:
-        if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", "") or "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
+        raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+
+        if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", "") or "").strip().lower() not in {
+            "1", "true", "yes", "on",
+        } and bool(raw.get("evergreen_fallback")):
+            return True
+
+        # AI_BLOG_MODE(2026-07-23 실측 추가): 이 모드의 후보는 100%
+        # topic_group="ai_work"이고, 실질적으로 5~8개 상시 기업(OpenAI/Anthropic/
+        # Google/Microsoft 등)을 계속 다뤄야 하는 단일 주제 블로그다. "같은 회사
+        # 뉴스 재탕 방지"용 엔티티 쿨다운을 그대로 적용하면 오늘 실제로 벌어진
+        # AI 뉴스(예: "OpenAI-Hugging Face 보안 사고", "Gemini 3.6 출시", "$1.5B
+        # Anthropic 합의")까지도 그 회사가 최근 3일 내 한 번이라도 언급됐다는
+        # 이유만으로 전부 차단된다 — 실측 확인: 오늘 HN 상위 뉴스 3건이 전부 이
+        # 규칙에만 걸려 탈락(다른 게이트는 통과). 콘텐츠 레벨 dedup(7일, 제목/
+        # 키워드 근접중복)은 여전히 적용되어 "같은 이야기 재탕"은 계속 막는다.
+        if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", "") or "").strip().lower() in {
+            "1", "true", "yes", "on",
         }:
             return False
-        raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
-        return bool(raw.get("evergreen_fallback"))
+        return (os.getenv("AI_BLOG_MODE", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     def candidate_entities(self, candidate: ScoredNewsCandidate) -> set[str]:
         return self.extract_entities(self._candidate_subject_text(candidate))
