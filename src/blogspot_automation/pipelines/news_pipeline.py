@@ -481,9 +481,26 @@ class NewsPipeline:
                         from blogspot_automation.utils.text_clip import (
                             clip_at_word_boundary as _clip_wb,
                         )
+                        # 2026-07-23 버그 수정: 아래 raw에 topic_group/content_angle이
+                        # 없어서 golden_pattern_service.match_pattern(topic_group="")이
+                        # ai_work 패턴과 절대 매칭 안 됐다(실측: confidence 54 vs 79 —
+                        # 같은 제목인데 topic_group만 채워도 near_match 문턱을 넘음).
+                        # 즉 "실제로 가장 많이 언급되는 AI" 신호(Reddit/HN 토론량)가
+                        # 매일 수집만 되고 선정 단계에서 구조적으로 탈락하고 있었음.
+                        _ct_clipped = _clip_wb(_ct_title, 90)
+                        _ct_reader_questions = [
+                            f"What does \"{_ct_clipped}\" actually mean for everyday use?",
+                            "Is this officially confirmed, and where can I verify it?",
+                            "What should I do differently because of this?",
+                        ]
+                        _ct_click_reason = (
+                            f"\"{_ct_clipped}\" is being actively discussed right now, but most "
+                            "coverage doesn't explain what it actually changes for users."
+                        )
+                        _ct_reader_benefit = "A clear, sourced explanation of what changed and a concrete next step."
                         _community_candidates.append(
                             NewsCandidate(
-                                topic=_clip_wb(_ct_title, 90),
+                                topic=_ct_clipped,
                                 category="today_issue",
                                 summary=_ct_title,
                                 source_hint=_ct.source,
@@ -500,6 +517,21 @@ class NewsPipeline:
                                     "cleaned_title": _ct_title,
                                     "community_mention_score": int(_ct.mention_score),
                                     "community_comments": int(_ct.comments),
+                                    "topic_group": "ai_work",
+                                    "content_angle": {
+                                        "content_type": "ai_work_tip",
+                                        "reader_question": _ct_reader_questions[0],
+                                        "reader_loss": _ct_click_reason,
+                                        "practical_value": _ct_reader_benefit,
+                                        "example_needed": True,
+                                    },
+                                    "search_demand_topic": _ct_clipped,
+                                    "reader_search_questions": _ct_reader_questions,
+                                    "click_reason": _ct_click_reason,
+                                    "reader_benefit": _ct_reader_benefit,
+                                    "urgency_reason": "This is being actively discussed today; a clear explanation now wins the click.",
+                                    "content_promise": f"Explain what \"{_ct_clipped}\" actually means and give a clear next step.",
+                                    "angle_type": "money_compare",
                                 },
                             )
                         )
