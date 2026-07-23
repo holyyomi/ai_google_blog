@@ -267,8 +267,15 @@ class TopicDedupService:
 
             # 회사/소재 쿨다운: 같은 주체(네이버/구글/OpenAI 등)를 쿨다운 창 안에
             # 이미 발행했으면, 제목·주제가 달라도 재발행을 막는다.
-            if candidate_entities and self._is_within_window(
-                record, self.entity_cooldown_days
+            # 단, 에버그린 폴백(evergreen_fallback=True)은 예외 — AI 툴 비교/가격
+            # 콘텐츠는 구조적으로 상시 엔티티(ChatGPT/Claude/Gemini 등)를 반복
+            # 언급하므로 이 규칙을 그대로 적용하면 며칠 안에 뱅크 전체가 봉쇄된다
+            # (2026-07-22 실측: 골든패턴 매칭 14개가 엔티티 쿨다운에서 전부 제외돼
+            # 발행 0건). 콘텐츠 레벨 dedup(제목/키워드 근접중복)은 계속 적용된다.
+            if (
+                candidate_entities
+                and not self._is_entity_cooldown_exempt(candidate)
+                and self._is_within_window(record, self.entity_cooldown_days)
             ):
                 history_entities = self.extract_entities(
                     self._history_subject_text(record)
@@ -302,6 +309,18 @@ class TopicDedupService:
                 return True
 
         return False
+
+    @staticmethod
+    def _is_entity_cooldown_exempt(candidate: ScoredNewsCandidate) -> bool:
+        if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", "") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return False
+        raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+        return bool(raw.get("evergreen_fallback"))
 
     def extract_entities(self, text: str) -> set[str]:
         """텍스트에서 알려진 회사/소재 엔티티를 뽑는다.
