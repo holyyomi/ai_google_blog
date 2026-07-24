@@ -168,15 +168,45 @@ publish_ready = (
 
 ---
 
-## 워크플로우 스케줄 (운영 방침 2026-07-03: AI 주제 하루 1회 자동 발행)
+## 워크플로우 스케줄 (운영 방침 2026-07-24: 하루 1회, GHA 1순위 + Cloud Run 폴백)
 
-| 파일 | cron (UTC) | KST | 목적 | 동작 |
-|------|------|-----|------|------|
-| ai_blog.yml | `31 22 * * *`, `31 10 * * *` | 07:31 / 19:31 | **유일한 자동 발행** — AI 이슈 2건/일 (아침·저녁) | schedule: DRY_RUN=false, AUTO_PUBLISH=true. LLM은 OpenRouter 무료(1차 nemotron→2차 gpt-oss) → OpenAI 유료 폴백 |
-| news_blog.yml | (schedule 없음) | — | 수동 스모크 테스트/수동 발행 전용 | workflow_dispatch만 지원 (30분 주기 schedule은 2026-07-03 제거) |
+**자동 발행은 하루 1회, GHA가 1순위이고 Cloud Run은 GHA 실패/부재 시에만 발행하는 폴백이다.**
+
+| 트리거 | 시각 (UTC) | 역할 | 동작 |
+|------|------|------|------|
+| GHA `ai_blog.yml` schedule | 12:31 하루 1회 | **1순위 자동 발행** | schedule: DRY_RUN=false, AUTO_PUBLISH=true. 단 2026-07은 Actions-minute 한도 소진으로 게이트가 schedule을 스킵(2026-08-01 KST부터 자동 복귀) |
+| Cloud Scheduler `ai-blog-evening` → Cloud Run Job `ai-blog-pipeline` | 12:50 하루 1회 | **폴백** | `scripts/cloud_run_pipeline.sh`가 GHA 결과 확인: 성공→no-op, 실행중→최대 30분 대기, 실패/부재→폴백 발행. 2026-07은 GHA 확인 없이 1순위로 실행 |
+| Cloud Scheduler `ai-blog-morning` | 07:50 KST | 일시정지(PAUSED) | 하루 1회 전환(2026-07-22)으로 중단 — deploy 스크립트도 더 이상 관리 안 함 |
+| GHA `ai_blog.yml` workflow_dispatch | 수동 | 스모크 테스트/publish_draft 리허설 | 게이트와 무관하게 항상 동작 |
+| GHA `news_blog.yml` (schedule 없음) | — | 수동 전용 (별도 프로젝트 — 건드리지 말 것) | workflow_dispatch만 지원 |
+
+**이중 발행 구조적 차단**: 시간 기반 핸드셰이크만으로는 GHA 큐 지연(57분~2시간 실측)에
+깨져 슬롯당 2건 중복 발행됐다(2026-07-20~21 사고). 지금은 GHA·Cloud Run 양쪽 다 실행
+시작 시점에 `scripts/check_published_today.py`로 원장(data/publish_history.json)을 직접
+확인해 "오늘(KST) 라이브 발행이 이미 있으면" 스킵한다 — 트리거가 얼마나 지연되든 하루
+1건을 넘지 않는다. (라이브 판정: published=true + blogspot.com URL. 리허설 초안은
+blogger.com/edit URL이라 자연히 제외.)
+
+**Cloud Run 이미지 계약**: 이미지의 entrypoint.sh는 "clone → `scripts/cloud_run_pipeline.sh`
+exec"만 하는 얇은 셔틀이다. 파이프라인/우선순위/가드 로직 수정은 git push만으로 다음
+실행부터 반영되고, 이미지 재빌드는 requirements.txt 등 의존성이 바뀔 때만 필요하다.
+인프라 설정 변경은 `scripts/deploy_cloud_run.sh` / `scripts/deploy_cloud_scheduler.sh` 참고.
 
 > GitHub Actions schedule은 main 브랜치에서만 실행됨
 > GOOGLE_AI_API_KEY(Gemini)는 더 이상 사용하지 않음 — 팩트 수집은 Custom Search(키 있을 때) → Google News RSS(키 불필요) 폴백
+
+## 주제 선정 정책 (2026-07-24 확정)
+
+- **고정 주제 후보 금지**: 매 실행마다 신선 발굴(뉴스 RSS/Exa/커뮤니티 언급량/실측
+  검색수요)로 새 AI·이슈 AI 후보를 찾는 것이 1순위. 에버그린 뱅크는 신선 후보가
+  전멸했을 때의 폴백일 뿐이다 (`ALLOW_EVERGREEN_AUTO_PUBLISH=true`는 그 폴백의
+  자동발행 허용이지 우선순위 역전이 아님).
+- **중복 금지 창**: 주제 dedup `DEDUP_DAYS=7` (요구 최소치 3일보다 강함) + 같은 회사
+  엔티티 쿨다운 3일(PR #57). 에버그린 폴백도 소프트 엔티티 다양성 랭킹으로 직전에
+  다룬 AI와 다른 AI를 우선한다.
+- **품질 우선**: 발행 게이트(구체성/원문보존/헤지 포화/가격표/제목-본문 정합 등)를
+  통과하지 못하면 후보를 최대 `NEWS_MAX_PUBLISH_ATTEMPTS=12`개까지 갈아끼우고,
+  그래도 없으면 그날 발행을 건너뛴다 — 물량보다 품질.
 
 ---
 

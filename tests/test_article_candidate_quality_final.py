@@ -272,15 +272,21 @@ class TestWorkflowSchedules(unittest.TestCase):
         self.assertNotIn("cron:", content, "news_blog.yml must not have a schedule trigger")
         self.assertIn("workflow_dispatch:", content)
 
-    def test_ai_workflow_twice_daily_cron(self) -> None:
-        # 운영 방침(2026-07-03): 아침/저녁 하루 2회 — 07:31 KST(22:31 UTC), 19:31 KST(10:31 UTC)
+    def test_ai_workflow_single_daily_cron_with_dup_guard(self) -> None:
+        # 운영 방침(2026-07-24): GHA schedule(12:31 UTC 하루 1회)이 1순위 자동
+        # 발행이고, Cloud Run(12:50 UTC)은 GHA 실패/부재 시에만 발행하는 폴백이다.
+        # 시간 기반 핸드셰이크만으로는 GHA 큐 지연에 깨져 슬롯당 2건 중복 발행됐던
+        # 사고(2026-07-20~21 실측)를 원장 기반 가드(check_published_today.py)로
+        # 구조적으로 막는다 — 워크플로우에 이 가드 호출이 반드시 있어야 한다.
         import pathlib
         path = pathlib.Path(".github/workflows/ai_blog.yml")
         if not path.exists():
             self.skipTest("ai_blog.yml not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("31 22 * * *", content, "morning slot (07:31 KST) missing")
-        self.assertIn("31 10 * * *", content, "evening slot (19:31 KST) missing")
+        self.assertIn("31 12 * * *", content, "daily slot (12:31 UTC) missing")
+        self.assertEqual(content.count("cron:"), 1, "must be exactly one daily cron")
+        self.assertIn("check_published_today.py", content, "ledger dup guard missing")
+        self.assertIn("workflow_dispatch:", content)
 
     def test_news_workflow_operational_guards(self) -> None:
         import pathlib

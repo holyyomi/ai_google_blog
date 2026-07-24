@@ -12,6 +12,29 @@ from blogspot_automation.utils.text_clip import clip_at_word_boundary as _clip_w
 logger = logging.getLogger(__name__)
 
 
+# _confirmed_vs_check_needed_en의 "ai_" 콘텐츠 타입용 확정 사실 3문장 변주 풀.
+# 셋 다 같은 의미(공식 발표 기반·요금 최신성·AI 출력은 검수 필요)를 다른 문장으로
+# 표현한다 — 주제별 실제 사실 추출이 아니라 "매 글 토씨 하나 안 틀리고 재사용"만
+# 막는 최소 조치다 (2026-07-23).
+_AI_CONFIRMED_VARIANTS_EN: tuple[tuple[str, str, str], ...] = (
+    (
+        "The core facts here come from official announcements and product pages",
+        "Free-tier limits and paid pricing are as published at the time of writing",
+        "AI output still needs human review before you use it for real work",
+    ),
+    (
+        "What's stated here traces back to the vendor's own announcements and product pages",
+        "Pricing and free-tier limits reflect what was publicly listed at the time of writing",
+        "Treat AI-generated output as a draft — give it a human review pass before relying on it",
+    ),
+    (
+        "The claims below are sourced from official vendor announcements and product documentation",
+        "Plan limits and pricing match what was publicly listed as of this writing",
+        "AI output isn't final — review it yourself before you put it into real work",
+    ),
+)
+
+
 def _josa(word: str, with_batchim: str, without_batchim: str) -> str:
     """명사 + 받침 유무에 맞는 조사. 예: _josa('종합특검','은','는') → '종합특검은'.
     한글이 아닌 경우(영문·숫자)는 받침 없음(without)으로 처리해 깨짐을 피한다."""
@@ -551,7 +574,7 @@ class GeoIntentService:
     ) -> dict[str, list[str]]:
         """확인된 내용과 직접 확인 필요 항목을 반환한다."""
         if is_english_mode():
-            return self._confirmed_vs_check_needed_en(content_type=content_type, slots=slots)
+            return self._confirmed_vs_check_needed_en(content_type=content_type, slots=slots, topic=topic)
         real = str(slots.get("real_criterion") or "").strip()
         faq_list = list(slots.get("faq") or [])
         is_delivery_schedule_issue = self._is_delivery_schedule_issue(topic)
@@ -892,13 +915,15 @@ class GeoIntentService:
                 paa.append(s)
         return paa[:8]
 
-    def _confirmed_vs_check_needed_en(self, *, content_type: str, slots: dict) -> dict[str, list[str]]:
+    def _confirmed_vs_check_needed_en(self, *, content_type: str, slots: dict, topic: str = "") -> dict[str, list[str]]:
         if content_type.startswith("ai_"):
-            confirmed = [
-                "The core facts here come from official announcements and product pages",
-                "Free-tier limits and paid pricing are as published at the time of writing",
-                "AI output still needs human review before you use it for real work",
-            ]
+            # 2026-07-23 라이브 실측: 이 3문장이 완전히 다른 주제 글(구글맵/Gemini vs
+            # ChatGPT 요금제)에서 토씨 하나 안 틀리고 그대로 재사용됐고, 그중 일부가
+            # AI_CITATION_SUMMARY 본문으로도 그대로 흘러들어가 두 글의 인용 요약이
+            # 사실상 동일해졌다. _varied_label과 같은 결정적 seed-hash로 주제별
+            # 변주를 준다 (원문 topic 문자열은 삽입하지 않음 — raw_topic_repeated 회귀 방지).
+            digest = hashlib.md5((topic or content_type or "seed").encode("utf-8")).hexdigest()
+            confirmed = list(_AI_CONFIRMED_VARIANTS_EN[int(digest, 16) % len(_AI_CONFIRMED_VARIANTS_EN)])
             check_needed = [
                 "Current pricing and plan limits on the official page (they change often)",
                 "Whether the rollout has reached your account and region",

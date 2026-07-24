@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from blogspot_automation.models.news_models import NewsCandidate, ScoredNewsCandidate
+from blogspot_automation.services.community_topic_service import CommunityTopicSignal
 from blogspot_automation.services.google_trends_signal import GoogleTrendsSignal
 from blogspot_automation.services.news_taxonomy import (
     build_search_angle,
@@ -366,6 +367,25 @@ class NewsScoringService:
                 raw["google_trends_boost"] = trends_boost
                 raw["google_trends_matched"] = trends_matched
                 total_score = int(total_score) + trends_boost
+
+            # 2026-07-23 연결: CommunityTopicSignal은 GoogleTrendsSignal과
+            # 동일한 구조로 이미 구현돼 있었지만 여기 한 줄이 빠져서 한 번도
+            # 호출된 적이 없었다 — Reddit/HN 실제 토론량(community_mention_score)이
+            # 매일 수집되고도 스코어링에 전혀 반영 안 돼 커뮤니티 후보가
+            # min_topic_score를 못 넘던 원인 중 하나(사용자 피드백: "가장
+            # 조회수 높을만한 주제를 찾아서"). 자기 자신의 mention_score로도
+            # 매칭되므로 커뮤니티 후보 본인과 그 화제를 다루는 다른 후보 모두
+            # 부스트를 받는다.
+            try:
+                community_boost, community_matched = CommunityTopicSignal.score_topic_boost(
+                    f"{title} {search_demand_topic}", max_boost=15
+                )
+            except Exception:  # noqa: BLE001
+                community_boost, community_matched = 0, []
+            if community_boost > 0:
+                raw["community_topic_boost"] = community_boost
+                raw["community_topic_matched"] = community_matched
+                total_score = int(total_score) + community_boost
 
             scored_items.append(
                 ScoredNewsCandidate(

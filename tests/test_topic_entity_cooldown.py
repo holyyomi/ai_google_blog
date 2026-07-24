@@ -162,6 +162,7 @@ def test_evergreen_fallback_candidate_exempt_from_entity_cooldown(monkeypatch) -
     구조적으로 반복 언급하므로 evergreen_fallback 후보는 엔티티 쿨다운을
     면제해야 한다(콘텐츠 레벨 dedup은 계속 적용)."""
     monkeypatch.delenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", raising=False)
+    monkeypatch.delenv("AI_BLOG_MODE", raising=False)
     dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
     candidate = _scored(
         "Claude vs ChatGPT for spreadsheet work",
@@ -175,6 +176,7 @@ def test_evergreen_fallback_candidate_exempt_from_entity_cooldown(monkeypatch) -
 
 def test_evergreen_fallback_exemption_can_be_reverted_via_env(monkeypatch) -> None:
     monkeypatch.setenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", "true")
+    monkeypatch.delenv("AI_BLOG_MODE", raising=False)
     dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
     candidate = _scored(
         "Claude vs ChatGPT for spreadsheet work",
@@ -185,9 +187,39 @@ def test_evergreen_fallback_exemption_can_be_reverted_via_env(monkeypatch) -> No
 
 
 def test_non_evergreen_candidate_still_gets_entity_cooldown(monkeypatch) -> None:
-    # evergreen_fallback 플래그가 없는(=실제 뉴스) 후보는 예외 대상이 아니다.
+    # evergreen_fallback 플래그가 없고(=실제 뉴스) AI_BLOG_MODE도 아니면 예외 대상이 아니다.
     monkeypatch.delenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", raising=False)
+    monkeypatch.delenv("AI_BLOG_MODE", raising=False)
     dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
     candidate = _scored("ChatGPT outage knocks out enterprise workflows")
+    history = [_published("ChatGPT rolls out a new voice feature", days_ago=1)]
+    assert dedup.is_duplicate(candidate, history)
+
+
+def test_ai_blog_mode_exempts_any_candidate_from_entity_cooldown(monkeypatch) -> None:
+    """2026-07-23 실측: AI_BLOG_MODE는 후보의 100%가 topic_group=ai_work이고
+    상시 기업 5~8개를 계속 다뤄야 하는 단일 주제 블로그다. 오늘 실제로 벌어진
+    뉴스(HN 실측)조차 "그 회사가 최근 3일 내 언급됐다"는 이유만으로 전부
+    차단되는 걸 확인했음 — evergreen 여부와 무관하게 이 모드에서는 엔티티
+    쿨다운을 전면 면제한다."""
+    monkeypatch.setenv("AI_BLOG_MODE", "true")
+    monkeypatch.delenv("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", raising=False)
+    dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
+    candidate = _scored(
+        "OpenAI and Hugging Face address security incident",
+        raw={"source_type": "community_hackernews"},
+    )
+    history = [_published("ChatGPT rolls out a new voice feature", days_ago=1)]
+    assert not dedup.is_duplicate(candidate, history)
+
+
+def test_ai_blog_mode_exemption_can_be_reverted_via_env(monkeypatch) -> None:
+    monkeypatch.setenv("AI_BLOG_MODE", "true")
+    monkeypatch.setenv("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", "true")
+    dedup = TopicDedupService(dedup_days=7, entity_cooldown_days=7)
+    candidate = _scored(
+        "OpenAI and Hugging Face address security incident",
+        raw={"source_type": "community_hackernews"},
+    )
     history = [_published("ChatGPT rolls out a new voice feature", days_ago=1)]
     assert dedup.is_duplicate(candidate, history)

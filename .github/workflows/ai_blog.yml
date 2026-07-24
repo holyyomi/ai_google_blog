@@ -2,15 +2,25 @@ name: holyyomi Fresh AI Issue Blog
 
 # cli_ai.py compatibility workflow.
 # The retired Naver Blog rewrite path is not used; cli_ai delegates to fresh AI/news discovery.
+#
+# ── 자동 발행 우선순위 (2026-07-24 사용자 결정): GHA 1순위, Cloud Run 폴백 ──
+# 이 schedule(12:31 UTC 하루 1회)이 1순위 자동 발행이다. Cloud Run
+# ai-blog-pipeline(Cloud Scheduler "ai-blog-evening", 12:50 UTC)은 이 run이
+# 실패했거나 아예 못 떴을 때(Actions-minute 한도 소진)만 발행하는 폴백이다
+# (scripts/cloud_run_pipeline.sh 참고).
+# 단, 2026-07은 Actions-minute 한도가 이미 소진돼 아래 게이트가 schedule을
+# 건너뛰고 Cloud Run이 1순위다. 2026-08-01(KST)부터 자동으로 GHA가 복귀한다.
+#
+# ── 이중 발행 구조적 차단 ──
+# 과거(2026-07-20~21) 시간 기반 핸드셰이크는 GHA 큐 지연(57분~2시간)에 깨져
+# 슬롯당 2건 중복 발행됐다. 지금은 GHA·Cloud Run 양쪽 다 실행 시작 시점에
+# scripts/check_published_today.py로 원장을 직접 확인해 "오늘 라이브 발행이
+# 이미 있으면" 스킵한다 — 트리거가 얼마나 지연되든 하루 1건을 넘지 않는다.
+#
+# 발행 시각은 US-first 영어 블로그 타겟 기준: 12:31 UTC ≈ 미국 동부 아침
+# 8:31(EDT)·영국 오후 1:31·인도 저녁 6:01. 정각(0분) 회피로 GitHub cron 지연 완화.
 on:
   schedule:
-    # 하루 1회 발행 (2026-07-22 운영 방침 전환): 색인 0·애드센스 심사 단계라
-    # 물량보다 품질 — 아침 슬롯은 중단(Cloud Scheduler ai-blog-morning도 PAUSED).
-    # 발행 시각은 US-first 영어 블로그 타겟 기준: 12:31 UTC ≈ 미국 동부
-    # 아침 8:31(EDT)·영국 오후 1:31·인도 저녁 6:01 — 주 독자층의 활동 시간대.
-    # Cloud Scheduler(ai-blog-evening, 12:50 UTC)와 19분 간격 유지 —
-    # entrypoint.sh의 "최근 90분 내 GHA run 존재?" 핸드셰이크 전제.
-    # 정각(0분) 회피로 GitHub cron 지연 완화.
     - cron: '31 12 * * *'
   workflow_dispatch:
     inputs:
@@ -44,22 +54,27 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2026-07-20 GHA Actions-minute 한도 소진 대응: 이번 슬롯이 소진 상태인지
-      # 매번 다시 판단하지 않고, 사용자 결정(2026-07-21)으로 7월 한 달은 schedule
-      # 자동실행을 통째로 건너뛰고 Cloud Run(ai-blog-pipeline job)을 1순위로 둔다.
-      # entrypoint.sh에도 동일한 2026-08-01 KST 기준 날짜 게이트가 있어 두 시스템이
-      # 같은 슬롯을 중복 발행하던 문제(07/20~21 실측: 슬롯당 2건 발행)를 없앤다.
-      # 수동 workflow_dispatch(리허설/스모크 테스트)는 날짜와 무관하게 항상 동작한다
-      # — CLAUDE.md 머지 조건(발행 경로 변경 시 publish_draft 리허설 필수)을 유지하기 위함.
-      # 2026-08-01부터는 이 스텝이 자동으로 run=true를 내놓아 별도 코드 변경 없이
-      # GHA가 다시 1순위로 복귀한다.
-      - name: Compute July quota-recovery gate
+      # ── schedule 전용 게이트 ──
+      # (a) 2026-07 한정: Actions-minute 한도 소진으로 schedule을 건너뛰고
+      #     Cloud Run이 1순위. 2026-08-01(KST)부터 이 조건이 자동 해제돼 GHA 복귀.
+      # (b) 원장 중복 가드: 오늘(KST) 라이브 발행이 이미 원장에 있으면 스킵 —
+      #     이 run이 큐에서 몇 시간 지연됐다가 늦게 시작해도(2026-07-20~21 실측)
+      #     Cloud Run 폴백이 이미 발행한 슬롯을 또 발행하지 않는다.
+      # 수동 workflow_dispatch(리허설/스모크 테스트)는 두 게이트와 무관하게 항상 동작
+      # — CLAUDE.md 머지 조건(발행 경로 변경 시 publish_draft 리허설 필수) 유지.
+      - name: Compute schedule gate
         id: gate
         run: |
           NOW_KST=$(TZ=Asia/Seoul date +%Y-%m-%d)
-          if [[ "${{ github.event_name }}" == "schedule" && "$NOW_KST" < "2026-08-01" ]]; then
+          if [[ "${{ github.event_name }}" != "schedule" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "[gate] manual dispatch — always run. today(KST)=$NOW_KST"
+          elif [[ "$NOW_KST" < "2026-08-01" ]]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "[gate] 2026-07-31까지 schedule 자동실행 건너뜀 (Cloud Run이 1순위). 2026-08-01부터 자동 복귀. today(KST)=$NOW_KST"
+          elif [[ "$(python3 scripts/check_published_today.py)" == "true" ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "[gate] 오늘 라이브 발행이 이미 원장에 있음 — 중복 방지 스킵. today(KST)=$NOW_KST"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "[gate] 정상 실행. event=${{ github.event_name }} today(KST)=$NOW_KST"
@@ -91,7 +106,7 @@ jobs:
       - name: Run AI Topic Pipeline
         if: steps.gate.outputs.run == 'true'
         env:
-          # schedule(매일 아침·저녁)이면 무조건 라이브 발행, 수동(dispatch)이면 publish_mode 입력에 따름.
+          # schedule이면 무조건 라이브 발행, 수동(dispatch)이면 publish_mode 입력에 따름.
           # publish_draft/publish 둘 다 실제 발행 경로(DRY_RUN=false)를 타되,
           # publish_draft는 아래 NEWS_PUBLISH_AS_DRAFT=true로 Blogger 초안까지만 만든다.
           # 배경: 과거 수동 publish "리허설"이 라이브에 실제 글을 쌓아 중복(네이버 AI 3연속)을
