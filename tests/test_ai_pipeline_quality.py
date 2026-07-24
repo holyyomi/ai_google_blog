@@ -298,10 +298,13 @@ class TestAiBlogYml(unittest.TestCase):
         content = self._yml_content()
         if not content:
             self.skipTest("ai_blog.yml not found")
-        # 매일 아침 자동 발행 cron + schedule이면 publish(dry_run=false).
-        # DRY_RUN 표현식은 schedule 또는 수동 publish/publish_draft면 'false'.
-        self.assertIn("cron:", content)
-        self.assertIn("github.event_name == 'schedule'", content)
+        # 운영 방침(2026-07-24): 자동 발행은 GHA schedule이 아니라 Cloud Run
+        # Job(ai-blog-pipeline, 12:50 UTC 하루 1회)이 전담한다. ai_blog.yml에는
+        # schedule 트리거가 없어야 한다 — 있으면 Cloud Run과 이중 트리거가 되어
+        # 슬롯당 2건 중복 발행 사고(2026-07-20~21 실측)가 재발할 수 있다.
+        # 수동 workflow_dispatch에서는 publish/publish_draft가 DRY_RUN=false 경로를 탄다.
+        self.assertNotIn("cron:", content)
+        self.assertIn("workflow_dispatch:", content)
         self.assertIn("&& 'false' || 'true'", content)  # DRY_RUN: 발행 경로면 false
 
     def test_manual_publish_draft_mode(self):

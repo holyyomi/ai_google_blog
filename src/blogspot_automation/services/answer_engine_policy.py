@@ -47,6 +47,28 @@ def _varied_label(kind: str, seed: str) -> str:
     return variants[int(digest, 16) % len(variants)]
 
 
+# yomi_judgment 폴백 문장 — 2026-07-23 라이브 실측: 이 문장이 완전히 다른 주제의
+# 글(구글맵/Gemini vs ChatGPT 요금제)에서 토씨 하나 안 틀리고 그대로 재사용됨
+# (AI_OVERVIEW_TARGET_ANSWER + AI_CITATION_SUMMARY 양쪽에 매번 삽입되는 슬롯이라
+# 노출 빈도가 특히 높았음). _varied_label과 동일한 결정적 seed-hash 방식으로
+# 주제별 변주를 준다 — 원문 topic 문자열은 여전히 삽입하지 않는다
+# (raw_topic_repeated_in_html 게이트, 2026-07-17 드라이런 #8 실측 회귀 방지).
+_YOMI_JUDGMENT_VARIANTS_EN: tuple[str, ...] = (
+    "The key here is separating the actual impact from the noise, and knowing what to verify yourself.",
+    "What matters most is telling the confirmed changes apart from the speculation, then checking the rest yourself.",
+    "The real question is what actually changes for you versus what's just chatter — verify the specifics before you act.",
+    "Cutting through the hype means sorting what's confirmed from what's still guesswork, and checking the details that apply to you.",
+    "The practical read: separate what's locked in from what's still speculation, then confirm the parts that matter to your situation.",
+)
+
+
+def _varied_sentence(pool: tuple[str, ...], seed: str) -> str:
+    if not pool:
+        return ""
+    digest = hashlib.md5((seed or "seed").encode("utf-8")).hexdigest()
+    return pool[int(digest, 16) % len(pool)]
+
+
 def ensure_answer_engine_optimized_html(
     html: str,
     *,
@@ -485,10 +507,7 @@ def _build_slots_from_html(html: str, *, title: str, topic: str) -> dict[str, An
         return {
             "hook_opening": hook,
             "real_criterion": second_sentence or _first_sentence(plain, max_len=160) or hook,
-            "yomi_judgment": (
-                "The key here is separating the actual impact "
-                "from the noise, and knowing what to verify yourself."
-            ),
+            "yomi_judgment": _varied_sentence(_YOMI_JUDGMENT_VARIANTS_EN, topic or title),
             "faq": faq,
         }
     hook = first_sentence or f"{topic}에 대해 독자가 먼저 확인해야 할 핵심을 정리했습니다."

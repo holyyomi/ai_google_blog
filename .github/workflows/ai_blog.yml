@@ -2,16 +2,17 @@ name: holyyomi Fresh AI Issue Blog
 
 # cli_ai.py compatibility workflow.
 # The retired Naver Blog rewrite path is not used; cli_ai delegates to fresh AI/news discovery.
+#
+# 2026-07-24 사용자 결정: schedule 트리거를 완전히 제거하고 발행을 Cloud Run
+# 단일 경로(ai-blog-pipeline, Cloud Scheduler "ai-blog-evening" 12:50 UTC
+# 하루 1회)로 고정한다. 과거(2026-07-20~21) GHA와 Cloud Run이 각자 스케줄을
+# 갖고 "90분 내 GHA run 존재?" 핸드셰이크로 중복을 막던 설계가, GHA가
+# Actions-minute 한도로 지연되면서 핸드셰이크 타이밍을 벗어나 슬롯당 2건
+# 중복 발행되는 사고로 이어졌다(entrypoint.sh 주석 참고). 이 워크플로우가
+# 다시는 자동으로 깨어나지 않도록 schedule을 코드에서 제거해, "8/1부터 GHA도
+# 부활" 같은 날짜 게이트에 의존하지 않고 구조적으로 중복 가능성을 없앤다.
+# 수동 실행(workflow_dispatch)은 스모크 테스트/publish_draft 리허설 용도로만 유지.
 on:
-  schedule:
-    # 하루 1회 발행 (2026-07-22 운영 방침 전환): 색인 0·애드센스 심사 단계라
-    # 물량보다 품질 — 아침 슬롯은 중단(Cloud Scheduler ai-blog-morning도 PAUSED).
-    # 발행 시각은 US-first 영어 블로그 타겟 기준: 12:31 UTC ≈ 미국 동부
-    # 아침 8:31(EDT)·영국 오후 1:31·인도 저녁 6:01 — 주 독자층의 활동 시간대.
-    # Cloud Scheduler(ai-blog-evening, 12:50 UTC)와 19분 간격 유지 —
-    # entrypoint.sh의 "최근 90분 내 GHA run 존재?" 핸드셰이크 전제.
-    # 정각(0분) 회피로 GitHub cron 지연 완화.
-    - cron: '31 12 * * *'
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -44,36 +45,13 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2026-07-20 GHA Actions-minute 한도 소진 대응: 이번 슬롯이 소진 상태인지
-      # 매번 다시 판단하지 않고, 사용자 결정(2026-07-21)으로 7월 한 달은 schedule
-      # 자동실행을 통째로 건너뛰고 Cloud Run(ai-blog-pipeline job)을 1순위로 둔다.
-      # entrypoint.sh에도 동일한 2026-08-01 KST 기준 날짜 게이트가 있어 두 시스템이
-      # 같은 슬롯을 중복 발행하던 문제(07/20~21 실측: 슬롯당 2건 발행)를 없앤다.
-      # 수동 workflow_dispatch(리허설/스모크 테스트)는 날짜와 무관하게 항상 동작한다
-      # — CLAUDE.md 머지 조건(발행 경로 변경 시 publish_draft 리허설 필수)을 유지하기 위함.
-      # 2026-08-01부터는 이 스텝이 자동으로 run=true를 내놓아 별도 코드 변경 없이
-      # GHA가 다시 1순위로 복귀한다.
-      - name: Compute July quota-recovery gate
-        id: gate
-        run: |
-          NOW_KST=$(TZ=Asia/Seoul date +%Y-%m-%d)
-          if [[ "${{ github.event_name }}" == "schedule" && "$NOW_KST" < "2026-08-01" ]]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "[gate] 2026-07-31까지 schedule 자동실행 건너뜀 (Cloud Run이 1순위). 2026-08-01부터 자동 복귀. today(KST)=$NOW_KST"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "[gate] 정상 실행. event=${{ github.event_name }} today(KST)=$NOW_KST"
-          fi
-
       - name: Set up Python
-        if: steps.gate.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
       - name: Install Dependencies
-        if: steps.gate.outputs.run == 'true'
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -81,7 +59,6 @@ jobs:
       # Search Console 성과 루프 — 실제 검색 성과를 받아 주제 선정에 반영.
       # GSC_SERVICE_ACCOUNT_JSON secret이 없으면 조용히 스킵 (발행 흐름 영향 없음).
       - name: Fetch Search Console Performance
-        if: steps.gate.outputs.run == 'true'
         env:
           GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
           BLOGSPOT_HOME_URL: "https://holyyomiai.blogspot.com/"
@@ -89,16 +66,16 @@ jobs:
           PYTHONPATH=src python scripts/fetch_search_performance.py || echo "search performance fetch skipped"
 
       - name: Run AI Topic Pipeline
-        if: steps.gate.outputs.run == 'true'
         env:
-          # schedule(매일 아침·저녁)이면 무조건 라이브 발행, 수동(dispatch)이면 publish_mode 입력에 따름.
+          # 이 워크플로우는 더 이상 schedule로 자동 실행되지 않는다(위 on: 블록 참고 —
+          # 유일한 자동 발행 경로는 Cloud Run ai-blog-pipeline, 12:50 UTC 하루 1회).
+          # 여기 남은 workflow_dispatch는 수동 스모크 테스트/publish_draft 리허설 전용이라
+          # publish_mode 입력값에만 따른다.
           # publish_draft/publish 둘 다 실제 발행 경로(DRY_RUN=false)를 타되,
           # publish_draft는 아래 NEWS_PUBLISH_AS_DRAFT=true로 Blogger 초안까지만 만든다.
-          # 배경: 과거 수동 publish "리허설"이 라이브에 실제 글을 쌓아 중복(네이버 AI 3연속)을
-          # 만들었음. 이제 수동 검증은 publish_draft로 하고, 라이브 발행은 스케줄만 한다.
-          DRY_RUN: ${{ (github.event_name == 'schedule' || github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'false' || 'true' }}
-          AUTO_PUBLISH: ${{ (github.event_name == 'schedule' || github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'true' || 'false' }}
-          NEWS_PUBLISH_MODE: ${{ (github.event_name == 'schedule' || github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'publish' || 'dry_run' }}
+          DRY_RUN: ${{ (github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'false' || 'true' }}
+          AUTO_PUBLISH: ${{ (github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'true' || 'false' }}
+          NEWS_PUBLISH_MODE: ${{ (github.event.inputs.publish_mode == 'publish' || github.event.inputs.publish_mode == 'publish_draft') && 'publish' || 'dry_run' }}
           # 수동 publish_draft일 때만 초안. 스케줄·수동 publish는 라이브(빈 입력이면 자동으로 false).
           NEWS_PUBLISH_AS_DRAFT: ${{ github.event.inputs.publish_mode == 'publish_draft' && 'true' || 'false' }}
           # news_blog.yml과 동일한 정책: PUBLISH_HOLD_PHASE2는 항상 false로 둔다.

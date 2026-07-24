@@ -168,14 +168,25 @@ publish_ready = (
 
 ---
 
-## 워크플로우 스케줄 (운영 방침 2026-07-03: AI 주제 하루 1회 자동 발행)
+## 워크플로우 스케줄 (운영 방침 2026-07-24: AI 주제 하루 1회, Cloud Run 단일 경로)
 
-| 파일 | cron (UTC) | KST | 목적 | 동작 |
-|------|------|-----|------|------|
-| ai_blog.yml | `31 22 * * *`, `31 10 * * *` | 07:31 / 19:31 | **유일한 자동 발행** — AI 이슈 2건/일 (아침·저녁) | schedule: DRY_RUN=false, AUTO_PUBLISH=true. LLM은 OpenRouter 무료(1차 nemotron→2차 gpt-oss) → OpenAI 유료 폴백 |
-| news_blog.yml | (schedule 없음) | — | 수동 스모크 테스트/수동 발행 전용 | workflow_dispatch만 지원 (30분 주기 schedule은 2026-07-03 제거) |
+**유일한 자동 발행 경로는 GHA가 아니라 Cloud Run이다.** ai_blog.yml은 `schedule` 트리거가
+없다(2026-07-24 제거) — workflow_dispatch(수동 스모크 테스트/publish_draft 리허설)만 지원.
 
-> GitHub Actions schedule은 main 브랜치에서만 실행됨
+| 트리거 | 시각 | 목적 | 동작 |
+|------|------|------|------|
+| Cloud Scheduler `ai-blog-evening` → Cloud Run Job `ai-blog-pipeline` | 12:50 UTC 하루 1회 | **유일한 자동 발행** | entrypoint.sh가 origin/main clone 후 cli_ai.py 실행. DRY_RUN=false, AUTO_PUBLISH=true |
+| Cloud Scheduler `ai-blog-morning` → 동일 Job | 07:50 KST | 일시정지(PAUSED) — 아침 슬롯 중단 |  |
+| GHA `ai_blog.yml` (workflow_dispatch만) | 수동 | 스모크 테스트 / publish_draft 리허설 전용 | schedule 트리거 없음 — 자동으로는 절대 실행되지 않음 |
+| GHA `news_blog.yml` (schedule 없음) | — | 수동 스모크 테스트/수동 발행 전용 | workflow_dispatch만 지원 |
+
+> 과거 설계(2026-07-20~21)는 GHA cron + Cloud Run 폴백을 "90분 내 GHA run 존재?"
+> 핸드셰이크로 병행시켰으나, GHA가 Actions-minute 한도로 지연되면서 핸드셰이크
+> 타이밍을 벗어나 슬롯당 2건 중복 발행되는 사고가 있었다(2026-07-20~21 실측).
+> 2026-07-24부터 GHA의 schedule 자체를 없애 이 이중 트리거 구조를 영구히 제거했다 —
+> Cloud Scheduler/Cloud Run 설정을 바꾸려면 `scripts/deploy_cloud_run.sh` /
+> `scripts/deploy_cloud_scheduler.sh` 참고.
+> GitHub Actions는 main 브랜치에서만 workflow_dispatch로 수동 실행 가능
 > GOOGLE_AI_API_KEY(Gemini)는 더 이상 사용하지 않음 — 팩트 수집은 Custom Search(키 있을 때) → Google News RSS(키 불필요) 폴백
 
 ---

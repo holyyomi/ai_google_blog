@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
-# Cloud Run Job entrypoint — GitHub Actions Actions 분당 무료 한도 소진 대응
-# (2026-07-20). 코드는 이미지에 굽지 않고 매 실행마다 origin/main을 새로 clone —
+# Cloud Run Job entrypoint — 유일한 자동 발행 경로 (2026-07-24 사용자 결정).
+# 코드는 이미지에 굽지 않고 매 실행마다 origin/main을 새로 clone —
 # 파이프라인 코드 수정은 git push만으로 다음 실행부터 반영된다.
 #
 # ai_blog.yml의 4단계(checkout → deps install → cli_ai.py 실행 → 원장 병합-push)를
-# 그대로 재현해, GHA와 원장(dedup)을 공유하며 서로 안전하게 병행 가능하다.
+# 그대로 재현한다. ai_blog.yml은 더 이상 schedule로 자동 실행되지 않으므로
+# (workflow_dispatch만 남음) 이 Cloud Run Job이 유일한 자동 발행 트리거다 —
+# 과거처럼 "GHA가 이미 이 슬롯을 처리했는지" 확인할 필요가 없다.
+#
+# 이전 설계(2026-07-20~21)는 GHA를 1순위, 이 잡을 "GHA가 스케줄 시간대에
+# 못 돌았을 때만" 도는 폴백으로 두고 90분 핸드셰이크로 중복을 막았다. 그런데
+# GHA가 Actions-minute 한도로 큐에서 57분~2시간 지연되다 결국 늦게라도
+# 성공해버리면서, 핸드셰이크 체크 시점 이후 지연된 GHA가 같은 슬롯에 또
+# 발행해 슬롯당 2건 중복 발행되는 사고가 있었다. GHA의 schedule 트리거
+# 자체를 없애 이 핸드셰이크가 더 이상 필요 없게 만들었다.
 set -euo pipefail
 
 : "${GITHUB_REPO_TOKEN:?GITHUB_REPO_TOKEN not set}"
@@ -14,67 +23,6 @@ set -euo pipefail
 # (2026-07-20 실측: `gh auth token > file`로 저장한 값에 개행이 남아
 # "fatal: credential url cannot be parsed"로 즉시 실패). 방어적으로 trim.
 GITHUB_REPO_TOKEN="$(printf '%s' "${GITHUB_REPO_TOKEN}" | tr -d '\n\r')"
-
-# ── 실행 우선순위(2026-07-20 설계, 2026-07-21 사용자 결정으로 한시 변경):
-# 원래는 GitHub Actions가 1순위이고 이 Cloud Run 잡은 "GHA가 이번 스케줄
-# 시간대에 아예 못 돌았을 때만" 실행되는 폴백이었다. 그런데 실측 결과
-# (2026-07-20~21) GHA가 Actions-minute 한도 소진으로 큐에서 57분~2시간
-# 지연되다 결국 늦게라도 성공해버려서, "최근 90분 내 GHA run 없음" 체크가
-# Cloud Run 실행 *시점*엔 참이라도 그 뒤 지연된 GHA가 같은 슬롯에 또 발행해
-# 슬롯당 2건씩 중복 발행되는 사고가 있었다. ai_blog.yml에 2026-08-01 KST까지
-# schedule 자동실행을 건너뛰는 게이트를 추가했으므로, 이 기간 동안은 GHA
-# run 존재 여부를 확인할 필요가 없다 — Cloud Run이 무조건 1순위로 실행한다.
-# 2026-08-01부터는 아래 원래 로직(GHA run 존재 확인)으로 자동 복귀해 GHA가
-# 다시 1순위가 된다. Cloud Scheduler는 07:31/19:31 KST보다 살짝 늦게(예:
-# 07:50/19:50) 쏘도록 설정되어 있다(8월부터 원래 로직이 쓰는 여유 시간).
-NOW_KST="$(TZ=Asia/Seoul date +%Y-%m-%d)"
-if [[ "${NOW_KST}" < "2026-08-01" ]]; then
-  echo "[entrypoint] 2026-07 GHA 한도소진 기간 — Cloud Run이 무조건 1순위로 실행 (today KST=${NOW_KST}, 2026-08-01부터 자동 복귀)"
-  GHA_HANDLED="false"
-else
-echo "[entrypoint] checking whether GitHub Actions already handled this schedule slot"
-GHA_HANDLED=$(python3 - <<'PYEOF'
-import json
-import os
-import sys
-import urllib.request
-from datetime import datetime, timedelta, timezone
-
-token = os.environ["GITHUB_REPO_TOKEN"]
-req = urllib.request.Request(
-    "https://api.github.com/repos/holyyomi/ai_google_blog/actions/workflows/ai_blog.yml/runs"
-    "?event=schedule&per_page=5",
-    headers={
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "cloud-run-fallback-check",
-    },
-)
-try:
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.load(resp)
-except Exception as exc:  # noqa: BLE001 — API 조회 실패 시 안전하게 폴백 진행
-    print(f"[entrypoint] GHA run check failed ({exc}) — proceeding with fallback", file=sys.stderr)
-    print("false")
-    sys.exit(0)
-
-cutoff = datetime.now(timezone.utc) - timedelta(minutes=90)
-for run in data.get("workflow_runs", []):
-    created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
-    if created >= cutoff:
-        print(f"[entrypoint] GHA scheduled run found at {run['created_at']} (status={run['status']})", file=sys.stderr)
-        print("true")
-        sys.exit(0)
-print("[entrypoint] no recent GHA scheduled run found — GHA likely blocked (quota)", file=sys.stderr)
-print("false")
-PYEOF
-)
-fi
-
-if [ "${GHA_HANDLED}" = "true" ]; then
-  echo "[entrypoint] GitHub Actions already ran this slot — Cloud Run fallback is a no-op, exiting."
-  exit 0
-fi
 
 WORKDIR="$(mktemp -d)"
 echo "[entrypoint] cloning into ${WORKDIR}"
