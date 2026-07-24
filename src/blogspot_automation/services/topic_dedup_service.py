@@ -149,6 +149,27 @@ ENTITY_ALIASES: dict[str, tuple[str, ...]] = {
     "apple": ("애플", "apple"),
     "amazon": ("아마존", "amazon", "알렉사", "alexa"),
     "xai": ("그록", "grok", "xai"),
+    # 2026-07-23 사용자 피드백("도구에 제한을 두지 말라") 대응: 엔티티 인식이
+    # 잘 알려진 대기업 몇 개로만 좁혀지지 않도록 신생/특화 AI 플레이어도 추가.
+    # 이 목록은 "무엇에 관한 글인가" 판별(dedup·specificity)용이라, 여기에
+    # 없는 회사/도구도 후보 선정 자체는 전혀 막히지 않는다(discovery_engine/
+    # community 경로는 이 목록과 무관하게 아무 주제나 후보로 만든다).
+    "deepseek": ("딥시크", "deepseek"),
+    "huggingface": ("허깅페이스", "hugging face", "huggingface"),
+    "cohere": ("코히어", "cohere"),
+    "stability_ai": ("스태빌리티", "stability ai", "stable diffusion"),
+    "midjourney": ("미드저니", "midjourney"),
+    "elevenlabs": ("일레븐랩스", "elevenlabs", "eleven labs"),
+    "character_ai": ("character.ai", "characterai"),
+    "runway": ("런웨이 ml", "runway ml", "runwayml"),
+    "suno": ("수노", "suno ai", "suno"),
+    "nvidia": ("엔비디아", "nvidia"),
+    "qwen": ("큐원", "qwen", "알리바바", "alibaba"),
+    "baidu": ("바이두", "baidu", "어니봇", "ernie bot"),
+    "ai21": ("ai21",),
+    "inflection": ("인플렉션 ai", "inflection ai"),
+    "ibm": ("ibm", "왓슨", "watson"),
+    "databricks": ("데이터브릭스", "databricks", "mosaic ml"),
 }
 # 짧거나 다른 단어에 섞여 오탐 위험이 큰 alias는 토큰 경계로만 매칭한다
 # (예: "메타"는 "메타버스"에, "gpt"는 "chatgpt"에 substring으로 걸리면 안 됨).
@@ -172,6 +193,10 @@ _TOKEN_ONLY_ALIASES = {
     "알렉사",
     "llama",
     "라마",
+    "watson",
+    "왓슨",
+    "suno",
+    "수노",
 }
 
 
@@ -243,6 +268,24 @@ class TopicDedupService:
                     return [item for item in value if isinstance(item, dict)]
         return []
 
+    def recent_published_entities(
+        self, *, days: int, history_records: list[dict[str, Any]]
+    ) -> set[str]:
+        """최근 N일간 실제 발행된 글들의 엔티티 합집합.
+
+        엔티티 쿨다운(하드 차단)과 달리, 이건 evergreen 폴백 후보를 정렬할 때
+        "최근에 안 다룬 AI를 우선"하는 소프트 랭킹 신호로만 쓴다 — 다양성은
+        원하지만 후보 풀이 전멸하면 안 되기 때문(2026-07-22 실측 사고).
+        """
+        entities: set[str] = set()
+        for record in history_records:
+            if not self.record_blocks_duplicate(record):
+                continue
+            if not self._is_within_window(record, days):
+                continue
+            entities |= self.extract_entities(self._history_subject_text(record))
+        return entities
+
     def is_duplicate(self, candidate: ScoredNewsCandidate, history_records: list[dict]) -> bool:
         candidate_texts = self._candidate_texts(candidate)
         candidate_norms = [
@@ -312,15 +355,30 @@ class TopicDedupService:
 
     @staticmethod
     def _is_entity_cooldown_exempt(candidate: ScoredNewsCandidate) -> bool:
-        if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", "") or "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
+        raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+
+        if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_EVERGREEN", "") or "").strip().lower() not in {
+            "1", "true", "yes", "on",
+        } and bool(raw.get("evergreen_fallback")):
+            return True
+
+        # AI_BLOG_MODE(2026-07-23 실측 추가): 이 모드의 후보는 100%
+        # topic_group="ai_work"이고, 실질적으로 5~8개 상시 기업(OpenAI/Anthropic/
+        # Google/Microsoft 등)을 계속 다뤄야 하는 단일 주제 블로그다. "같은 회사
+        # 뉴스 재탕 방지"용 엔티티 쿨다운을 그대로 적용하면 오늘 실제로 벌어진
+        # AI 뉴스(예: "OpenAI-Hugging Face 보안 사고", "Gemini 3.6 출시", "$1.5B
+        # Anthropic 합의")까지도 그 회사가 최근 3일 내 한 번이라도 언급됐다는
+        # 이유만으로 전부 차단된다 — 실측 확인: 오늘 HN 상위 뉴스 3건이 전부 이
+        # 규칙에만 걸려 탈락(다른 게이트는 통과). 콘텐츠 레벨 dedup(7일, 제목/
+        # 키워드 근접중복)은 여전히 적용되어 "같은 이야기 재탕"은 계속 막는다.
+        if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", "") or "").strip().lower() in {
+            "1", "true", "yes", "on",
         }:
             return False
-        raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
-        return bool(raw.get("evergreen_fallback"))
+        return (os.getenv("AI_BLOG_MODE", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def candidate_entities(self, candidate: ScoredNewsCandidate) -> set[str]:
+        return self.extract_entities(self._candidate_subject_text(candidate))
 
     def extract_entities(self, text: str) -> set[str]:
         """텍스트에서 알려진 회사/소재 엔티티를 뽑는다.
