@@ -58,21 +58,40 @@ PYTHONPATH=src python tools/indexability_audit.py --recent 8
 
 ## B. head meta description 누락 — Blogger 대시보드 설정 (사람이 처리)
 
-### 원인
+### ⚠️ 2026-07-25 정정 — 토글로 해결되지 않는다 (실측)
+
+**아래 "토글만 켜면 된다"는 원래 설명은 틀렸다.** 실측 결과:
+
+1. 요미님이 **"검색 설명 사용" 토글을 ON**으로 확인했고 블로그 단위 검색 설명도
+   채워져 있다. 그런데도 라이브 글에 `<meta name="description">`이 **여전히 없다**.
+   있는 것은 `og:description` 하나이고, 그 값은 **글마다 동일한 블로그 소개문**이다
+   (= 토글/블로그 설명은 블로그 단위 메타에만 관여).
+2. **Blogger API v3는 `searchDescription`·`customMetaData`를 저장하지 않는다.**
+   테스트 초안에 두 필드를 함께 전송 → INSERT 응답에 두 필드 모두 없음 →
+   `view=AUTHOR` 재조회에도 없음 → 라이브 발행글 3건도 전부 `None`.
+   즉 `publishing/client.py`가 보내는 값은 조용히 버려진다(코드 정상이 아니었다).
+
+**결론: 자동 발행 경로로는 글별 head meta description을 만들 수 없다.**
+Blogspot은 meta description이 없으면 **첫 문단을 SERP 스니펫으로 쓰므로**,
+글별 스니펫은 lede로만 제어된다. 그래서
+`answer_engine_policy.ensure_answer_engine_optimized_html`의 lede를 주제별 확정
+사실(LLM confirmed_facts)로 시작하게 바꿨다 — 이게 유일한 레버다.
+(그전에는 lede가 본문 중복 제거로 상투어만 남아 최근 5개 글 중 4개의 스니펫이
+같은 문장으로 시작했다.)
+
+남은 개선 여지(미착수, 사람 작업): Blogger 테마 HTML을 편집해 글 페이지에서
+`og:description`을 글별 값으로 출력하게 하는 방법. 테마 XML 수정이라 승인 필요.
+
+### (원래 설명 — 참고용, 위 정정이 우선한다)
 `publishing/client.py`는 `searchDescription` / `metaDescription` / `customMetaData`를
-**정상적으로 Blogger API에 전송**한다(코드 정상). 그러나 Blogger는 블로그 단위 설정
+Blogger API에 전송한다. Blogger는 블로그 단위 설정
 **"메타 태그 → 검색 설명 사용(Enable search description)"이 켜져 있을 때만**
-head에 `<meta name="description">`를 렌더링한다. 이 토글이 꺼져 있으면 API로 보낸 설명이 무시된다.
+head에 `<meta name="description">`를 렌더링한다고 봤으나, 위 실측으로 반증됐다.
 
-### 사람이 해야 할 일 (1회)
 1. Blogger 대시보드 → **설정(Settings) → 메타 태그(Meta tags)**
-2. **"검색 설명 사용(Enable search description)" 켜기**
-3. 켠 뒤 새로 발행되는 글부터 head meta description이 나온다. 기존 글은 글 편집 화면
-   오른쪽 **검색 설명(Search description)** 칸이 채워져 있으면 자동 반영된다.
-4. 켠 직후 `tools/indexability_audit.py --recent 4`로 `head_meta_description_present=true` 확인.
-
-> 이 토글을 켜면 A의 자동삭제 문제도 함께 완화된다(감사가 meta를 찾을 수 있게 되므로).
-> 단, 발행 직후 전파 지연으로 감사 시점에 아직 안 보일 수 있으니 A의 코드 완화도 병행 권장.
+2. **"검색 설명 사용(Enable search description)" 켜기** — 완료(2026-07-25 확인)
+3. `tools/indexability_audit.py --recent 4`로 `head_meta_description_present` 확인 시
+   여전히 false가 정상이다(API로 설정 불가).
 
 ---
 

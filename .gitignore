@@ -38,3 +38,4 @@ _pub_artifact/
 # Local data repair backups
 data/backups/
 key.json
+data/search_performance.json

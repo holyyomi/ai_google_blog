@@ -7,7 +7,11 @@ from html import escape, unescape
 from typing import Any
 
 from blogspot_automation.services.blog_language import is_english_mode
-from blogspot_automation.services.geo_intent_service import GeoIntentService
+from blogspot_automation.services.geo_intent_service import (
+    _AI_CONFIRMED_VARIANTS_EN,
+    GeoIntentService,
+    _truncate_at_sentence,
+)
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.news_taxonomy import content_type_for_topic_group
 
@@ -196,6 +200,74 @@ def ensure_answer_engine_optimized_html(
         seed=topic_text or title,
     )
 
+    # ── lede(SERP 스니펫)를 주제별 확정 사실로 시작시킨다 (2026-07-25) ──────────
+    # 배경: Blogger API는 글별 meta description을 저장하지 않으므로
+    # (`docs/INDEXABILITY_RUNBOOK.md` B항) Blogspot은 **첫 문단을 SERP 스니펫으로**
+    # 쓴다. 그런데 overview의 재료 3개 중 hook/real은 본문 첫·둘째 문장에서 가져오므로
+    # 위쪽 `_drop_sentences_already_in_body`가 **반드시** 지우고, 합성 상투어만
+    # 살아남았다 → 최근 5개 발행글 중 4개의 스니펫이 같은 문장으로 시작(실측).
+    #
+    # 이 블록의 위치가 중요하다. 처음엔 함수 앞부분(overview 계산 직후)에 뒀는데,
+    # 거기서는 `confirmed_facts` **파라미터**만 볼 수 있었다. 그러나 실제 발행 경로의
+    # 1차 호출(news_pipeline.py:1251)은 confirmed_facts를 넘기지 않고, 사실은 아래
+    # `confirmed_map`이 본문 slots에서 만들어낸다(리허설 6차 실측: CONFIRMED 블록엔
+    # 주제 특화 사실이 있는데 lede는 폴백 문구였다). 그래서 **confirmed_map이 확정된
+    # 뒤**로 옮겨 파라미터 경로/슬롯 경로 양쪽을 모두 쓴다.
+    # 사실 출처는 두 곳을 모두 본다 — 경로에 따라 어느 쪽이 채워질지 다르다.
+    #  (a) 본문에 이미 박혀 있는 CONFIRMED 블록의 <li> (trending 경로 등에서 앞선
+    #      호출이 confirmed_facts를 넘겨 만든 경우)
+    #  (b) 방금 계산한 confirmed_map (파라미터 또는 슬롯 기반)
+    # 그리고 **템플릿 상투어는 lede에서 배제**한다 — 그걸 앞세우면 스니펫이
+    # 또 글마다 같아져서 이 수정의 목적이 사라진다.
+    _template_facts = {
+        " ".join(s.split()).rstrip(".").lower()
+        for group in _AI_CONFIRMED_VARIANTS_EN
+        for s in group
+    }
+
+    def _fact_is_specific(text: str) -> bool:
+        return " ".join(str(text).split()).rstrip(".").lower() not in _template_facts
+
+    _fact_pool: list[str] = []
+    _existing_confirmed = re.search(
+        r'<div class="confirmed-section">.*?</ul>', content, re.DOTALL
+    )
+    if _existing_confirmed:
+        _fact_pool.extend(
+            re.sub(r"<[^>]+>", " ", li).strip()
+            for li in re.findall(r"<li[^>]*>(.*?)</li>", _existing_confirmed.group(0), re.DOTALL)
+        )
+    _fact_pool.extend(str(f) for f in (confirmed_map.get("confirmed") or []))
+    _lede_facts = _clean_fact_list(
+        [f for f in _fact_pool if f and _fact_is_specific(f)], max_items=2
+    )
+    if _lede_facts:
+        _fact_lede = " ".join(
+            f"{f.rstrip('.')}." for f in _lede_facts if str(f).strip()
+        ).strip()
+        # ⚠️ 여기서 `_drop_sentences_already_in_body`를 걸지 않는다.
+        # 리허설 3차 실측: 걸었더니 확정 사실이 전부 삭제됐다 — 확정 사실은 본문에서
+        # 뽑아낸 문장이라 정의상 본문에 존재하기 때문이다(원래 lede를 망친 것과 똑같은
+        # 함정). dedup의 목적은 같은 hook이 한 글에 4~5회 반복되는 것을 막는 것이고,
+        # lede(1~2문장) + CONFIRMED 블록의 2회 중복은 요약+상세라는 정상 편집 구조다.
+        if len(_fact_lede) >= 60:
+            _rest = overview
+            for _platitude in (
+                *_YOMI_JUDGMENT_VARIANTS_EN,
+                # ai_* 콘텐츠타입에 무조건 덧붙는 지역 면책 문구. SOURCE_TRUST_BLOCK에
+                # 같은 취지가 이미 있고, lede는 SERP 스니펫이라 여기서 110자를
+                # 잡아먹으면 정작 사실이 스니펫에서 잘린다.
+                "Availability, pricing, and rollout can vary by account and region — "
+                "check the official page for the latest details.",
+                # 사실이 앞에 오면 이 폴백 보강 문구도 불필요하다.
+                "The article separates what's confirmed from what you should verify yourself.",
+            ):
+                _rest = _rest.replace(_platitude, " ")
+            _rest = re.sub(r"\s+", " ", _rest).strip()
+            overview = _truncate_at_sentence(
+                f"{_fact_lede} {_rest}".strip(), max_len=500
+            )
+
     _seed = topic_text or title or ""
     # today_issue 해설글은 본문(LLM)이 이미 풍부한 맥락·다관점을 담는다.
     # - PAA(검색어 목록)는 가장 AI 티 나는 군더더기 → 항상 억제.
@@ -215,7 +287,15 @@ def ensure_answer_engine_optimized_html(
     # 본문 LLM이 만든 이슈 특정적 Q&A가 있으면 템플릿 intent 답변 대신 visible
     # 블록에 사용한다 — 본문과 같은 목소리, 같은 사실 기반.
     llm_faq_pairs = _normalize_llm_faq_pairs(faq_items)
-    use_llm_intent = bool(llm_faq_pairs) and _author_rich_today
+    # 2026-07-25: `_author_rich_today` 조건(content_type이 today_issue_explainer이거나
+    # topic_group이 today_issue)이 너무 좁아, ai_work_tip/ai_work 글은 LLM이 이슈
+    # 특정적 FAQ를 만들어 넘겨도 템플릿 3문항이 대신 쓰였다. 7/24 발행글이 그 예로
+    # 실제 FAQ 3개 **아래에** 주제 무관 템플릿 3문항이 붙었다:
+    #   "What does this change in practice?" / "How can you try it safely?" /
+    #   "Where can you verify the current details?"
+    # 이 3문항의 답변은 최근 5개 글 중 4개에 토씨 하나 안 틀리고 반복됐다(실측).
+    # LLM이 준 FAQ가 있으면 콘텐츠 타입과 무관하게 그것을 쓴다 — 템플릿은 폴백 전용.
+    use_llm_intent = bool(llm_faq_pairs)
     head_blocks: list[str] = []
     if 'id="AI_OVERVIEW_TARGET_ANSWER"' not in content:
         head_blocks.append(_section("AI_OVERVIEW_TARGET_ANSWER", "yomi-lede", _varied_label("overview", _seed), overview))
@@ -334,6 +414,15 @@ def ensure_answer_engine_optimized_html(
             content = _insert_json_ld(content, _faq_json_ld(intent_answers))
     if '"@type": "BlogPosting"' not in content and '"@type":"BlogPosting"' not in content:
         content = _insert_json_ld(content, _blogposting_json_ld(title=title, topic=topic_text, today=today))
+    else:
+        # 2026-07-25: 이 함수는 발행 경로에서 두 번 호출된다(생성 직후 + 발행 직전).
+        # 1차 호출 시점에는 최종 제목이 아직 선택되지 않아 topic 기반 임시 제목이
+        # headline에 박히고, 2차 호출은 "이미 BlogPosting 있음"으로 건너뛰었다.
+        # 실측(7/24 라이브): 우리 JSON-LD headline은 "Claude's Voice Mode Just Got
+        # Smarter (2026)"인데 실제 제목·Blogger 테마 JSON-LD는 "Claude's Voice Mode
+        # Gets Opus, Gmail, Slack Access (2026)" — 한 페이지에 headline이 다른
+        # BlogPosting 2개가 공존했다. 2차 호출에서 최종 제목으로 동기화한다.
+        content = _sync_blogposting_headline(content, title=title)
     content = _collapse_visible_question_overstack(content)
     # 블록을 모두 추가한 뒤 최종 질문헤딩 예산(≤5) 보장. 본문이 자체 질문 h2를
     # 갖고 있고 여기서 intent Q&A까지 더해지면 누적 초과 → 감사 차단되던 문제 해소.
@@ -1317,6 +1406,40 @@ def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any
             "cssSelector": [".yomi-lede", ".intent-qa-item"],
         },
     }
+
+
+def _sync_blogposting_headline(html: str, *, title: str) -> str:
+    """본문에 이미 박힌 BlogPosting JSON-LD의 headline을 최종 제목으로 맞춘다.
+
+    JSON-LD 블록만 대상으로 하고(본문 텍스트는 건드리지 않음), 우리 스키마
+    (`"@type": "BlogPosting"` 포함 script)만 고친다. 파싱 실패 시 원본 유지.
+    """
+    final_title = " ".join((title or "").split()).strip()
+    if not final_title:
+        return html
+
+    def _rewrite(match: re.Match[str]) -> str:
+        block = match.group(0)
+        payload = match.group(1)
+        if '"BlogPosting"' not in payload:
+            return block
+        try:
+            data = json.loads(payload)
+        except (ValueError, TypeError):
+            return block
+        if not isinstance(data, dict) or data.get("@type") != "BlogPosting":
+            return block
+        if " ".join(str(data.get("headline") or "").split()) == final_title:
+            return block
+        data["headline"] = final_title
+        return block.replace(payload, json.dumps(data, ensure_ascii=False))
+
+    return re.sub(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        _rewrite,
+        html or "",
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
 
 def _insert_after_h1_or_prepend(html: str, block: str) -> str:

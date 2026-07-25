@@ -554,7 +554,29 @@ class LlmContentService:
         # Exa는 크레딧 과금 — 재시도 루프(최대 12회 × 시도당 1~2회 수집)에서
         # 무제한 호출되지 않게 프로세스당 상한을 둔다.
         self._exa_facts_calls = 0
-        self._exa_facts_max_calls = 6
+        # 2026-07-25: 상한 6은 주제당 2회(공식+일반) 구조에서 주제 3개면 소진됐고,
+        # 그 뒤 재시도는 헤드라인만으로 글을 썼다(7/24 사고, 재시도 6번째). 지금은
+        # 주제당 최대 2회를 쓰되 본문 발췌를 얻으면 조기 종료하므로 실사용은 보통
+        # 1회다. 재시도 상한(기본 6)까지 본문 팩트를 확보하도록 12를 기본값으로 두고
+        # env로 조절 가능하게 한다 — Exa는 검색당 과금이라 상한 자체는 유지한다.
+        try:
+            self._exa_facts_max_calls = max(
+                2, int(os.getenv("NEWS_EXA_MAX_FACT_CALLS", "12").strip() or "12")
+            )
+        except ValueError:
+            self._exa_facts_max_calls = 12
+        # 2026-07-25: 마지막 수집의 소스 품질 진단. 상한 6회는 주제당 2회(공식+일반)를
+        # 쓰므로 주제 3개에서 소진되고, 그 뒤 재시도는 Google News RSS **헤드라인만**으로
+        # 글을 쓴다 — 7/24 발행글(재시도 6번째)이 정확히 그 상태였고, 실제로는 공개된
+        # 커넥터 목록·언어 수를 "보도에 안 나왔다"고 서술했다. 본문 발췌가 하나도 없는
+        # 상태를 게이트가 알 수 있게 여기에 남긴다.
+        self.last_fact_supply: dict[str, object] = {
+            "has_source_body": False,
+            "official_count": 0,
+            "tier1_count": 0,
+            "headline_only": False,
+            "sources_used": [],
+        }
         # 마지막 generate_html() 호출에서 실제로 수집된 인용 URL(Naver 원문 링크·
         # Exa 결과 URL). generate_html은 문자열만 반환하므로, 호출부(news_pipeline)가
         # SOURCE_TRUST_BLOCK에 실제 <a href> 근거를 걸려면 이 속성을 함께 읽는다.
@@ -719,6 +741,7 @@ class LlmContentService:
         Naver/Exa 호출은 한 번씩만 수행한다(중복 호출로 Exa 크레딧을 낭비하지 않음).
         """
         official_text, official_citations = "", []
+        tier1_text, tier1_citations = "", []
         if is_english_mode():
             # 영어 모드 리서치: Naver 뉴스는 한국어 소스라 스킵. Exa(영문 웹 본문
             # 발췌 — 경쟁 상위글·공식 가격 페이지)가 1차, Google News RSS(en-US)가 폴백.
@@ -729,10 +752,21 @@ class LlmContentService:
             # 공식 벤더 도메인으로 한정한 2차 검색을 추가해 공식 출처를 확보하고,
             # 인용 목록 맨 앞에 배치한다(SOURCE_TRUST_BLOCK은 앞에서 4개만 쓴다).
             official_text, official_citations = self._exa_official_facts_and_citations(topic)
+            # 2026-07-25: 공식 소스가 비면 1티어 매체로 한 번 더 시도한다. 뉴스
+            # 주제는 벤더가 아직 문서화하지 않은 경우가 많아 공식 검색이 자주 빈다 —
+            # 그때 곧바로 무제한 일반 검색으로 내려가면 애그리게이터만 걸린다.
+            if not official_text:
+                tier1_text, tier1_citations = self._exa_tier1_facts_and_citations(topic)
         else:
             naver_text, naver_citations = self._naver_news_facts_and_citations(topic)
-        exa_text, exa_citations = self._exa_facts_and_citations(topic)
-        sections = [s for s in (official_text, naver_text, exa_text) if s]
+        # 공식/1티어에서 본문 발췌를 이미 얻었으면 일반 검색은 생략한다 — Exa 예산을
+        # 재시도 후반 주제까지 남기기 위한 절약이다(예산 고갈이 7/24 껍데기 글의 원인).
+        if official_text or tier1_text:
+            exa_text, exa_citations = "", []
+        else:
+            exa_text, exa_citations = self._exa_facts_and_citations(topic)
+        sections = [s for s in (official_text, tier1_text, naver_text, exa_text) if s]
+        headline_only = False
         if sections:
             facts = "\n\n".join(sections)
         else:
@@ -741,7 +775,37 @@ class LlmContentService:
                 facts = self._custom_search(topic)
             if not facts:
                 facts = self._google_news_rss_facts(topic)
-        citations = official_citations + naver_citations + exa_citations
+            # RSS/Custom Search 폴백은 본문 발췌가 없는 헤드라인 수준이다.
+            headline_only = bool(facts)
+        citations = official_citations + tier1_citations + naver_citations + exa_citations
+        self.last_fact_supply = {
+            "has_source_body": bool(sections),
+            "official_count": sum(
+                1 for c in citations if self._domain_tier(str(c.get("url") or "")) == "official"
+            ),
+            "tier1_count": sum(
+                1 for c in citations if self._domain_tier(str(c.get("url") or "")) == "tier1"
+            ),
+            "headline_only": headline_only,
+            "sources_used": [
+                name
+                for name, present in (
+                    ("official", bool(official_text)),
+                    ("tier1", bool(tier1_text)),
+                    ("naver", bool(naver_text)),
+                    ("exa_generic", bool(exa_text)),
+                    ("headline_fallback", headline_only),
+                )
+                if present
+            ],
+        }
+        if headline_only:
+            logger.warning(
+                "LlmContentService: 팩트가 헤드라인 수준뿐 (Exa 호출 %d/%d 소진) — "
+                "구체 사실 없는 껍데기 글 위험",
+                self._exa_facts_calls,
+                self._exa_facts_max_calls,
+            )
         if is_english_mode():
             # 2026-07-21 라이브 실측: Sources 블록이 GitHub 트래커 레포 2개 +
             # SEO 애그리게이터 2개로 채워졌다(공식 출처 0). 블록은 앞 4개만
@@ -769,8 +833,17 @@ class LlmContentService:
         non_repo = [c for c in citations if not _is_repo_link(str(c.get("url") or ""))]
         pool = non_repo if non_repo else citations
         official = [c for c in pool if _is_official(str(c.get("url") or ""))]
-        rest = [c for c in pool if c not in official]
-        return official + rest
+        # 2026-07-25: 공식 다음은 1티어 매체다. 예전엔 official/rest 2단이라
+        # MacRumors와 무명 애그리게이터가 같은 취급을 받아, SOURCE_TRUST_BLOCK 앞
+        # 4칸이 애그리게이터로 채워질 수 있었다.
+        tier1 = [
+            c
+            for c in pool
+            if c not in official
+            and cls._domain_tier(str(c.get("url") or "")) == "tier1"
+        ]
+        rest = [c for c in pool if c not in official and c not in tier1]
+        return official + tier1 + rest
 
     def _gather_facts(self, topic: str) -> str:
         """실제 팩트 수집: Naver 뉴스 스니펫 + Exa 본문 발췌 병합 → 폴백 체인.
@@ -874,6 +947,45 @@ class LlmContentService:
         "elevenlabs.io",
     )
 
+    # 1티어 기술/경제 매체 — 공식 발표가 아직 없는 뉴스 주제의 정당한 2순위 출처.
+    # 2026-07-25 추가 사유: 7/24 발행글의 인용 매체가 SQ Magazine / Tech My Money /
+    # Crypto Briefing이었는데, 같은 사건을 MacRumors·Engadget 등이 훨씬 구체적으로
+    # (커넥터 목록·언어 18개·기존 기본모델 Haiku) 보도하고 있었다. 애그리게이터만
+    # 물면 "구체적인 건 안 나왔다"는 껍데기 글이 된다.
+    _TIER1_MEDIA_DOMAINS = (
+        "techcrunch.com", "theverge.com", "arstechnica.com", "engadget.com",
+        "wired.com", "macrumors.com", "9to5google.com", "9to5mac.com",
+        "androidpolice.com", "zdnet.com", "venturebeat.com", "theinformation.com",
+        "reuters.com", "bloomberg.com", "wsj.com", "ft.com", "cnbc.com",
+        "axios.com", "semianalysis.com", "techmeme.com", "nytimes.com",
+        "bbc.com", "theregister.com", "tomshardware.com", "anandtech.com",
+        "spectrum.ieee.org", "technologyreview.com", "nature.com", "science.org",
+    )
+
+    @classmethod
+    def _domain_tier(cls, url: str) -> str:
+        """URL을 official / tier1 / other 로 분류한다."""
+        host = re.sub(r"https?://(?:www\.)?", "", url or "").split("/")[0].lower()
+        if not host:
+            return "other"
+        if any(host == d or host.endswith("." + d) for d in cls._OFFICIAL_VENDOR_DOMAINS):
+            return "official"
+        if any(host == d or host.endswith("." + d) for d in cls._TIER1_MEDIA_DOMAINS):
+            return "tier1"
+        return "other"
+
+    def _exa_tier1_facts_and_citations(self, topic: str) -> tuple[str, list[dict[str, str]]]:
+        """1티어 매체로 한정한 Exa 검색 — 공식 발표 전 뉴스의 구체 사실 확보용."""
+        return self._exa_facts_and_citations(
+            topic,
+            include_domains=list(self._TIER1_MEDIA_DOMAINS),
+            num_results=2,
+            section_label=(
+                "[TIER-1 MEDIA SOURCES — prefer these over aggregators for "
+                "specifics like feature lists, counts, and prior defaults]"
+            ),
+        )
+
     def _exa_official_facts_and_citations(self, topic: str) -> tuple[str, list[dict[str, str]]]:
         """공식 벤더 도메인으로 한정한 Exa 검색 — 가격·스펙의 공식 근거 확보용.
 
@@ -969,17 +1081,29 @@ class LlmContentService:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 root = ET.fromstring(resp.read())
-            lines: list[str] = []
+            # 2026-07-25: 예전에는 RSS 순서대로 앞 6건을 그대로 썼다 — 그래서 7/24
+            # 글의 근거가 SQ Magazine·Tech My Money 같은 애그리게이터로 채워졌다.
+            # 이제 1티어 매체 기사를 앞으로 당긴다(헤드라인뿐이라 본문 발췌를
+            # 대체하지는 못하지만, 최소한 어느 매체를 인용할지는 개선된다).
+            tier1_names = tuple(
+                d.split(".")[0].lower() for d in self._TIER1_MEDIA_DOMAINS
+            )
+            ranked: list[tuple[int, str]] = []
             for item in root.iter("item"):
                 title = (item.findtext("title") or "").strip()
                 pub_date = (item.findtext("pubDate") or "").strip()
                 source = (item.findtext("source") or "").strip()
                 if not title:
                     continue
+                link = (item.findtext("link") or "").strip()
+                tier = self._domain_tier(link)
+                source_low = source.lower().replace(" ", "")
+                is_tier1 = tier == "tier1" or any(n in source_low for n in tier1_names)
+                rank = 0 if tier == "official" else (1 if is_tier1 else 2)
                 suffix = " · ".join(p for p in (source, pub_date[:16]) if p)
-                lines.append(f"- {title}" + (f" ({suffix})" if suffix else ""))
-                if len(lines) >= 6:
-                    break
+                ranked.append((rank, f"- {title}" + (f" ({suffix})" if suffix else "")))
+            ranked.sort(key=lambda pair: pair[0])
+            lines = [line for _, line in ranked[:6]]
             result = "\n".join(lines)
             if result:
                 logger.info("LlmContentService: Google News RSS 팩트 %d건", len(lines))
@@ -1341,7 +1465,7 @@ _AI_CLICHE_PHRASES_EN = (
 # 검증기/게이트가 잡는다. 정규식 교대는 긴 패턴 우선이라 중복 계산이 없다.
 _HEDGE_PHRASES_EN_RE = re.compile(
     r"(?:"
-    r"check\s+(?:the\s+)?official(?:\s+\w+){0,2}\s+page"
+    r"check\s+(?:the\s+)?official(?:\s+\w+){0,3}\s+page"
     r"|check\s+(?:the\s+)?official\s+(?:docs|documentation|announcements?)"
     r"|check\s+(?:each\s+|the\s+)?vendors?(?:'s?)?\s+(?:page|pages|site|sites|help)"
     r"|consult\s+(?:the\s+|each\s+)?(?:official|vendors?)"
@@ -1350,6 +1474,25 @@ _HEDGE_PHRASES_EN_RE = re.compile(
     r"|unconfirmed|not\s+confirmed|isn'?t\s+confirmed|aren'?t\s+confirmed"
     r"|remains?\s+unverified|no\s+verified"
     r"|not\s+disclosed|isn'?t\s+disclosed|aren'?t\s+disclosed"
+    # --- 2026-07-25 추가: 7/24 발행글 실측에서 위 패턴을 전부 비껴간 지배적 헤지들.
+    # 그 글은 실제 헤지 21문장(28.4%)인데 위 정규식은 3개만 잡아 임계값 14에
+    # 걸리지 않았다. "정보를 안 준다"를 서술하는 어법이 훨씬 다양하다.
+    r"|(?:does|do|did)\s?n'?t\s+(?:list|spell\s+out|detail|specify|break\s+out|name|itemi[sz]e|say)"
+    r"|(?:was|were|is|are)\s?n'?t\s+(?:detailed|specified|broken\s+out|itemi[sz]ed|named|listed|spelled\s+out|clear)"
+    r"|has\s?n'?t\s+(?:shown\s+up|been\s+(?:named|detailed|published|specified|broken\s+out))"
+    r"|have\s?n'?t\s+been\s+(?:named|detailed|published|specified)"
+    r"|(?:not|never)\s+(?:named|itemi[sz]ed|broken\s+out|spelled\s+out)\s+(?:in|anywhere|by)"
+    r"|no(?:ne)?\s+of\s+the\s+(?:outlets?|reports?|coverage)\s+(?:published|named|detailed|broke)"
+    r"|confirm\s+(?:the\s+)?(?:specifics|details|mechanics|numbers)"
+    r"|confirm\s+(?:it|this|these|them|those)?\s*(?:directly|yourself|inside)"
+    r"|verify\s+(?:the\s+)?(?:specifics|details|numbers|this|it)\s+(?:before|yourself|directly)"
+    r"|don'?t\s+assume|do\s+not\s+assume"
+    r"|don'?t\s+plan\s+(?:a\s+)?workflow|don'?t\s+build\s+(?:a\s+)?workflow"
+    r"|treat\s+(?:the\s+|these\s+|this\s+|it\s+)?\w*\s*as\s+(?:still\s+settling|reported|secondary|provisional)"
+    r"|still\s+settling|still\s+catching\s+up"
+    r"|hold\s+off\s+(?:on\s+)?(?:building|planning)"
+    r"|see\s+what'?s\s+listed\s+for\s+your\s+account"
+    r"|(?:open|check)\s+(?:your|the)\s+(?:app|account)(?:'s)?\s+\w*\s*settings"
     r")",
     re.IGNORECASE,
 )
@@ -1359,6 +1502,36 @@ def hedge_phrase_hits_en(text: str) -> list[str]:
     """영어 본문에서 헤지 문구를 찾아 돌려준다 (HTML 태그 제거 후 비교)."""
     plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or ""))
     return [m.group(0) for m in _HEDGE_PHRASES_EN_RE.finditer(plain)]
+
+
+def hedge_saturation_en(text: str) -> dict[str, object]:
+    """헤지를 '글 길이로 정규화한 비율'로 잰다.
+
+    2026-07-25: 절대 개수 임계값(>=14)이 무력했던 이유가 두 가지였다.
+    (1) 정규식이 좁아 실제 헤지를 못 셌고, (2) 74문장 글과 113문장 글에 같은
+    절대값을 적용해 긴 글이 유리했다. 실측(최근 5개 발행글)에서 헤지 **문장 비율**은
+    문제 글 28.4% / 정상 글 8.7~16.5%로 깔끔히 갈렸다 — 그래서 비율을 1차 지표로 쓴다.
+
+    반환: count(히트 수), hedge_sentences(헤지가 든 문장 수), sentence_count,
+    ratio(hedge_sentences/sentence_count), samples.
+    """
+    plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+    hits = [m.group(0) for m in _HEDGE_PHRASES_EN_RE.finditer(plain)]
+    # 문장 분리는 대략치로 충분하다 — 25자 미만 조각(표 셀·라벨 잔여물)은 제외해
+    # 분모가 부풀지 않게 한다.
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", plain) if len(s) > 25]
+    hedge_sentences = sum(
+        1 for s in sentences if _HEDGE_PHRASES_EN_RE.search(s) is not None
+    )
+    sentence_count = len(sentences)
+    ratio = (hedge_sentences / sentence_count) if sentence_count else 0.0
+    return {
+        "count": len(hits),
+        "hedge_sentences": hedge_sentences,
+        "sentence_count": sentence_count,
+        "ratio": round(ratio, 4),
+        "samples": hits[:8],
+    }
 
 
 # 영어 모드 overclaim 중화 — 게이트 패턴을 깨되 의미는 보존하는 결정적 치환.

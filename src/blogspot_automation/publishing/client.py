@@ -7,6 +7,21 @@ logger = logging.getLogger(__name__)
 
 
 def _build_custom_metadata(description: str) -> str:
+    """⚠️ 2026-07-25 실측: Blogger API v3는 이 값을 **저장하지 않는다**.
+
+    테스트 초안을 만들어 `searchDescription`·`customMetaData`를 함께 전송한 뒤
+    INSERT 응답과 `view=AUTHOR` 재조회를 확인한 결과 두 필드 모두 응답에 없고
+    영속되지도 않았다(라이브 발행글 3건도 동일하게 None). 즉 자동 발행 경로로는
+    글별 `<meta name="description">`을 만들 수 없다. Blogger 대시보드의
+    "검색 설명 사용" 토글이 ON이어도(요미님 확인) 마찬가지다 — 그 토글은
+    **블로그 단위** 설명(og:description으로 렌더됨)에만 관여한다.
+
+    → 결론: 글별 SERP 스니펫은 Blogspot이 폴백으로 쓰는 **첫 문단**으로만 제어
+    가능하다. 그래서 lede(AI_OVERVIEW_TARGET_ANSWER)를 주제별 확정 사실로 시작하게
+    만든 변경(answer_engine_policy)이 스니펫 개별화의 유일한 레버다.
+    이 함수는 하위호환·무해성 때문에 남겨둔다(전송해도 무시될 뿐). 이 값이 먹는다고
+    가정한 새 로직을 얹지 말 것. `docs/INDEXABILITY_RUNBOOK.md` B항 참고.
+    """
     clean = " ".join((description or "").split()).strip()
     return json.dumps(
         {

@@ -17,18 +17,24 @@ logger = logging.getLogger(__name__)
 # 표현한다 — 주제별 실제 사실 추출이 아니라 "매 글 토씨 하나 안 틀리고 재사용"만
 # 막는 최소 조치다 (2026-07-23).
 _AI_CONFIRMED_VARIANTS_EN: tuple[tuple[str, str, str], ...] = (
+    # 2026-07-25 문구 수정: 예전 문안은 출처 종류와 무관하게 "official announcements
+    # and product pages"라고 단언했다. 7/24 발행글은 본문에서 "not from an Anthropic
+    # changelog page"라고 명시했는데 이 블록이 "sourced from official vendor
+    # announcements"라고 주장해 한 글 안에서 자기모순이 됐다. 실제 인용이 공식 문서든
+    # 매체 보도든 **항상 참인 문구**로 바꾼다 — 티어를 이 블록까지 배관하지 않고도
+    # 거짓 주장을 없앨 수 있다. (출처 실체는 아래 Sources 목록이 그대로 보여준다.)
     (
-        "The core facts here come from official announcements and product pages",
-        "Free-tier limits and paid pricing are as published at the time of writing",
+        "Every claim here is tied to the sources named at the end of this article",
+        "Prices and plan limits are as published at the time of writing",
         "AI output still needs human review before you use it for real work",
     ),
     (
-        "What's stated here traces back to the vendor's own announcements and product pages",
-        "Pricing and free-tier limits reflect what was publicly listed at the time of writing",
+        "What's stated here traces back to the sources listed below, named inline as well",
+        "Pricing and tier limits reflect what was publicly listed at the time of writing",
         "Treat AI-generated output as a draft — give it a human review pass before relying on it",
     ),
     (
-        "The claims below are sourced from official vendor announcements and product documentation",
+        "The claims below are attributed inline to the specific sources they came from",
         "Plan limits and pricing match what was publicly listed as of this writing",
         "AI output isn't final — review it yourself before you put it into real work",
     ),
@@ -983,12 +989,29 @@ class GeoIntentService:
     def _enhanced_source_trust_en(self, *, content_type: str, today_str: str, seed: str) -> str:
         date_part = f" (as of {today_str})" if today_str else ""
         if content_type.startswith("ai_"):
-            return (
-                f"This article is based on the official AI service documentation and announcements{date_part}. "
-                "Free-tier limits, paid pricing, and feature availability change often with provider policy. "
-                "Check the official page — and your company's AI policy — before you rely on it. "
-                "Always review AI output before putting it into real work."
+            # 2026-07-25: "based on the official AI service documentation and
+            # announcements"는 실제 인용이 매체 보도일 때 거짓이었다(7/24 글은 본문에서
+            # 스스로 "not from an Anthropic changelog page"라고 밝혔다). 아래 Sources
+            # 목록에 실제로 무엇이 걸리든 참인 문구로 바꾼다. 변주는 seed로 결정적.
+            variants = (
+                (
+                    f"Sources for this article are listed below and named inline{date_part}. "
+                    "Free-tier limits, paid pricing, and feature availability change often with provider policy. "
+                    "Confirm anything you'll act on against the vendor's own page — and your company's AI policy."
+                ),
+                (
+                    f"Each claim above is attributed to the source it came from{date_part}. "
+                    "Plan limits and feature availability move with provider policy, sometimes weekly. "
+                    "For decisions that cost money or touch work data, confirm at the vendor's own page first."
+                ),
+                (
+                    f"What's cited here is listed in full below{date_part}. "
+                    "Pricing tiers and feature rollouts change on the provider's schedule, not this article's. "
+                    "Verify the specifics that apply to your account before you rely on them."
+                ),
             )
+            digest = hashlib.md5((seed or content_type or "seed").encode("utf-8")).hexdigest()
+            return variants[int(digest, 16) % len(variants)]
         if content_type == "today_issue_explainer":
             # 매 글 같은 문장이 반복되면 AI 티가 나므로 토픽 시드로 결정적 변주 (한국어와 동일 메커니즘).
             variants = (
