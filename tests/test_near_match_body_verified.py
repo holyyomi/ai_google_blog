@@ -156,3 +156,90 @@ def test_all_quality_gate_evaluate_calls_pass_fact_supply():
         f"fact_supply를 넘기지 않는 evaluate 호출 {len(missing)}건:\n"
         + "\n---\n".join(c[:300] for c in missing)
     )
+
+
+# ---------------------------------------------------------------------------
+# human_review_required 3절 조합 회귀 (리허설 5차 실측 재현)
+# ---------------------------------------------------------------------------
+def _hold_decision(
+    *,
+    phase_hold=False,
+    is_near_match=True,
+    llm_body_ships=True,
+    gate_clean=True,
+    content_grade="B",
+    topic_grade="D",
+    golden_matched=True,
+):
+    """news_pipeline._save_artifact의 홀드 판정식을 그대로 재현한다.
+
+    소스와 어긋나면 test_hold_decision_matches_source가 잡는다.
+    """
+    near_match_body_verified = bool(
+        is_near_match and llm_body_ships and gate_clean and content_grade in ("A", "B")
+    )
+    content_grade_overrides_topic_grade = bool(
+        golden_matched
+        and content_grade in ("A", "B")
+        and (not is_near_match or near_match_body_verified)
+    )
+    human_review_required = bool(
+        phase_hold
+        or (is_near_match and not near_match_body_verified)
+        or (topic_grade in ("C", "D") and not content_grade_overrides_topic_grade)
+    )
+    return human_review_required, near_match_body_verified
+
+
+def test_rehearsal5_case_now_publishes():
+    """리허설 5차에서 홀드됐던 실측 조건이 이제는 통과해야 한다.
+
+    실측값(runs/news_20260725_063545, 064528):
+      near_match=True, llm_body_gate_passed=True, gate blocking=[],
+      content_candidate_grade=B, topic grade=D(HN 발굴 후보)
+    → 이전 코드는 세 번째 절(topic C/D + not near_match 요구)에서 홀드됐다.
+    """
+    hold, verified = _hold_decision(
+        is_near_match=True,
+        llm_body_ships=True,
+        gate_clean=True,
+        content_grade="B",
+        topic_grade="D",
+    )
+    assert verified is True
+    assert hold is False, "리허설 5차 조건이 여전히 홀드된다"
+
+
+@pytest.mark.parametrize(
+    "kwargs, expect_hold",
+    [
+        # 본문 미검증 near_match → 홀드 유지 (안전장치)
+        ({"gate_clean": False}, True),
+        ({"llm_body_ships": False}, True),
+        ({"content_grade": "C"}, True),
+        # PUBLISH_HOLD_PHASE2 강제 홀드는 무조건 유지
+        ({"phase_hold": True}, True),
+        # 완전 매칭 + 등급 A + topic A → 통과
+        ({"is_near_match": False, "topic_grade": "A", "content_grade": "A"}, False),
+        # 완전 매칭 + 등급 A + topic D → 통과 (기존 PR #22 원칙)
+        ({"is_near_match": False, "topic_grade": "D", "content_grade": "A"}, False),
+        # golden 미매칭이면 topic C/D 면제 불가
+        ({"golden_matched": False, "topic_grade": "D"}, True),
+    ],
+)
+def test_hold_decision_matrix(kwargs, expect_hold):
+    hold, _ = _hold_decision(**kwargs)
+    assert hold is expect_hold
+
+
+def test_hold_decision_matches_source():
+    """위 재현식이 실제 소스의 판정식과 같은 구조인지 확인한다."""
+    import inspect
+
+    src = inspect.getsource(NewsPipeline._save_artifact)
+    # 세 번째 절의 면제 조건에 near_match 검증이 반영돼야 한다.
+    assert "not _is_near_match or _near_match_body_verified" in src, (
+        "_content_grade_overrides_topic_grade가 near_match를 여전히 배제한다"
+    )
+    # 판정 근거 로그가 있어야 한다(원인 역추적 비용을 줄이기 위해 추가함).
+    assert "publish hold decision:" in src

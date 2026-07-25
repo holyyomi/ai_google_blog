@@ -3245,11 +3245,6 @@ class NewsPipeline:
         # golden pattern이 완전 매칭(near_match 아님)되고 실제 생성된 글이 A/B 등급이면,
         # 원본 주제 점수가 낮았다는 이유만으로 계속 사람 검토 대기시키지 않는다 —
         # 발행 여부는 최종 콘텐츠 품질(content_candidate_grade) 기준을 따른다.
-        _content_grade_overrides_topic_grade = (
-            golden_matched
-            and not _is_near_match
-            and content_candidate_grade in ("A", "B")
-        )
         # 2026-07-25: near_match(골든 패턴 confidence 75~79)가 사람 검토를 강제하던
         # 예외를 좁힌다. 리허설(GHA run 30143531839) 실측: 품질 게이트를 blocking 0으로
         # 통과한 시도 2건이 `human_review_required;near_match_requires_review`로 홀드돼
@@ -3266,16 +3261,45 @@ class NewsPipeline:
         _gate_clean = bool(publish_quality_gate.get("passed")) and not list(
             publish_quality_gate.get("blocking_issues") or []
         )
-        _near_match_body_verified = (
+        _near_match_body_verified = bool(
             _is_near_match
             and _llm_body_ships
             and _gate_clean
             and content_candidate_grade in ("A", "B")
         )
-        human_review_required = (
+        # 리허설 5차(GHA run 30147583191) 실측 교훈: near_match 절만 고쳤더니 여전히
+        # 홀드됐다. 원인은 **세 번째 절**이었다 — topic grade가 C/D일 때의 면제 조건인
+        # `_content_grade_overrides_topic_grade`가 `not _is_near_match`를 요구해서,
+        # near_match면 본문 품질과 무관하게 홀드가 유지됐다. HN 발굴 후보는 topic
+        # 점수가 낮아 대개 C/D이므로 이 절이 실질적인 차단자였다.
+        # 본문이 검증된 near_match도 "완전 매칭"과 같은 취급을 한다(같은 원칙 적용).
+        _content_grade_overrides_topic_grade = bool(
+            golden_matched
+            and content_candidate_grade in ("A", "B")
+            and (not _is_near_match or _near_match_body_verified)
+        )
+        human_review_required = bool(
             phase_hold
             or (_is_near_match and not _near_match_body_verified)
             or (initial_grade in ("C", "D") and not _content_grade_overrides_topic_grade)
+        )
+        # 판정 근거를 남긴다 — 이 결정이 세 절의 AND/OR 조합이라 로그 없이는
+        # "왜 홀드됐는지"를 산출물만 보고 역추적하기 어렵다(실제로 리허설 3회를
+        # 태우고 나서야 원인을 특정했다).
+        logger.info(
+            "publish hold decision: human_review_required=%s "
+            "(phase_hold=%s, near_match=%s, near_match_body_verified=%s "
+            "[llm_body_ships=%s, gate_clean=%s, content_grade=%s], "
+            "topic_grade=%s, content_grade_overrides_topic_grade=%s)",
+            human_review_required,
+            phase_hold,
+            _is_near_match,
+            _near_match_body_verified,
+            _llm_body_ships,
+            _gate_clean,
+            content_candidate_grade,
+            initial_grade,
+            _content_grade_overrides_topic_grade,
         )
         why_selected = (
             f"topic_engine_score={raw_candidate.get('topic_engine_score', 0)} "
