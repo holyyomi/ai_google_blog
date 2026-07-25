@@ -203,6 +203,7 @@ class NewsQualityGate:
         dry_run: bool = True,
         news_publish_mode: str = "dry_run",
         extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
+        fact_supply: dict[str, object] | None = None,
     ) -> dict[str, object]:
         blocking_issues: list[str] = []
         warnings: list[str] = []
@@ -463,6 +464,13 @@ class NewsQualityGate:
                     "title_body_entity_mismatch:"
                     + ",".join(_tb_missing[:3])
                 )
+        # 고유명사 누락은 위 완화(절반 이상)와 무관하게 항상 차단한다 — 제목이
+        # 본문에 없는 제품/서비스를 약속하면 독자 계약 위반이고, 사실 날조 위험이다.
+        _hard_missing = list(title_body_alignment.get("hard_entities_missing") or [])
+        if _hard_missing:
+            blocking_issues.append(
+                "title_proper_noun_absent_in_body:" + ",".join(_hard_missing[:3])
+            )
 
         # 추가: 주어가 없는 "확인할 것"/"먼저 확인" 단독 제목 차단
         # discovery 후보는 면제 (entity 검증됨)
@@ -992,18 +1000,52 @@ class NewsQualityGate:
         # 부작용이므로 원칙은 유지하되, 헤지가 본문을 지배하면 독자 가치가 없다고
         # 보고 차단한다. 생성기 검증기(10회)가 먼저 재생성을 시도하고, 여기는
         # 최종 HTML(GEO 블록 보일러플레이트 포함) 기준의 마지막 방어선이다.
+        # 2026-07-25 재설계: 절대 개수(>=14) 임계값은 무력했다. 7/24 발행글 실측에서
+        # 헤지 문장이 19/74(25.7%)였는데도 옛 정규식은 3개만 세어 통과했고, 정작
+        # 헤지 비율이 가장 낮은 글(9.7%)이 히트 수는 가장 많아 신호가 역전됐다.
+        # 이제 길이로 정규화한 **문장 비율**을 1차 지표로 쓴다. 임계값은 최근 5개
+        # 발행글 실측으로 보정: 문제 글 25.7% / 정상 글 1.9~9.7% → 차단 20%, 경고 13%.
         hedge_phrase_count = 0
         hedge_phrase_samples: list[str] = []
+        hedge_ratio = 0.0
+        hedge_sentences = 0
+        hedge_sentence_total = 0
         try:
             hedge_result = self._hedge_saturation(html)
             hedge_phrase_count = int(hedge_result["count"])
             hedge_phrase_samples = list(hedge_result["samples"])
+            hedge_ratio = float(hedge_result.get("ratio", 0.0) or 0.0)
+            hedge_sentences = int(hedge_result.get("hedge_sentences", 0) or 0)
+            hedge_sentence_total = int(hedge_result.get("sentence_count", 0) or 0)
         except Exception as _hg_exc:  # noqa: BLE001 — 감지 실패는 비치명(게이트 완화 아님)
             logger.warning("hedge saturation check failed (skipped): %s", _hg_exc)
-        if publish_mode_active and hedge_phrase_count >= 14:
-            blocking_issues.append(f"hedge_phrase_saturation:{hedge_phrase_count}")
-        elif hedge_phrase_count >= 9:
-            warnings.append(f"hedge_phrase_heavy:{hedge_phrase_count}")
+        # 분모가 너무 작으면 비율이 튀므로(예: 8문장 중 2개=25%) 최소 문장 수를 요구한다.
+        hedge_ratio_measurable = hedge_sentence_total >= 25
+        if publish_mode_active and hedge_ratio_measurable and hedge_ratio >= 0.20:
+            blocking_issues.append(
+                f"hedge_phrase_saturation:{hedge_sentences}/{hedge_sentence_total}"
+                f"={hedge_ratio:.0%}"
+            )
+        elif publish_mode_active and hedge_phrase_count >= 30:
+            # 비율이 낮아도 절대량이 극단적이면(아주 긴 글) 여전히 껍데기다.
+            blocking_issues.append(f"hedge_phrase_absolute:{hedge_phrase_count}")
+        elif hedge_ratio_measurable and hedge_ratio >= 0.13:
+            warnings.append(
+                f"hedge_phrase_heavy:{hedge_sentences}/{hedge_sentence_total}"
+                f"={hedge_ratio:.0%}"
+            )
+
+        # --- 팩트 공급 부족 차단 (2026-07-25) ---
+        # 7/24 발행글 근본 원인: Exa 상한 소진 후 재시도 6번째가 Google News RSS
+        # **헤드라인만**으로 작성됐고, 그 결과 실제로 공개돼 있던 커넥터 목록·언어
+        # 수를 "보도에 나오지 않았다"고 서술했다. 본문 발췌가 하나도 없으면 그 주제는
+        # 쓰지 말고 버려야 한다 — 헤지로 분량을 채우는 것보다 발행 0건이 낫다.
+        fact_supply = fact_supply or {}
+        fact_headline_only = bool(fact_supply.get("headline_only"))
+        fact_has_body = bool(fact_supply.get("has_source_body"))
+        if publish_mode_active and is_english_mode() and fact_supply:
+            if fact_headline_only or not fact_has_body:
+                blocking_issues.append("facts_headline_only_no_source_body")
 
         # --- 가격축 글의 표에 실측 가격이 있는지 검사 (2026-07-22) ---
         # 같은 실측: "Pricing Compared" 글의 비교표에 가격 컬럼 자체가 없었고
@@ -1040,6 +1082,14 @@ class NewsQualityGate:
             "dead_tool_repo_links": dead_tool_links,
             "hedge_phrase_count": hedge_phrase_count,
             "hedge_phrase_samples": hedge_phrase_samples[:8],
+            "hedge_sentence_ratio": hedge_ratio,
+            "hedge_sentences": hedge_sentences,
+            "hedge_sentence_total": hedge_sentence_total,
+            "fact_headline_only": fact_headline_only,
+            "fact_has_source_body": fact_has_body,
+            "fact_official_count": int(fact_supply.get("official_count") or 0),
+            "fact_tier1_count": int(fact_supply.get("tier1_count") or 0),
+            "fact_sources_used": list(fact_supply.get("sources_used") or []),
             "pricing_table_is_pricing_family": pricing_table_check["is_pricing_family"],
             "pricing_table_price_cell_count": pricing_table_check["price_cell_count"],
             "passed": not blocking_issues,
@@ -1190,11 +1240,16 @@ class NewsQualityGate:
         검증기는 통과했는데 게이트에서 죽는(또는 그 반대) 원인 추적이 어려워진다.
         """
         if not is_english_mode():
-            return {"count": 0, "samples": []}
-        from blogspot_automation.services.llm_content_service import hedge_phrase_hits_en
+            return {
+                "count": 0,
+                "samples": [],
+                "ratio": 0.0,
+                "hedge_sentences": 0,
+                "sentence_count": 0,
+            }
+        from blogspot_automation.services.llm_content_service import hedge_saturation_en
 
-        hits = hedge_phrase_hits_en(html or "")
-        return {"count": len(hits), "samples": hits[:8]}
+        return hedge_saturation_en(html or "")
 
     @staticmethod
     def _pricing_table_price_cells(
@@ -2015,16 +2070,65 @@ class NewsQualityGate:
         "launch", "focus", "explained", "compared", "means",
     })
 
+    # 제목에 쓰였다면 본문에 반드시 실체가 있어야 하는 고유명사(제품·서비스·모델명).
+    # 2026-07-25 추가 사유: 7/24 발행글 제목이 "...Gets Opus, Gmail, Slack Access"였는데
+    # 본문에 Gmail·Slack이 **0회**였다(본문은 오히려 "어떤 앱이 지원되는지 보도에
+    # 안 나왔다"고 썼다 — 실제로는 공개된 정보였다). 기존 영어 모드 완화는
+    # "필수어 5개 중 3개 이상 누락"일 때만 차단해서 이 케이스가 통과했다.
+    # 일반명사는 표현차(share↔market share)가 있을 수 있지만 고유명사는 없다 —
+    # 없으면 그냥 제목이 본문에 없는 사실을 주장한 것이므로 1개라도 차단한다.
+    # 화이트리스트 방식이라 미등록 브랜드는 기존 완화 규칙으로 떨어질 뿐 오탐이 없다.
+    _TITLE_HARD_ENTITY_TOKENS: frozenset[str] = frozenset({
+        # AI 벤더·제품
+        "openai", "chatgpt", "anthropic", "claude", "gemini", "copilot",
+        "midjourney", "perplexity", "grok", "llama", "mistral", "cohere",
+        "deepseek", "qwen", "notebooklm", "sora", "runway", "suno", "cursor",
+        "windsurf", "devin", "manus", "genspark", "n8n", "zapier", "make",
+        "huggingface", "ollama", "langchain", "replit", "lovable", "bolt",
+        "firebase", "vertex", "bedrock", "azure", "watsonx",
+        # 모델·티어명
+        "opus", "sonnet", "haiku", "turbo", "mini", "nano", "flash", "pro",
+        "o1", "o3", "o4", "r1", "v3",
+        # AI 뉴스에 커넥터/통합으로 자주 등장하는 외부 서비스
+        "gmail", "slack", "notion", "github", "gitlab", "jira", "asana",
+        "trello", "figma", "canva", "salesforce", "hubspot", "shopify",
+        "dropbox", "onedrive", "sharepoint", "outlook", "teams", "zoom",
+        "discord", "telegram", "whatsapp", "linkedin", "youtube", "spotify",
+        "excel", "sheets", "docs", "drive", "calendar", "maps", "photoshop",
+        "wordpress", "webflow", "airtable", "supabase", "snowflake",
+        "databricks", "stripe", "etsy", "amazon", "netflix", "tesla",
+        "nvidia", "amd", "intel", "qualcomm", "arm", "tsmc",
+        "apple", "microsoft", "google", "meta", "samsung",
+    })
+
+    @classmethod
+    def _title_hard_entities(cls, title: str) -> list[str]:
+        """제목에서 '본문 실체 필수' 고유명사를 뽑는다."""
+        found: list[str] = []
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9.+-]*", title or ""):
+            normalized = token.strip(".+-").lower()
+            if normalized in cls._TITLE_HARD_ENTITY_TOKENS and normalized not in found:
+                found.append(normalized)
+        return found
+
     @classmethod
     def _title_body_alignment(cls, *, title: str, html: str) -> dict[str, object]:
         required = cls._title_core_terms(title)
         substantive = cls._substantive_body_text(html)
         missing = [term for term in required if term not in substantive]
+        hard_entities = cls._title_hard_entities(title)
+        # 고유명사는 "본문에 1회라도 등장"을 요구한다. 표(td)·FAQ 포함 본문
+        # 텍스트 기준이며, 제목만 반복하는 회피를 막으려 substantive text를 쓴다.
+        hard_missing = [
+            term for term in hard_entities if term not in substantive
+        ]
         return {
             "required_terms": required,
             "missing_terms": missing,
             "matched_terms": [term for term in required if term in substantive],
             "substantive_text_length": len(substantive),
+            "hard_entities": hard_entities,
+            "hard_entities_missing": hard_missing,
         }
 
     @classmethod

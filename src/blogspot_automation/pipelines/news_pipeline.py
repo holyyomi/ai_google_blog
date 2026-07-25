@@ -1188,6 +1188,9 @@ class NewsPipeline:
             _llm_used = False
             _llm_generation_failed = False
             _llm_source_citations: list[dict[str, str]] = []
+            # 2026-07-25: 팩트 공급 품질 진단. 본문 발췌 없이 헤드라인만으로 쓴 글은
+            # 실제로 공개된 사실을 "안 공개됐다"고 서술하는 껍데기가 된다(7/24 사고).
+            _llm_fact_supply: dict[str, object] = {}
             if self.llm_content_service:
                 try:
                     _raw = selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
@@ -1210,7 +1213,14 @@ class NewsPipeline:
                         _llm_source_citations = list(
                             getattr(self.llm_content_service, "last_source_citations", None) or []
                         )
-                        logger.info("NewsPipeline: LLM 콘텐츠 생성 성공 (%d자)", len(html))
+                        _llm_fact_supply = dict(
+                            getattr(self.llm_content_service, "last_fact_supply", None) or {}
+                        )
+                        logger.info(
+                            "NewsPipeline: LLM 콘텐츠 생성 성공 (%d자, 팩트소스=%s)",
+                            len(html),
+                            ",".join(_llm_fact_supply.get("sources_used") or []) or "none",
+                        )
                     else:
                         _llm_generation_failed = True
                         logger.warning("NewsPipeline: LLM 반환 None — ContrarianContentService 폴백")
@@ -1319,6 +1329,7 @@ class NewsPipeline:
                 dry_run=self.dry_run,
                 news_publish_mode=self.news_publish_mode,
                 extra_allowed_urls=_llm_citation_urls,
+                fact_supply=_llm_fact_supply,
             )
             # 콘텐츠 품질: LLM 서술형 본문이 자체 품질 게이트를 통과했는지 여기서 캡처한다.
             # 통과했다면 아래 golden_preview promotion에서 발행 가부·플래그는 그대로 두되
