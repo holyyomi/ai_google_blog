@@ -1497,6 +1497,11 @@ class NewsPipeline:
                         dry_run=self.dry_run,
                         news_publish_mode=self.news_publish_mode,
                         extra_allowed_urls=_llm_citation_urls,
+                        # 2026-07-25: 재게이트도 fact_supply를 넘겨야 한다. 안 넘기면
+                        # facts_headline_only 검사가 조용히 스킵되고, 게이트 결과를
+                        # 덮어쓰면서 fact_* 진단까지 기본값으로 지워진다(실측:
+                        # 로그는 "팩트소스=official"인데 run_meta는 fact_sources_used=[]).
+                        fact_supply=_llm_fact_supply,
                     )
                     if bool(_regate.get("passed")) or not _pre_override_llm_ok:
                         publish_quality_gate = _regate
@@ -1575,6 +1580,7 @@ class NewsPipeline:
                     dry_run=self.dry_run,
                     news_publish_mode=self.news_publish_mode,
                     extra_allowed_urls=_candidate_citation_urls,
+                    fact_supply=_llm_fact_supply,
                 )
                 # 영어 모드 강화 게이트(2026-07-17): 템플릿 candidate는 구조·헤딩이
                 # 한국어라 영어 블로그에 그대로 나가면 안 된다. LLM 영어 서술 본문이
@@ -1764,6 +1770,7 @@ class NewsPipeline:
                 # 집합을 써야 한다(고정된 _llm_citation_urls면 candidate 인용 URL이
                 # 화이트리스트에서 빠져 게이트 재평가가 잘못된 기준으로 돈다).
                 extra_allowed_urls=_final_citation_urls,
+                fact_supply=_llm_fact_supply,
             )
             if _title_repair:
                 html = str(_title_repair["html"])
@@ -2478,6 +2485,7 @@ class NewsPipeline:
         content_angle_summary: dict[str, Any],
         artifact_dir: Path,
         extra_allowed_urls: frozenset[str] | tuple[str, ...] = (),
+        fact_supply: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         blocking = [str(issue) for issue in publish_quality_gate.get("blocking_issues", [])]
         if bool(publish_quality_gate.get("passed")) or not self._quality_title_repairable(blocking):
@@ -2522,6 +2530,9 @@ class NewsPipeline:
             dry_run=self.dry_run,
             news_publish_mode=self.news_publish_mode,
             extra_allowed_urls=extra_allowed_urls,
+            # 제목 수정 후 재평가도 같은 fact_supply 기준으로 봐야 한다 —
+            # 안 넘기면 facts_headline_only 검사를 우회하는 경로가 생긴다.
+            fact_supply=fact_supply,
         )
         if not self._quality_title_repair_improved(
             before=publish_quality_gate,

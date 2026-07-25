@@ -121,3 +121,38 @@ def test_llm_body_gate_passed_is_actually_put_into_run_meta():
     assert 'get("llm_body_gate_passed")' in save_src
     # 그리고 _save_artifact 이후에 설정되는 키를 읽어서는 안 된다.
     assert 'get("final_publish_html_source")' not in save_src
+
+
+def test_all_quality_gate_evaluate_calls_pass_fact_supply():
+    """모든 `quality_gate.evaluate(...)` 호출이 fact_supply를 넘겨야 한다.
+
+    2026-07-25 실측 사고: 최초 구현은 첫 호출(1321행)에만 fact_supply를 넘겼는데,
+    재게이트(1489행)가 그 결과를 **덮어쓰면서** facts_headline_only 검사를 조용히
+    스킵하고 fact_* 진단까지 기본값으로 지웠다. 로그에는 "팩트소스=official"이
+    찍혔는데 run_meta에는 fact_sources_used=[]가 남는 형태로 드러났다.
+    호출 지점이 4곳이라 하나만 빠져도 우회 경로가 생기므로 소스로 강제한다.
+    """
+    import inspect
+    import re
+
+    from blogspot_automation.pipelines import news_pipeline as np_mod
+
+    source = inspect.getsource(np_mod)
+    # `self.quality_gate.evaluate(` 부터 짝이 맞는 닫는 괄호까지 잘라 검사한다.
+    calls = []
+    for m in re.finditer(r"self\.quality_gate\.evaluate\(", source):
+        depth = 0
+        for i in range(m.end() - 1, len(source)):
+            if source[i] == "(":
+                depth += 1
+            elif source[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    calls.append(source[m.start() : i + 1])
+                    break
+    assert calls, "quality_gate.evaluate 호출을 찾지 못했다 (테스트가 낡았다)"
+    missing = [c for c in calls if "fact_supply" not in c]
+    assert not missing, (
+        f"fact_supply를 넘기지 않는 evaluate 호출 {len(missing)}건:\n"
+        + "\n---\n".join(c[:300] for c in missing)
+    )
