@@ -8,6 +8,7 @@ from typing import Any
 
 from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.geo_intent_service import (
+    _AI_CONFIRMED_VARIANTS_EN,
     GeoIntentService,
     _truncate_at_sentence,
 )
@@ -144,45 +145,6 @@ def ensure_answer_engine_optimized_html(
     # 주제 안내 문장으로 보강한다.
     _body_norm_for_dup = _dupcheck_norm(_plain_text(content))
     overview = _drop_sentences_already_in_body(overview, _body_norm_for_dup)
-    # 2026-07-25 구조 수정: 위 dedup은 원래 의도(같은 리드 4~5회 반복 방지)대로
-    # 동작하지만 부작용이 컸다. overview의 재료 3개 중 hook/real은 본문 첫·둘째
-    # 문장에서 가져오므로 dedup이 **반드시** 지우고, 합성 문장인 yomi_judgment만
-    # 살아남는다("슬롯에서 합성한 문장이라 본문에 없어 살아남는다" — 아래 주석 참조).
-    # 그 결과 모든 글의 첫 문단이 주제와 무관한 상투어가 됐다. Blogger는
-    # "검색 설명" 토글이 꺼져 있으면 **첫 문단을 SERP 스니펫으로 쓰기 때문에**,
-    # 최근 5개 발행글 중 4개의 검색결과 스니펫이 같은 문장으로 시작했다(실측).
-    # → LLM이 뽑은 이슈 특정적 확정 사실을 lede의 1순위 재료로 승격한다.
-    # 확정 사실은 글마다 다르고 수치·고유명사를 담아 스니펫으로도 훨씬 강하다.
-    _lede_facts = _clean_fact_list(confirmed_facts, max_items=2)
-    if _lede_facts:
-        _fact_lede = " ".join(
-            f"{f.rstrip('.')}." for f in _lede_facts if str(f).strip()
-        ).strip()
-        # ⚠️ 여기서 `_drop_sentences_already_in_body`를 걸지 않는다.
-        # 2026-07-25 리허설 3차 실측: 처음엔 걸었는데, 확정 사실은 LLM이 **본문에서**
-        # 뽑아낸 문장이라 정의상 본문에 존재한다 → 전부 삭제되고 lede가 다시 상투어로
-        # 되돌아갔다(원래 lede를 망친 것과 똑같은 함정을 재현한 셈).
-        # dedup의 원래 목적은 "같은 hook 문장이 한 글에 4~5회 반복 노출"을 막는 것이고,
-        # lede(1~2문장) + CONFIRMED 블록의 2회 중복은 요약+상세라는 정상적인 편집
-        # 구조다. 무엇보다 이 블록은 SERP 스니펫으로 쓰이므로 핵심 사실을 다시
-        # 말하는 것이 본래 역할이다.
-        if len(_fact_lede) >= 60:
-            # 확정 사실을 앞에 놓고, 내용 없는 상투어는 뒤에서도 걷어낸다.
-            # (상투어를 남기면 스니펫 뒷부분과 AI 인용 후보 문장을 계속 오염시킨다.)
-            _rest = overview
-            for _platitude in (
-                *_YOMI_JUDGMENT_VARIANTS_EN,
-                # ai_* 콘텐츠타입에 무조건 덧붙는 지역 면책 문구. SOURCE_TRUST_BLOCK에
-                # 같은 취지가 이미 있고, lede는 SERP 스니펫으로 쓰이므로 여기서
-                # 110자를 잡아먹으면 정작 사실이 스니펫에서 잘린다.
-                "Availability, pricing, and rollout can vary by account and region — "
-                "check the official page for the latest details.",
-            ):
-                _rest = _rest.replace(_platitude, " ")
-            _rest = re.sub(r"\s+", " ", _rest).strip()
-            overview = _truncate_at_sentence(
-                f"{_fact_lede} {_rest}".strip(), max_len=500
-            )
     if len(overview) < 35:
         if is_english_mode():
             overview = (
@@ -237,6 +199,74 @@ def ensure_answer_engine_optimized_html(
         today_str=today,
         seed=topic_text or title,
     )
+
+    # ── lede(SERP 스니펫)를 주제별 확정 사실로 시작시킨다 (2026-07-25) ──────────
+    # 배경: Blogger API는 글별 meta description을 저장하지 않으므로
+    # (`docs/INDEXABILITY_RUNBOOK.md` B항) Blogspot은 **첫 문단을 SERP 스니펫으로**
+    # 쓴다. 그런데 overview의 재료 3개 중 hook/real은 본문 첫·둘째 문장에서 가져오므로
+    # 위쪽 `_drop_sentences_already_in_body`가 **반드시** 지우고, 합성 상투어만
+    # 살아남았다 → 최근 5개 발행글 중 4개의 스니펫이 같은 문장으로 시작(실측).
+    #
+    # 이 블록의 위치가 중요하다. 처음엔 함수 앞부분(overview 계산 직후)에 뒀는데,
+    # 거기서는 `confirmed_facts` **파라미터**만 볼 수 있었다. 그러나 실제 발행 경로의
+    # 1차 호출(news_pipeline.py:1251)은 confirmed_facts를 넘기지 않고, 사실은 아래
+    # `confirmed_map`이 본문 slots에서 만들어낸다(리허설 6차 실측: CONFIRMED 블록엔
+    # 주제 특화 사실이 있는데 lede는 폴백 문구였다). 그래서 **confirmed_map이 확정된
+    # 뒤**로 옮겨 파라미터 경로/슬롯 경로 양쪽을 모두 쓴다.
+    # 사실 출처는 두 곳을 모두 본다 — 경로에 따라 어느 쪽이 채워질지 다르다.
+    #  (a) 본문에 이미 박혀 있는 CONFIRMED 블록의 <li> (trending 경로 등에서 앞선
+    #      호출이 confirmed_facts를 넘겨 만든 경우)
+    #  (b) 방금 계산한 confirmed_map (파라미터 또는 슬롯 기반)
+    # 그리고 **템플릿 상투어는 lede에서 배제**한다 — 그걸 앞세우면 스니펫이
+    # 또 글마다 같아져서 이 수정의 목적이 사라진다.
+    _template_facts = {
+        " ".join(s.split()).rstrip(".").lower()
+        for group in _AI_CONFIRMED_VARIANTS_EN
+        for s in group
+    }
+
+    def _fact_is_specific(text: str) -> bool:
+        return " ".join(str(text).split()).rstrip(".").lower() not in _template_facts
+
+    _fact_pool: list[str] = []
+    _existing_confirmed = re.search(
+        r'<div class="confirmed-section">.*?</ul>', content, re.DOTALL
+    )
+    if _existing_confirmed:
+        _fact_pool.extend(
+            re.sub(r"<[^>]+>", " ", li).strip()
+            for li in re.findall(r"<li[^>]*>(.*?)</li>", _existing_confirmed.group(0), re.DOTALL)
+        )
+    _fact_pool.extend(str(f) for f in (confirmed_map.get("confirmed") or []))
+    _lede_facts = _clean_fact_list(
+        [f for f in _fact_pool if f and _fact_is_specific(f)], max_items=2
+    )
+    if _lede_facts:
+        _fact_lede = " ".join(
+            f"{f.rstrip('.')}." for f in _lede_facts if str(f).strip()
+        ).strip()
+        # ⚠️ 여기서 `_drop_sentences_already_in_body`를 걸지 않는다.
+        # 리허설 3차 실측: 걸었더니 확정 사실이 전부 삭제됐다 — 확정 사실은 본문에서
+        # 뽑아낸 문장이라 정의상 본문에 존재하기 때문이다(원래 lede를 망친 것과 똑같은
+        # 함정). dedup의 목적은 같은 hook이 한 글에 4~5회 반복되는 것을 막는 것이고,
+        # lede(1~2문장) + CONFIRMED 블록의 2회 중복은 요약+상세라는 정상 편집 구조다.
+        if len(_fact_lede) >= 60:
+            _rest = overview
+            for _platitude in (
+                *_YOMI_JUDGMENT_VARIANTS_EN,
+                # ai_* 콘텐츠타입에 무조건 덧붙는 지역 면책 문구. SOURCE_TRUST_BLOCK에
+                # 같은 취지가 이미 있고, lede는 SERP 스니펫이라 여기서 110자를
+                # 잡아먹으면 정작 사실이 스니펫에서 잘린다.
+                "Availability, pricing, and rollout can vary by account and region — "
+                "check the official page for the latest details.",
+                # 사실이 앞에 오면 이 폴백 보강 문구도 불필요하다.
+                "The article separates what's confirmed from what you should verify yourself.",
+            ):
+                _rest = _rest.replace(_platitude, " ")
+            _rest = re.sub(r"\s+", " ", _rest).strip()
+            overview = _truncate_at_sentence(
+                f"{_fact_lede} {_rest}".strip(), max_len=500
+            )
 
     _seed = topic_text or title or ""
     # today_issue 해설글은 본문(LLM)이 이미 풍부한 맥락·다관점을 담는다.
