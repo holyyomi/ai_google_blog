@@ -60,6 +60,48 @@ def _extract_block(html: str, block_id: str) -> tuple[str, str]:
     return html[: match.start()] + html[match.end():], block.strip("\n")
 
 
+def _extract_section_balanced(html: str, open_tag_pattern: str) -> tuple[str, str]:
+    """여는 태그 패턴에 맞는 <section>을 **중첩을 고려해** 통째로 떼어낸다.
+
+    비탐욕 `.*?</section>`은 중첩 section이 있으면 첫 닫는 태그에서 끊긴다.
+    여기서는 open/close를 세어 짝이 맞는 지점까지 잘라낸다.
+    반환: (블록이 제거된 html, 떼어낸 블록). 못 찾으면 (원본, "").
+    """
+    m = re.search(open_tag_pattern, html or "", flags=re.IGNORECASE)
+    if not m:
+        return html, ""
+    start = m.start()
+    depth = 0
+    pos = start
+    for token in re.finditer(r"<section\b|</section\s*>", html[start:], flags=re.IGNORECASE):
+        if token.group(0).lower().startswith("</"):
+            depth -= 1
+            if depth == 0:
+                pos = start + token.end()
+                break
+        else:
+            depth += 1
+    else:
+        return html, ""
+    if depth != 0:
+        return html, ""
+    return html[:start] + html[pos:], html[start:pos].strip("\n")
+
+
+def _hoist_internal_links(html: str) -> tuple[str, str]:
+    """내부링크("Related guides") 섹션을 어디에 있든 떼어낸다.
+
+    2026-07-24 라이브 실측: 이 섹션이 INTENT_ANSWER_BLOCK **안에** 중첩돼
+    "FAQ → Q1 → Related guides(h2) → Q2 → Q3" 순서로 발행됐다. h2가 FAQ의
+    h3들 사이에 박혀 문서 개요가 깨지고, 중첩 때문에 _extract_block의 중첩
+    가드가 발동해 INTENT 블록 자체가 본문 뒤로 이동조차 못 했다.
+    내부링크는 항상 문서 맨 끝(해시태그 앞)에 있어야 하므로 먼저 꺼내 둔다.
+    """
+    return _extract_section_balanced(
+        html, r'[ \t]*<section\b[^>]*data-yomi-block=["\']internal-links["\'][^>]*>'
+    )
+
+
 def reorder_for_reader_first(html: str) -> str:
     """GEO/SEO 블록을 본문 뒤로 이동한 HTML을 반환한다. 실패 시 원본 그대로.
 
@@ -80,6 +122,10 @@ def reorder_for_reader_first(html: str) -> str:
         return html
 
     working = html
+    # 내부링크를 먼저 꺼내 GEO 블록 중첩을 푼다 — 이걸 남겨두면 아래 _extract_block의
+    # 중첩 가드가 발동해 INTENT_ANSWER_BLOCK이 본문 뒤로 이동하지 못한다.
+    working, internal_links_block = _hoist_internal_links(working)
+
     moved: list[str] = []
     for block_id in _MOVABLE_BLOCK_IDS:
         working, block = _extract_block(working, block_id)
@@ -87,7 +133,13 @@ def reorder_for_reader_first(html: str) -> str:
             moved.append(block)
 
     if not moved:
+        if internal_links_block:
+            # 이동할 GEO 블록이 없어도 내부링크는 원위치(맨 끝)로 돌려놔야 한다.
+            return _append_internal_links(working, internal_links_block, original=html)
         return html
+    if internal_links_block:
+        # 내부링크는 GEO 블록보다도 뒤 — 관련글 목록이 문서 마지막에 오게 한다.
+        moved.append(internal_links_block)
 
     insert_at = -1
     for anchor in _INSERT_ANCHORS:
@@ -115,5 +167,29 @@ def reorder_for_reader_first(html: str) -> str:
         if f'id="{block_id}"' in html and f'id="{block_id}"' not in result:
             logger.warning("reader_first_layout: block %s lost during reorder — keeping original", block_id)
             return html
+    if 'data-yomi-block="internal-links"' in html and (
+        'data-yomi-block="internal-links"' not in result
+    ):
+        logger.warning("reader_first_layout: internal-links lost during reorder — keeping original")
+        return html
     logger.info("reader_first_layout: moved %d GEO/SEO block(s) below body", len(moved))
+    return result
+
+
+def _append_internal_links(html: str, block: str, *, original: str) -> str:
+    """내부링크 섹션을 해시태그 앞(없으면 문서 끝)에 다시 붙인다."""
+    if not block:
+        return html
+    hashtags = re.search(r'[ \t]*<section\b[^>]*class=["\'][^"\']*yomi-hashtags', html)
+    if hashtags:
+        pos = hashtags.start()
+        result = html[:pos] + block + "\n" + html[pos:]
+    else:
+        last_div = html.rstrip().rfind("</div>")
+        if last_div >= 0:
+            result = html[:last_div] + block + "\n" + html[last_div:]
+        else:
+            result = f"{html.rstrip()}\n{block}"
+    if 'data-yomi-block="internal-links"' not in result:
+        return original
     return result

@@ -377,6 +377,15 @@ def ensure_answer_engine_optimized_html(
             content = _insert_json_ld(content, _faq_json_ld(intent_answers))
     if '"@type": "BlogPosting"' not in content and '"@type":"BlogPosting"' not in content:
         content = _insert_json_ld(content, _blogposting_json_ld(title=title, topic=topic_text, today=today))
+    else:
+        # 2026-07-25: 이 함수는 발행 경로에서 두 번 호출된다(생성 직후 + 발행 직전).
+        # 1차 호출 시점에는 최종 제목이 아직 선택되지 않아 topic 기반 임시 제목이
+        # headline에 박히고, 2차 호출은 "이미 BlogPosting 있음"으로 건너뛰었다.
+        # 실측(7/24 라이브): 우리 JSON-LD headline은 "Claude's Voice Mode Just Got
+        # Smarter (2026)"인데 실제 제목·Blogger 테마 JSON-LD는 "Claude's Voice Mode
+        # Gets Opus, Gmail, Slack Access (2026)" — 한 페이지에 headline이 다른
+        # BlogPosting 2개가 공존했다. 2차 호출에서 최종 제목으로 동기화한다.
+        content = _sync_blogposting_headline(content, title=title)
     content = _collapse_visible_question_overstack(content)
     # 블록을 모두 추가한 뒤 최종 질문헤딩 예산(≤5) 보장. 본문이 자체 질문 h2를
     # 갖고 있고 여기서 intent Q&A까지 더해지면 누적 초과 → 감사 차단되던 문제 해소.
@@ -1360,6 +1369,40 @@ def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any
             "cssSelector": [".yomi-lede", ".intent-qa-item"],
         },
     }
+
+
+def _sync_blogposting_headline(html: str, *, title: str) -> str:
+    """본문에 이미 박힌 BlogPosting JSON-LD의 headline을 최종 제목으로 맞춘다.
+
+    JSON-LD 블록만 대상으로 하고(본문 텍스트는 건드리지 않음), 우리 스키마
+    (`"@type": "BlogPosting"` 포함 script)만 고친다. 파싱 실패 시 원본 유지.
+    """
+    final_title = " ".join((title or "").split()).strip()
+    if not final_title:
+        return html
+
+    def _rewrite(match: re.Match[str]) -> str:
+        block = match.group(0)
+        payload = match.group(1)
+        if '"BlogPosting"' not in payload:
+            return block
+        try:
+            data = json.loads(payload)
+        except (ValueError, TypeError):
+            return block
+        if not isinstance(data, dict) or data.get("@type") != "BlogPosting":
+            return block
+        if " ".join(str(data.get("headline") or "").split()) == final_title:
+            return block
+        data["headline"] = final_title
+        return block.replace(payload, json.dumps(data, ensure_ascii=False))
+
+    return re.sub(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        _rewrite,
+        html or "",
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
 
 def _insert_after_h1_or_prepend(html: str, block: str) -> str:

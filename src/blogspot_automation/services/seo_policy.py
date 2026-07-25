@@ -1036,10 +1036,28 @@ def _ensure_yomi_article_class(html: str) -> str:
 
 
 def _yomi_clean_style_for_mode() -> str:
-    """영어 모드에서는 CSS 주석(한국어)이 발행 HTML에 새지 않게 주석만 제거한다 (규칙 동일)."""
+    """영어 모드에서는 CSS 주석(한국어) 제거 + 폰트/줄바꿈을 영문용으로 바꾼다.
+
+    2026-07-25 실측: 영어 블로그로 전환한 뒤에도 발행 HTML의 폰트 스택이
+    'Pretendard Variable', Pretendard, 'Noto Sans KR' 순이었고 `word-break:keep-all`이
+    걸려 있었다. 영어권 독자 기기에는 Pretendard/Noto Sans KR이 없어 대개 Arial로
+    떨어지고, keep-all은 한국어 어절 보존용 규칙이라 영문에서는 얻는 게 없다.
+    (전세계 타겟 점검 항목 — 한국어 모드 스타일은 그대로 둔다.)
+    """
     if not is_english_mode():
         return YOMI_CLEAN_ARTICLE_STYLE
     stripped = re.sub(r"/\*.*?\*/", "", YOMI_CLEAN_ARTICLE_STYLE, flags=re.DOTALL)
+    stripped = stripped.replace(
+        "font-family:'Pretendard Variable',Pretendard,'Noto Sans KR',"
+        "-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif",
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,"
+        "'Helvetica Neue',Arial,sans-serif",
+    )
+    # 영문은 어절 보존 개념이 없다 — 기본 줄바꿈(normal)이 가독성이 낫다.
+    # overflow-wrap:anywhere는 긴 URL·모델명 대응으로 유지한다.
+    # `!important` 붙은 제목 규칙(.post-title.entry-title)까지 함께 정규화한다 —
+    # 영문 제목은 keep-all + overflow-wrap:normal 조합에서 긴 제목이 넘칠 수 있다.
+    stripped = re.sub(r"word-break:keep-all(!important)?;?", "", stripped)
     return re.sub(r"\n{2,}", "\n", stripped)
 
 
