@@ -516,7 +516,17 @@ class NewsQualityGate:
             warnings.append(
                 f"issue_specificity_below_7:{issue_specificity_score}"
             )
-        if original_issue_preservation_score < 6:
+        # 2026-07-25 버그 수정(완화 아님): 이 검사는 "원문 헤드라인의 핵심어가
+        # 재작성된 제목/topic에 보존됐는가"를 본다. 그런데 비교할 원문이 없으면
+        # `_compute_original_issue_preservation`이 "중립"으로 5를 반환하고, 임계값이
+        # 6이라 **중립이 곧 차단**이 됐다. 실측(GHA run 30141406686): 6번 시도 중
+        # 4번이 이 사유로 차단됐고 그 4건 전부 `original_topic=None`인
+        # community_hackernews 발굴 후보였다 — 즉 HN 후보는 글 품질과 무관하게
+        # 구조적으로 발행 불가였다. 발굴 후보의 topic은 원문 헤드라인 그 자체라
+        # 보존 손실이 있을 수 없다. 적용 불가한 검사로는 차단하지 않는다.
+        if original_issue_preservation_score < 6 and self._preservation_check_applicable(
+            selected
+        ):
             if ai_evergreen_reframe:
                 warnings.append(
                     "ai_evergreen_original_issue_preservation_below_6:"
@@ -1951,6 +1961,19 @@ class NewsQualityGate:
         if "확인할" in topic and not any(kw in topic for kw in specific_keywords):
             score -= 3
         return max(0, min(10, score))
+
+    @staticmethod
+    def _preservation_check_applicable(selected: ScoredNewsCandidate) -> bool:
+        """원문 보존 검사를 적용할 수 있는 후보인가 (비교할 원문이 있는가).
+
+        `original_topic`이 없으면 "보존에 실패했다"가 아니라 "판정 대상이 아니다".
+        `_compute_original_issue_preservation`은 이 경우 중립값 5를 돌려주는데
+        차단 임계값이 6이어서, 중립이 차단으로 작동하는 버그가 있었다.
+        점수 자체는 관측용으로 그대로 기록하고(원장/run_meta 회귀 방지),
+        차단 판정에서만 제외한다.
+        """
+        raw = selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
+        return bool(str(raw.get("original_topic") or "").strip())
 
     @classmethod
     def _compute_original_issue_preservation(
