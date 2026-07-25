@@ -158,7 +158,14 @@ def ensure_answer_engine_optimized_html(
         _fact_lede = " ".join(
             f"{f.rstrip('.')}." for f in _lede_facts if str(f).strip()
         ).strip()
-        _fact_lede = _drop_sentences_already_in_body(_fact_lede, _body_norm_for_dup)
+        # ⚠️ 여기서 `_drop_sentences_already_in_body`를 걸지 않는다.
+        # 2026-07-25 리허설 3차 실측: 처음엔 걸었는데, 확정 사실은 LLM이 **본문에서**
+        # 뽑아낸 문장이라 정의상 본문에 존재한다 → 전부 삭제되고 lede가 다시 상투어로
+        # 되돌아갔다(원래 lede를 망친 것과 똑같은 함정을 재현한 셈).
+        # dedup의 원래 목적은 "같은 hook 문장이 한 글에 4~5회 반복 노출"을 막는 것이고,
+        # lede(1~2문장) + CONFIRMED 블록의 2회 중복은 요약+상세라는 정상적인 편집
+        # 구조다. 무엇보다 이 블록은 SERP 스니펫으로 쓰이므로 핵심 사실을 다시
+        # 말하는 것이 본래 역할이다.
         if len(_fact_lede) >= 60:
             # 확정 사실을 앞에 놓고, 내용 없는 상투어는 뒤에서도 걷어낸다.
             # (상투어를 남기면 스니펫 뒷부분과 AI 인용 후보 문장을 계속 오염시킨다.)
