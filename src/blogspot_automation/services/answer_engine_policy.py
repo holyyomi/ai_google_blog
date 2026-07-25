@@ -7,7 +7,10 @@ from html import escape, unescape
 from typing import Any
 
 from blogspot_automation.services.blog_language import is_english_mode
-from blogspot_automation.services.geo_intent_service import GeoIntentService
+from blogspot_automation.services.geo_intent_service import (
+    GeoIntentService,
+    _truncate_at_sentence,
+)
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.news_taxonomy import content_type_for_topic_group
 
@@ -141,6 +144,38 @@ def ensure_answer_engine_optimized_html(
     # 주제 안내 문장으로 보강한다.
     _body_norm_for_dup = _dupcheck_norm(_plain_text(content))
     overview = _drop_sentences_already_in_body(overview, _body_norm_for_dup)
+    # 2026-07-25 구조 수정: 위 dedup은 원래 의도(같은 리드 4~5회 반복 방지)대로
+    # 동작하지만 부작용이 컸다. overview의 재료 3개 중 hook/real은 본문 첫·둘째
+    # 문장에서 가져오므로 dedup이 **반드시** 지우고, 합성 문장인 yomi_judgment만
+    # 살아남는다("슬롯에서 합성한 문장이라 본문에 없어 살아남는다" — 아래 주석 참조).
+    # 그 결과 모든 글의 첫 문단이 주제와 무관한 상투어가 됐다. Blogger는
+    # "검색 설명" 토글이 꺼져 있으면 **첫 문단을 SERP 스니펫으로 쓰기 때문에**,
+    # 최근 5개 발행글 중 4개의 검색결과 스니펫이 같은 문장으로 시작했다(실측).
+    # → LLM이 뽑은 이슈 특정적 확정 사실을 lede의 1순위 재료로 승격한다.
+    # 확정 사실은 글마다 다르고 수치·고유명사를 담아 스니펫으로도 훨씬 강하다.
+    _lede_facts = _clean_fact_list(confirmed_facts, max_items=2)
+    if _lede_facts:
+        _fact_lede = " ".join(
+            f"{f.rstrip('.')}." for f in _lede_facts if str(f).strip()
+        ).strip()
+        _fact_lede = _drop_sentences_already_in_body(_fact_lede, _body_norm_for_dup)
+        if len(_fact_lede) >= 60:
+            # 확정 사실을 앞에 놓고, 내용 없는 상투어는 뒤에서도 걷어낸다.
+            # (상투어를 남기면 스니펫 뒷부분과 AI 인용 후보 문장을 계속 오염시킨다.)
+            _rest = overview
+            for _platitude in (
+                *_YOMI_JUDGMENT_VARIANTS_EN,
+                # ai_* 콘텐츠타입에 무조건 덧붙는 지역 면책 문구. SOURCE_TRUST_BLOCK에
+                # 같은 취지가 이미 있고, lede는 SERP 스니펫으로 쓰이므로 여기서
+                # 110자를 잡아먹으면 정작 사실이 스니펫에서 잘린다.
+                "Availability, pricing, and rollout can vary by account and region — "
+                "check the official page for the latest details.",
+            ):
+                _rest = _rest.replace(_platitude, " ")
+            _rest = re.sub(r"\s+", " ", _rest).strip()
+            overview = _truncate_at_sentence(
+                f"{_fact_lede} {_rest}".strip(), max_len=500
+            )
     if len(overview) < 35:
         if is_english_mode():
             overview = (
@@ -215,7 +250,15 @@ def ensure_answer_engine_optimized_html(
     # 본문 LLM이 만든 이슈 특정적 Q&A가 있으면 템플릿 intent 답변 대신 visible
     # 블록에 사용한다 — 본문과 같은 목소리, 같은 사실 기반.
     llm_faq_pairs = _normalize_llm_faq_pairs(faq_items)
-    use_llm_intent = bool(llm_faq_pairs) and _author_rich_today
+    # 2026-07-25: `_author_rich_today` 조건(content_type이 today_issue_explainer이거나
+    # topic_group이 today_issue)이 너무 좁아, ai_work_tip/ai_work 글은 LLM이 이슈
+    # 특정적 FAQ를 만들어 넘겨도 템플릿 3문항이 대신 쓰였다. 7/24 발행글이 그 예로
+    # 실제 FAQ 3개 **아래에** 주제 무관 템플릿 3문항이 붙었다:
+    #   "What does this change in practice?" / "How can you try it safely?" /
+    #   "Where can you verify the current details?"
+    # 이 3문항의 답변은 최근 5개 글 중 4개에 토씨 하나 안 틀리고 반복됐다(실측).
+    # LLM이 준 FAQ가 있으면 콘텐츠 타입과 무관하게 그것을 쓴다 — 템플릿은 폴백 전용.
+    use_llm_intent = bool(llm_faq_pairs)
     head_blocks: list[str] = []
     if 'id="AI_OVERVIEW_TARGET_ANSWER"' not in content:
         head_blocks.append(_section("AI_OVERVIEW_TARGET_ANSWER", "yomi-lede", _varied_label("overview", _seed), overview))
