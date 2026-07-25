@@ -1356,6 +1356,11 @@ class NewsPipeline:
                     "pipeline": "news_pipeline",
                     "mode": self.news_publish_mode,
                     "dry_run": self.dry_run,
+                    # 2026-07-25: _save_artifact가 near_match 홀드 면제를 판단할 때 쓴다.
+                    # `final_publish_html_source`는 _save_artifact **이후**(1651행 등)에
+                    # 설정되므로 그 키로는 판정할 수 없다 — 여기서 계산이 끝난
+                    # _llm_body_gate_passed(LLM 서술 본문이 발행 품질 게이트 통과)를 넘긴다.
+                    "llm_body_gate_passed": bool(_llm_body_gate_passed),
                     "candidate_count": len(candidates),
                     "scored_count": len(scored),
                     "publishable_count": len(publishable),
@@ -1668,6 +1673,7 @@ class NewsPipeline:
                             "geo_ready": _geo_ready,
                             "sge_ready": _sge_ready,
                             "near_match": bool(_candidate_meta.get("near_match") or _gpr.get("near_match")),
+                            "near_match_body_verified": bool(_candidate_meta.get("near_match_body_verified")),
                             "faq_count": publish_quality_gate.get("faq_count"),
                             "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),
                             "article_focus_score": publish_quality_gate.get("article_focus_score"),
@@ -1720,6 +1726,7 @@ class NewsPipeline:
                                 "geo_ready": _geo_ready,
                                 "sge_ready": _sge_ready,
                                 "near_match": bool(_candidate_meta.get("near_match") or _gpr.get("near_match")),
+                                "near_match_body_verified": bool(_candidate_meta.get("near_match_body_verified")),
                                 "faq_count": publish_quality_gate.get("faq_count"),
                                 "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),
                                 "article_focus_score": publish_quality_gate.get("article_focus_score"),
@@ -1879,6 +1886,7 @@ class NewsPipeline:
                 "publish_allowed_in_phase2": bool(_candidate_meta.get("publish_allowed_in_phase2", False)),
                 "publish_ready": _publish_ready,
                 "near_match": bool(_candidate_meta.get("near_match") or _gpr.get("near_match")),
+                "near_match_body_verified": bool(_candidate_meta.get("near_match_body_verified")),
                 "geo_ready": _geo_ready,
                 "sge_ready": _sge_ready,
                 "sge_score": _sge_score,
@@ -2328,7 +2336,14 @@ class NewsPipeline:
             blocking_reasons.append("publish_ready_false")
         if bool(base_result.get("human_review_required")):
             blocking_reasons.append("human_review_required")
-        if bool(base_result.get("near_match")):
+        # near_match 홀드는 유지하되, 실제 발행 본문(llm_narrative)이 자체 품질
+        # 게이트를 blocking 0으로 통과하고 등급 A/B면 면제한다 — near_match는
+        # 발행되지 않는 골든 템플릿의 적합도이므로 그것만으로 막으면 "발행 여부는
+        # 최종 콘텐츠 품질 기준" 원칙과 어긋난다 (근거: _save_artifact의
+        # near_match_body_verified, GHA run 30143531839 실측).
+        if bool(base_result.get("near_match")) and not bool(
+            base_result.get("near_match_body_verified")
+        ):
             blocking_reasons.append("near_match_requires_review")
         if not bool(base_result.get("geo_ready")) and not top_issue_direct_publish:
             blocking_reasons.append("geo_ready_false")
@@ -3224,9 +3239,31 @@ class NewsPipeline:
             and not _is_near_match
             and content_candidate_grade in ("A", "B")
         )
+        # 2026-07-25: near_match(골든 패턴 confidence 75~79)가 사람 검토를 강제하던
+        # 예외를 좁힌다. 리허설(GHA run 30143531839) 실측: 품질 게이트를 blocking 0으로
+        # 통과한 시도 2건이 `human_review_required;near_match_requires_review`로 홀드돼
+        # 초안조차 만들어지지 않았다. 그런데 두 건 모두 `final_publish_html_source`가
+        # **llm_narrative** — 실제 발행 본문은 골든 템플릿이 아니다. 즉 near_match는
+        # "발행되지 않는 템플릿"의 적합도이고, 그걸로 발행을 막는 건 위 주석에 적힌
+        # 이 프로젝트의 원칙("발행 여부는 최종 콘텐츠 품질 기준을 따른다")과 어긋난다.
+        # 실제로 발행되는 본문이 자체 품질 게이트를 blocking 0으로 통과했고 등급이
+        # A/B일 때만 near_match 홀드를 면제한다 — 그 외 near_match는 그대로 홀드.
+        # 주의: `final_publish_html_source`는 이 함수 **이후**에 설정되므로 여기서
+        # 읽으면 항상 빈 값이다(첫 구현이 그 실수를 했다). 호출부가 계산을 끝낸
+        # `llm_body_gate_passed`(LLM 서술 본문이 발행 품질 게이트 통과)를 쓴다.
+        _llm_body_ships = bool((run_meta or {}).get("llm_body_gate_passed"))
+        _gate_clean = bool(publish_quality_gate.get("passed")) and not list(
+            publish_quality_gate.get("blocking_issues") or []
+        )
+        _near_match_body_verified = (
+            _is_near_match
+            and _llm_body_ships
+            and _gate_clean
+            and content_candidate_grade in ("A", "B")
+        )
         human_review_required = (
             phase_hold
-            or _is_near_match
+            or (_is_near_match and not _near_match_body_verified)
             or (initial_grade in ("C", "D") and not _content_grade_overrides_topic_grade)
         )
         why_selected = (
@@ -3288,6 +3325,10 @@ class NewsPipeline:
             "why_topic_selected": why_selected,
             "why_topic_held": why_held,
             "human_review_required": human_review_required,
+            # near_match이지만 실제 발행 본문(llm_narrative)이 품질 게이트를 blocking 0
+            # 으로 통과하고 등급 A/B인 경우. auto_publish 게이트가 near_match 홀드를
+            # 면제할지 판단할 때 쓴다 (위 human_review_required 계산과 같은 근거).
+            "near_match_body_verified": _near_match_body_verified,
             # Article Candidate
             "article_candidate_generated": _can_generate_candidate,
             "article_candidate_path": "article_candidate.html" if _can_generate_candidate else "",
