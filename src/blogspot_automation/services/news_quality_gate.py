@@ -437,9 +437,16 @@ class NewsQualityGate:
             "넷플릭스", "DART", "공시", "노조", "노동조합",
         )
         title_has_source_entity = self._title_has_source_entity(title, selected)
+        # 영어 모드 전용 추가 경로(2026-08-03): 위 어휘집은 한국어 전용이고
+        # 라틴 토큰 경로는 올대문자 약어만 세기 때문에, 영어 제목의
+        # "Gemini/Claude/Copilot" 같은 타이틀케이스 제품명이 구조적으로
+        # 엔티티 0개로 읽혔다. `_title_has_english_entity` 주석 참고.
+        # 한국어 모드에서는 호출조차 되지 않으므로 ko 판정은 불변이다.
+        title_has_english_entity = is_english_mode() and self._title_has_english_entity(title)
         title_has_entity = (
             any(ch in title for ch in _ENTITY_TITLE_SET)
             or title_has_source_entity
+            or title_has_english_entity
             or bool(raw.get("discovery_engine"))
         )
         raw["title_has_specific_entity"] = bool(title_has_entity)
@@ -1296,18 +1303,29 @@ class NewsQualityGate:
         if family not in ("Pricing", "Comparisons") or not title_is_pricing:
             return result
         result["is_pricing_family"] = True
-        table_match = re.search(
+        # 2026-08-03 오탐 교정: 예전엔 re.search로 **첫 번째** 표만 봤다.
+        # 가격 무관 비교표(예: "Tool | Best for")가 먼저 나오고 가격표가 두
+        # 번째면, 글에 검증된 가격이 있는데도 price_cell_count=0으로 차단됐다.
+        # 이제 본문의 모든 quick-decision-table을 훑어 가격 셀이 가장 많은
+        # 표를 기준으로 판정한다 — "가격을 약속한 글에 검증된 가격 셀이 2개
+        # 이상 있어야 한다"는 원래 요구는 그대로이고(어느 표에도 없으면 여전히
+        # 차단), 위치 때문에 못 찾던 경우만 살린다.
+        best_price_cells = 0
+        table_found = False
+        for table_match in re.finditer(
             r'<div class="quick-decision-table">.*?</div>', html or "", re.DOTALL
-        )
-        if not table_match:
+        ):
+            table_found = True
+            price_cells = 0
+            for cell in re.findall(r"<td[^>]*>(.*?)</td>", table_match.group(0), re.DOTALL):
+                cell_text = re.sub(r"<[^>]+>", " ", cell)
+                if re.search(r"[$€£₹]\s*\d|USD\s*\d|\bfree\b", cell_text, re.IGNORECASE):
+                    price_cells += 1
+            best_price_cells = max(best_price_cells, price_cells)
+        if not table_found:
             return result
         result["table_present"] = True
-        price_cells = 0
-        for cell in re.findall(r"<td[^>]*>(.*?)</td>", table_match.group(0), re.DOTALL):
-            cell_text = re.sub(r"<[^>]+>", " ", cell)
-            if re.search(r"[$€£₹]\s*\d|USD\s*\d|\bfree\b", cell_text, re.IGNORECASE):
-                price_cells += 1
-        result["price_cell_count"] = price_cells
+        result["price_cell_count"] = best_price_cells
         return result
 
     @staticmethod
@@ -1457,6 +1475,133 @@ class NewsQualityGate:
             for token in re.findall(r"\b[A-Z][A-Z0-9&.+-]{1,}\b", text or "")
         }
         return {token for token in tokens if token not in cls._GENERIC_LATIN_ENTITY_TOKENS}
+
+    # ─── 영어 제목 엔티티 어휘 (2026-08-03 오탐 교정) ──────────────────────────
+    # 배경: `title_has_no_specific_entity` 검사의 어휘집(_ENTITY_TITLE_SET)은
+    # 100% 한국어라 영어 제목은 그 경로로 절대 통과할 수 없었다. 대안 경로인
+    # `_latin_source_entity_tokens`는 "연속 대문자 2자 이상"만 엔티티로 세기
+    # 때문에 이 블로그 주제의 대부분(Gemini/Claude/Copilot/Cursor/Perplexity/
+    # Sora/Midjourney 같은 타이틀케이스 제품명)을 토큰 0개로 읽는다. 실측:
+    #   "Gemini Robotics 2 Brings Whole Body Intelligence to Robots" -> set()
+    # 즉 영어 모드에서 이 검사는 "제목에 고유명사가 있는가"가 아니라
+    # "제목에 약어(GPT/API 같은 올대문자)가 있는가"를 물어보고 있었다.
+    #
+    # 이 어휘집은 한국어 어휘집과 같은 의미(제목 자체에 특정 주체가 있는가)를
+    # 영어에서 재현하는 것이고, `is_english_mode()`에서만 참조되므로 한국어
+    # 판정 경로는 그대로다. "제목이 약속한 고유명사가 본문에 없다"는 진짜
+    # 위험은 별도 검사 `title_proper_noun_absent_in_body`가 계속 담당한다.
+    #
+    # 대소문자 무시 매칭. 영어 일반명사와 겹치지 않는 고유명사만 넣는다.
+    _EN_TITLE_ENTITY_TERMS: tuple[str, ...] = (
+        # 기업/연구소
+        "openai", "anthropic", "google", "deepmind", "microsoft", "apple",
+        "amazon", "nvidia", "xai", "mistral", "cohere", "stability ai",
+        "hugging face", "huggingface", "deepseek", "samsung", "tesla",
+        "baidu", "alibaba", "bytedance", "tencent", "moonshot", "ibm",
+        "qualcomm", "intel", "tsmc", "broadcom", "salesforce", "adobe",
+        "github", "perplexity", "midjourney", "elevenlabs", "replit",
+        "zapier", "vercel", "shopify", "atlassian", "servicenow",
+        # 제품/모델
+        "chatgpt", "gpt-4", "gpt-5", "gpt-6", "codex", "sora", "dall-e",
+        "dalle", "claude", "gemini", "gemma", "copilot",
+        "llama", "grok", "qwen", "kimi", "ernie", "hunyuan", "doubao",
+        "minimax", "phi-3", "phi-4", "bedrock",
+        "sagemaker", "watson", "veo", "imagen", "notebooklm", "vertex ai",
+        "azure", "bing", "siri", "alexa", "bixby", "apple intelligence",
+        "galaxy ai", "copilot studio", "microsoft 365", "google workspace",
+        "google docs", "google sheets", "google slides", "gmail", "youtube",
+        "windsurf", "devin", "langchain", "llamaindex", "ollama", "lm studio",
+        "suno", "udio", "kling", "pika", "heygen", "synthesia", "descript",
+        "photoshop", "canva", "figma", "n8n", "hubspot",
+        "wordpress", "webflow", "airtable", "notion ai",
+    )
+    # 영어 일반명사와 철자가 겹치는 제품명. 영어 제목은 전부 타이틀케이스라
+    # 대문자 표기만으로는 "Move Your Cursor Less"(일반명사)와 "Cursor 3.0 Ships
+    # Agents"(제품)를 구분하지 못한다 — 실제로 첫 시안에서 전자가 엔티티로
+    # 오인됐다(과교정 검사에서 잡음). 그래서 이 목록은 (a) 대문자 표기이면서
+    # (b) 제목에 AI 문맥 신호(AI/model/agent/LLM… 또는 버전 표기)가 함께 있을
+    # 때만 엔티티로 인정한다.
+    _EN_TITLE_ENTITY_TERMS_AMBIGUOUS: tuple[str, ...] = (
+        "Cursor", "Runway", "Comet", "Notion", "Slack", "Meta", "Bolt",
+        "Flux", "Nova", "Colab", "Poe", "Luma", "Opus", "Sonnet",
+        "Whisper", "Titan", "Granite", "Bard", "Obsidian", "Firefly",
+    )
+    _EN_AI_CONTEXT_SIGNAL_RE = re.compile(
+        r"(?<![A-Za-z0-9])(?:ai|llm|llms|model|models|agent|agents|chatbot|"
+        r"chatbots|copilot|prompt|prompts|gpt|api|token|tokens|benchmark|"
+        r"benchmarks)(?![A-Za-z0-9])"
+        r"|(?<![\d.])v?\d+\.\d+(?![\d.])"          # 3.0 / v2.1
+        r"|(?<![A-Za-z0-9])v\d+(?![A-Za-z0-9])",   # v3 / V8
+        flags=re.IGNORECASE,
+    )
+
+    # ─── 영어 사건 동사 (원형만 등록, 활용형은 규칙으로 생성) ──────────────────
+    # `_compute_issue_specificity`의 이벤트 신호. 활용형을 손으로 나열하지
+    # 않는다 — "rollout"만 넣고 "rolling out"을 놓쳤던 실패의 재발 방지.
+    # 여기 담는 것은 "무슨 일이 일어났다"를 뜻하는 뉴스 사건 동사뿐이다.
+    # 일반 하우투 문장에 흔한 동사(use/make/get/add/learn 등)는 넣지 않는다 —
+    # 넣으면 "How to use ChatGPT" 같은 일반론 주제까지 특정성으로 통과한다.
+    _EN_EVENT_VERB_LEMMAS: tuple[str, ...] = (
+        "roll out", "roll back", "shut down", "phase out",
+        "unveil", "announce", "introduce", "debut", "preview",
+        "deprecate", "discontinue", "acquire", "partner", "integrate",
+        "upgrade", "ship", "ban", "sue", "leak", "delay", "expand",
+    )
+
+    @staticmethod
+    def _en_verb_inflection_pattern(lemma: str) -> str:
+        """동사 원형 → 활용형(-s/-es/-ed/-ing)까지 잡는 정규식 조각.
+
+        어말 e 탈락(deprecate→deprecating)과 자음 중복(ship→shipping)을 함께
+        허용한다. 구동사("roll out")는 앞 동사만 활용시키고 나머지는 공백
+        유연 매칭("rolling out"/"rolls  out").
+        """
+        head, _, tail = lemma.partition(" ")
+        if head.endswith("e"):
+            stem = re.escape(head[:-1])
+            head_pattern = rf"{stem}(?:e|es|ed|ing)"
+        else:
+            stem = re.escape(head)
+            last = re.escape(head[-1])
+            head_pattern = rf"{stem}(?:{last}?(?:s|es|ed|ing))?"
+        if not tail:
+            return rf"(?<![a-z0-9]){head_pattern}(?![a-z])"
+        return rf"(?<![a-z0-9]){head_pattern}\s+{re.escape(tail)}(?![a-z])"
+
+    @classmethod
+    def _en_event_verb_patterns(cls) -> tuple[re.Pattern[str], ...]:
+        cached = getattr(cls, "_EN_EVENT_VERB_PATTERNS_CACHE", None)
+        if cached is None:
+            cached = tuple(
+                re.compile(cls._en_verb_inflection_pattern(lemma))
+                for lemma in cls._EN_EVENT_VERB_LEMMAS
+            )
+            cls._EN_EVENT_VERB_PATTERNS_CACHE = cached
+        return cached
+
+    @classmethod
+    def _en_event_verb_hits(cls, lowered_text: str) -> int:
+        if not lowered_text:
+            return 0
+        return sum(1 for pattern in cls._en_event_verb_patterns() if pattern.search(lowered_text))
+
+    @classmethod
+    def _title_has_english_entity(cls, title: str) -> bool:
+        """영어 제목에 알려진 AI 제품/기업 엔티티가 있는가 (영어 모드 전용 경로)."""
+        text = title or ""
+        if not text.strip():
+            return False
+        for term in cls._EN_TITLE_ENTITY_TERMS:
+            if re.search(
+                rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", text, flags=re.IGNORECASE
+            ):
+                return True
+        if not cls._EN_AI_CONTEXT_SIGNAL_RE.search(text):
+            return False
+        for term in cls._EN_TITLE_ENTITY_TERMS_AMBIGUOUS:
+            if re.search(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", text):
+                return True
+        return False
 
     @classmethod
     def _title_has_latin_source_entity(cls, title: str, selected: ScoredNewsCandidate) -> bool:
@@ -1825,7 +1970,15 @@ class NewsQualityGate:
 
     @classmethod
     def _compute_issue_specificity(cls, selected: ScoredNewsCandidate) -> int:
-        """0-10 점수: 특정 사건/서비스/인물/정책/플랫폼/가격/논란 등 고유 맥락이 있는가."""
+        """0-10 점수: 특정 사건/서비스/인물/정책/플랫폼/가격/논란 등 고유 맥락이 있는가.
+
+        **채점 대상은 주제 문자열(topic / original_topic / summary)뿐이고 생성된
+        글 본문은 보지 않는다.** 즉 이것은 "글 품질 게이트"가 아니라 "주제 선정
+        점수"다 — 이름(issue_specificity)만 보고 "본문이 구체적인지 검사한다"고
+        오해해서 본문 문제를 여기서 고치려 하면 안 된다(본문 구체성은
+        final_html_audit / hedge / pricing-table 계열 검사가 담당). 2026-08-03
+        확인.
+        """
         raw = selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
         topic = selected.candidate.topic or ""
         original_topic = str(raw.get("original_topic") or "")
@@ -1932,6 +2085,16 @@ class NewsQualityGate:
                     ai_event_hits += 1
             elif re.search(rf"(?<![a-z0-9]){re.escape(kw)}", all_text_lower):
                 ai_event_hits += 1
+        # 어형(활용형) 미스매치 교정(2026-08-03): 위 영어 이벤트 목록은 표제형
+        # 단어만 담고 있어서 실제 헤드라인의 활용형을 놓쳤다. 실측:
+        #   "Google Docs Is Rolling Out These Three New Gemini Features" -> 5점(차단)
+        # 목록엔 "rollout"이 있는데 제목은 "Rolling Out"이라 매칭 실패 →
+        # 엔티티 1 + 이벤트 0 = 중립 5점이고, 중립이 곧 차단(임계 6)이었다.
+        # 이 목록은 07-11·07-16·07-17에 걸쳐 다섯 번 "놓친 단어 덧대기"로
+        # 확장돼 왔다(위 주석들). 여섯 번째로 단어를 하나 더 얹는 대신 사건
+        # 동사의 어형 변화를 규칙으로 덮는다(_EN_EVENT_VERB_LEMMAS 참고) —
+        # 새 동사가 필요하면 활용형이 아니라 원형 하나만 추가하면 된다.
+        ai_event_hits += cls._en_event_verb_hits(all_text_lower)
         # 영어 특정성 마커: "$30"/"$ 30" 금액, "4.5"/"v2.1" 버전 표기.
         if re.search(r"\$\s?\d", all_text):
             ai_event_hits += 1

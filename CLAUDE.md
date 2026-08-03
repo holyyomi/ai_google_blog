@@ -168,29 +168,61 @@ publish_ready = (
 
 ---
 
-## 워크플로우 스케줄 (운영 방침 2026-07-24: 하루 1회, GHA 1순위 + Cloud Run 폴백)
+## 워크플로우 스케줄 (운영 방침 2026-08-03: 하루 1회, **GHA 단독**)
 
-**자동 발행은 하루 1회, GHA가 1순위이고 Cloud Run은 GHA 실패/부재 시에만 발행하는 폴백이다.**
+**자동 발행 경로는 GHA `ai_blog.yml` schedule 하나뿐이다. Cloud Run 폴백은 중단됐다.**
 
 | 트리거 | 시각 (UTC) | 역할 | 동작 |
 |------|------|------|------|
-| GHA `ai_blog.yml` schedule | 12:31 하루 1회 | **1순위 자동 발행** | schedule: DRY_RUN=false, AUTO_PUBLISH=true. 단 2026-07은 Actions-minute 한도 소진으로 게이트가 schedule을 스킵(2026-08-01 KST부터 자동 복귀) |
-| Cloud Scheduler `ai-blog-evening` → Cloud Run Job `ai-blog-pipeline` | 12:50 하루 1회 | **폴백** | `scripts/cloud_run_pipeline.sh`가 GHA 결과 확인: 성공→no-op, 실행중→최대 30분 대기, 실패/부재→폴백 발행. 2026-07은 GHA 확인 없이 1순위로 실행 |
-| Cloud Scheduler `ai-blog-morning` | 07:50 KST | 일시정지(PAUSED) | 하루 1회 전환(2026-07-22)으로 중단 — deploy 스크립트도 더 이상 관리 안 함 |
+| GHA `ai_blog.yml` schedule | 12:31 하루 1회 | **유일한 자동 발행** | DRY_RUN=false, AUTO_PUBLISH=true. 원장 중복 가드만 통과하면 실행 |
+| Cloud Scheduler `ai-blog-evening` → Cloud Run Job `ai-blog-pipeline` | — | **중단(PAUSED, 2026-08-03)** | 아래 "왜 껐는가" 참고 |
+| Cloud Scheduler `ai-blog-morning` | — | 일시정지(PAUSED) | 하루 1회 전환(2026-07-22)으로 중단 |
 | GHA `ai_blog.yml` workflow_dispatch | 수동 | 스모크 테스트/publish_draft 리허설 | 게이트와 무관하게 항상 동작 |
 | GHA `news_blog.yml` (schedule 없음) | — | 수동 전용 (별도 프로젝트 — 건드리지 말 것) | workflow_dispatch만 지원 |
 
-**이중 발행 구조적 차단**: 시간 기반 핸드셰이크만으로는 GHA 큐 지연(57분~2시간 실측)에
-깨져 슬롯당 2건 중복 발행됐다(2026-07-20~21 사고). 지금은 GHA·Cloud Run 양쪽 다 실행
-시작 시점에 `scripts/check_published_today.py`로 원장(data/publish_history.json)을 직접
-확인해 "오늘(KST) 라이브 발행이 이미 있으면" 스킵한다 — 트리거가 얼마나 지연되든 하루
-1건을 넘지 않는다. (라이브 판정: published=true + blogspot.com URL. 리허설 초안은
-blogger.com/edit URL이라 자연히 제외.)
+### Cloud Run 폴백을 왜 껐는가 (2026-08-03, 실측 근거)
 
-**Cloud Run 이미지 계약**: 이미지의 entrypoint.sh는 "clone → `scripts/cloud_run_pipeline.sh`
-exec"만 하는 얇은 셔틀이다. 파이프라인/우선순위/가드 로직 수정은 git push만으로 다음
-실행부터 반영되고, 이미지 재빌드는 requirements.txt 등 의존성이 바뀔 때만 필요하다.
-인프라 설정 변경은 `scripts/deploy_cloud_run.sh` / `scripts/deploy_cloud_scheduler.sh` 참고.
+1. **30분 하드 타임아웃에 구조적으로 못 맞는다.** Cloud Run job의 `--task-timeout=1800s`인데
+   파이프라인 완주에 22~49분이 걸린다(GHA 실측: 8/1 48분56초, 8/2 22분9초).
+   **7/29~8/2 5일 연속 정확히 1800초에 SIGKILL**됐다. 원장 커밋이 파이프라인 실행
+   *뒤에* 순차로 붙어 있어서 죽으면 그 실행의 결과가 성공이든 실패든 기록조차 안 남았고,
+   GHA가 7월 게이트로 스킵되던 7/29~31 사흘은 발행이 통째로 증발했다.
+2. **매일 중복으로 풀 파이프라인을 태웠다.** GHA 12:31이 큐 지연되면(8/2 실측 95분 지연)
+   12:50의 Cloud Run이 "최근 120분 내 GHA 없음"으로 오판하고 자기가 발행을 시작했다.
+3. 7월 Actions-minute 한도 소진 기간이 끝나 8/1부터 GHA가 정상 복귀했다 — 폴백의 존재
+   이유였던 조건 자체가 사라졌다.
+
+**되살릴 경우 반드시 먼저 할 것**: `scripts/deploy_cloud_run.sh`의 `--task-timeout`을
+3300s 이상으로 올릴 것. 1800s로는 완주 불가능하다. 이중 발행 방지 설계(원장 가드)는
+그대로 유효하다.
+
+**이중 발행 구조적 차단(경로가 하나여도 유지)**: 시간 기반 핸드셰이크만으로는 GHA 큐
+지연(57분~2시간 실측)에 깨져 슬롯당 2건 중복 발행됐다(2026-07-20~21 사고). 지금은 실행
+시작 시점에 `scripts/check_published_today.py`로 원장(data/publish_history.json)을 직접
+확인해 "오늘(KST) 라이브 발행이 이미 있으면" 스킵한다 — 트리거가 얼마나 지연되든,
+재실행이 몇 번이든 하루 1건을 넘지 않는다. (라이브 판정: published=true + blogspot.com
+URL. 리허설 초안은 blogger.com/edit URL이라 자연히 제외.)
+
+**Cloud Run 이미지 계약(중단 상태에서도 유지)**: 이미지의 entrypoint.sh는
+"clone → `scripts/cloud_run_pipeline.sh` exec"만 하는 얇은 셔틀이다. 로직 수정은 git
+push만으로 반영되고, 이미지 재빌드는 requirements.txt 등 의존성이 바뀔 때만 필요하다.
+
+## 외부 API 예산 정책 (2026-08-03)
+
+크레딧이 소진된 provider를 계속 호출하면 시간과 돈이 동시에 샌다. 실측(7/29~8/2):
+Tavily 전 호출 HTTP 432, Firecrawl 전 호출 HTTP 402, Reddit 6개 서브레딧 전부 HTTP 403.
+재시도 6회를 곱해 **실행당 약 3분**을 버렸고 이것이 30분 타임아웃의 한 축이었다.
+
+- **끈 것**: `ENABLE_TAVILY_SEARCH=false`, `ENABLE_FIRECRAWL_SEARCH=false`,
+  `COMMUNITY_REDDIT_SUBS=off`(Reddit만 끄고 HN 신호는 유지).
+- **끄면 안 되는 것**: `ENABLE_EXA_SEARCH`. Exa는 본문 팩트 수집 체인의 핵심이고,
+  끄면 팩트가 RSS 헤드라인만 남아 "껍데기 글"이 나온다(2026-07-24 실측 사고).
+- **회로차단기**: `external_news_search_service`가 401/402/403/429/432를 받으면 그
+  provider를 이번 실행 동안 차단하고 로그를 1회 남긴다. 5xx·타임아웃은 일시 장애이므로
+  차단하지 않는다. Exa만은 429(일시 rate limit)로 죽이지 않고 401/402/403/432에서만
+  차단한다. `community_topic_service`도 Reddit 전용 회로차단을 갖는다(HN은 무관하게 계속).
+- 크레딧을 다시 채우면 `ENABLE_*`를 true로 되돌리기만 하면 된다. 다시 소진돼도
+  회로차단기가 첫 확정 실패에서 자동으로 멈추므로 이번 같은 며칠짜리 낭비는 재발하지 않는다.
 
 > GitHub Actions schedule은 main 브랜치에서만 실행됨
 > GOOGLE_AI_API_KEY(Gemini)는 더 이상 사용하지 않음 — 팩트 수집은 Custom Search(키 있을 때) → Google News RSS(키 불필요) 폴백

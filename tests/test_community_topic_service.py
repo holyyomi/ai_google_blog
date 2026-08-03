@@ -21,10 +21,14 @@ NOW = time.time()
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch):
     CommunityTopicSignal.reset_cache()
+    # 2026-08-03: 모듈 TTL 캐시 + Reddit 회로차단이 추가되면서 프로세스 전역
+    # 상태가 생겼다. 리셋하지 않으면 앞 테스트의 캐시/차단 상태가 뒤 테스트로 샌다.
+    cts.reset_community_topic_cache()
     monkeypatch.delenv("ENABLE_COMMUNITY_TOPIC_SIGNAL", raising=False)
     monkeypatch.delenv("COMMUNITY_REDDIT_SUBS", raising=False)
     yield
     CommunityTopicSignal.reset_cache()
+    cts.reset_community_topic_cache()
 
 
 # ---------------------------------------------------------------------------

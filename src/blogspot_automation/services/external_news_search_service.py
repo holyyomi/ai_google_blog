@@ -27,6 +27,50 @@ EXA_SEARCH_ENDPOINT = "https://api.exa.ai/search"
 FIRECRAWL_SEARCH_ENDPOINT = "https://api.firecrawl.dev/v2/search"
 
 
+# ---------------------------------------------------------------------------
+# 회로차단기(circuit breaker) — 2026-08-03
+#
+# 배경(실측): Tavily는 HTTP 432(크레딧/플랜 한도 소진), Firecrawl은 HTTP 402
+# (Insufficient credits)를 매 호출마다 돌려주는데도 파이프라인은 재시도
+# (run_with_retries, 최대 6회) × 후보 수만큼 같은 호출을 반복했다 —
+# Tavily 18회/실행(약 150~180초), Firecrawl 6회/실행. 한 번 "돈·권한·한도"
+# 계열 실패가 나오면 그 실행 안에서는 절대 회복되지 않으므로, 해당 provider를
+# 그 실행 동안 꺼서 낭비를 자동으로 멈춘다.
+#
+# 크레딧을 다시 채우면 프로세스가 새로 뜨는 순간(GHA/Cloud Run 1회 실행 =
+# 1 프로세스) 차단 상태도 사라지므로, env 플래그를 되돌리는 것 외에 별도
+# 복구 작업이 필요 없다.
+#
+# 5xx·타임아웃·네트워크 오류는 일시 장애다 — 다음 후보에서 회복될 수 있으므로
+# 절대 차단 대상이 아니다.
+# ---------------------------------------------------------------------------
+_FATAL_HTTP_STATUSES = frozenset({401, 402, 403, 429, 432})
+
+# Exa만 예외로 429(rate limit)를 차단 사유에서 뺀다.
+# 근거: Exa 응답은 후보 검증 소스(source_urls/web_verification)의 핵심이고,
+# 429는 "잠깐 너무 빨리 불렀다"는 일시 신호라 다음 후보에서 회복될 수 있다.
+# 반면 401(인증 실패)/402(크레딧 소진)/403(플랜 권한 없음)/432는 같은 실행
+# 안에서 회복 불가능한 확정 상태이므로 Exa도 차단한다.
+_EXA_FATAL_HTTP_STATUSES = frozenset({401, 402, 403, 432})
+
+
+def _fatal_statuses_for(provider: str) -> frozenset[int]:
+    return _EXA_FATAL_HTTP_STATUSES if provider == "exa" else _FATAL_HTTP_STATUSES
+
+
+class ExternalSearchHTTPError(RuntimeError):
+    """HTTP 상태코드를 속성으로 보존하는 외부 검색 API 오류.
+
+    기존에는 ``RuntimeError(f"HTTP {code}: ...")``로 상태코드를 문자열에
+    묻어버려서 호출부가 코드로 분기할 수 없었다. 메시지 형식은 그대로 두고
+    ``status_code``만 추가한다(로그 출력 호환).
+    """
+
+    def __init__(self, status_code: int, summary: str) -> None:
+        super().__init__(f"HTTP {status_code}: {summary}")
+        self.status_code = status_code
+
+
 @dataclass(slots=True)
 class ExternalNewsSearchConfig:
     naver_client_id: str = ""
@@ -65,6 +109,29 @@ class ExternalSearchDocument:
 class ExternalNewsSearchService:
     def __init__(self, config: ExternalNewsSearchConfig) -> None:
         self.config = config
+        # 이 실행에서 확정 실패(크레딧·인증·권한 소진)로 판정된 provider.
+        # 인스턴스는 cli_news.py에서 1회 생성돼 run_with_retries의 재시도
+        # 전체(최대 6회)에 공유되므로, 인스턴스 필드면 실행 전체를 덮는다.
+        self._dead_providers: set[str] = set()
+
+    def _provider_dead(self, provider: str) -> bool:
+        return provider in self._dead_providers
+
+    def _note_provider_failure(self, provider: str, exc: BaseException) -> None:
+        """확정 실패면 provider를 차단 목록에 넣고 딱 한 번만 로그를 남긴다."""
+        status = getattr(exc, "status_code", None)
+        if status is None or status not in _fatal_statuses_for(provider):
+            return
+        if provider in self._dead_providers:
+            return
+        self._dead_providers.add(provider)
+        logger.warning(
+            "%s HTTP %s — 이번 실행 동안 %s 호출을 중단한다 (크레딧/인증/권한 소진). "
+            "복구하려면 크레딧을 채우거나 해당 ENABLE_* 플래그를 확인할 것.",
+            provider,
+            status,
+            provider,
+        )
 
     def collect_naver_documents(self, query_plan: list[tuple[str, str]]) -> list[ExternalSearchDocument]:
         if not self._naver_search_ready():
@@ -166,6 +233,8 @@ class ExternalNewsSearchService:
     def _verify_with_tavily(self, candidates: list[NewsCandidate]) -> None:
         if not self.config.enable_tavily_search or not self.config.tavily_api_key.strip():
             return
+        if self._provider_dead("tavily"):
+            return
         for candidate in self._verification_targets(candidates, self.config.tavily_max_requests):
             query = _verification_query(candidate)
             if not query:
@@ -190,6 +259,9 @@ class ExternalNewsSearchService:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Tavily verification failed(query=%s): %s", query, exc)
+                self._note_provider_failure("tavily", exc)
+                if self._provider_dead("tavily"):
+                    return
                 continue
             results = response.get("results") if isinstance(response, dict) else None
             if isinstance(results, list):
@@ -197,6 +269,8 @@ class ExternalNewsSearchService:
 
     def _verify_with_exa(self, candidates: list[NewsCandidate]) -> None:
         if not self.config.enable_exa_search or not self.config.exa_api_key.strip():
+            return
+        if self._provider_dead("exa"):
             return
         start_date = (date.today() - timedelta(days=3)).isoformat()
         for candidate in self._verification_targets(candidates, self.config.exa_max_requests):
@@ -221,6 +295,9 @@ class ExternalNewsSearchService:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Exa verification failed(query=%s): %s", query, exc)
+                self._note_provider_failure("exa", exc)
+                if self._provider_dead("exa"):
+                    return
                 continue
             results = response.get("results") if isinstance(response, dict) else None
             if isinstance(results, list):
@@ -228,6 +305,8 @@ class ExternalNewsSearchService:
 
     def _verify_with_firecrawl(self, candidates: list[NewsCandidate]) -> None:
         if not self.config.enable_firecrawl_search or not self.config.firecrawl_api_key.strip():
+            return
+        if self._provider_dead("firecrawl"):
             return
         for candidate in self._verification_targets(candidates, self.config.firecrawl_max_requests):
             query = _verification_query(candidate)
@@ -254,6 +333,9 @@ class ExternalNewsSearchService:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Firecrawl verification failed(query=%s): %s", query, exc)
+                self._note_provider_failure("firecrawl", exc)
+                if self._provider_dead("firecrawl"):
+                    return
                 continue
             results = response.get("data") if isinstance(response, dict) else None
             if isinstance(results, list):
@@ -476,7 +558,9 @@ class ExternalNewsSearchService:
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="ignore")
             summary = _safe_error_summary(body)
-            raise RuntimeError(f"HTTP {exc.code}: {summary}") from exc
+            # ExternalSearchHTTPError는 RuntimeError 하위라 기존 except 절과
+            # 메시지 형식이 그대로 호환되고, status_code로 회로차단 분기가 가능하다.
+            raise ExternalSearchHTTPError(exc.code, summary) from exc
 
 
 def _clean_text(value: str) -> str:
