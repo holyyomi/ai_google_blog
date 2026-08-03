@@ -1,6 +1,23 @@
 from __future__ import annotations
 
+import pytest
+
+from blogspot_automation.config import settings as settings_module
 from blogspot_automation.config.settings import Settings
+
+
+@pytest.fixture(autouse=True)
+def _isolate_from_local_dotenv(monkeypatch):
+    """개발자 로컬 `.env`가 테스트 판정에 새어들어오지 않게 막는다.
+
+    `Settings.from_env()`는 `_load_dotenv(Path(".env"))`를 호출하고, 그 함수는
+    `os.environ.setdefault`를 쓴다. 즉 테스트가 명시적으로 monkeypatch하지 않은
+    변수는 로컬 `.env` 값이 그대로 들어온다. 2026-08-03에 운영 정책상
+    `.env`에 `ENABLE_TAVILY_SEARCH=false`를 넣자마자 "키가 있으면 기본 활성"을
+    검증하던 이 파일의 테스트가 로컬에서만 깨졌다(CI는 `.env`가 없어 통과).
+    기본값 파생을 검증하는 테스트는 `.env`와 무관해야 한다.
+    """
+    monkeypatch.setattr(settings_module, "_load_dotenv", lambda _path: None)
 
 
 def test_settings_from_env_loads_news_api_keys(monkeypatch) -> None:
