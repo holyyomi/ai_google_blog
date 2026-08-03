@@ -33,6 +33,18 @@ _MIN_TITLE_LENGTH = 20
 
 _REDDIT_URL_TEMPLATE = "https://www.reddit.com/r/{sub}/hot.json?limit=25&raw_json=1"
 _DEFAULT_REDDIT_SUBS = ("ChatGPT", "OpenAI", "ClaudeAI", "artificial", "LocalLLaMA", "singularity")
+# COMMUNITY_REDDIT_SUBS에 이 값을 주면 Reddit만 끄고 HN 신호는 유지한다.
+_REDDIT_DISABLED_TOKENS = {"off", "none", "-", "false", "0", "disabled"}
+# Reddit이 차단(403/429)으로 응답하면 프로세스 수명 동안 재호출하지 않는다.
+# 2026-07 실측: 6개 서브레딧 × 재시도 6회 = 실행당 약 40회가 전부 403이었다.
+_REDDIT_BLOCKED_STATUSES = {401, 403, 429}
+_REDDIT_BREAKER: dict[str, bool] = {"tripped": False}
+# _http_get_json이 마지막 실패의 HTTP 상태코드를 남기는 옆 채널 (아래 주석 참고).
+_LAST_HTTP_STATUS: dict[str, int | None] = {"code": None}
+
+# 모듈 레벨 TTL 캐시 — collect_community_topics()가 직접 사용한다(아래 주석 참고).
+_MODULE_CACHE_LOCK = threading.Lock()
+_MODULE_CACHE: dict[str, object] = {"topics": None, "cached_at": 0.0}
 
 _HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 _HN_QUERIES = ("AI", "GPT", "Claude", "Gemini", "LLM", "OpenAI")
@@ -110,25 +122,73 @@ def is_signal_enabled() -> bool:
 
 
 def _reddit_subs() -> tuple[str, ...]:
+    """Reddit 서브레딧 목록. 명시적 비활성 토큰이면 빈 튜플(=Reddit만 끄고 HN 유지).
+
+    2026-08-03: 기존에는 빈 문자열이면 기본 6개로 되돌아가서 env만으로 Reddit을
+    끌 방법이 없었다(ENABLE_COMMUNITY_TOPIC_SIGNAL은 HN까지 같이 죽인다).
+    Reddit이 403 Blocked로 100% 실패하는 상황에서 HN 신호만 살리려면
+    COMMUNITY_REDDIT_SUBS=off 로 둘 수 있어야 한다.
+    """
     raw = (os.getenv("COMMUNITY_REDDIT_SUBS", "") or "").strip()
+    if raw.lower() in _REDDIT_DISABLED_TOKENS:
+        return ()
     if not raw:
         return _DEFAULT_REDDIT_SUBS
     subs = tuple(part.strip() for part in raw.split(",") if part.strip())
     return subs or _DEFAULT_REDDIT_SUBS
 
 
-def collect_community_topics(max_items: int = 30) -> list[CommunityTopic]:
+def collect_community_topics(
+    max_items: int = 30, *, force_refresh: bool = False
+) -> list[CommunityTopic]:
     """Reddit + HN을 합쳐 AI 관련·48h 이내·중복 제거된 화제 목록을 반환한다.
 
     mention_score 내림차순 정렬, 어떤 실패에서도 예외 없이 [] 또는 부분 결과.
+
+    2026-08-03: 모듈 레벨 TTL 캐시를 여기 직접 붙였다. news_pipeline이 이 모듈
+    함수를 직접 호출해 CommunityTopicSignal의 클래스 캐시를 우회하는데,
+    run_with_retries가 run_once를 최대 6회 돌리므로 같은 sweep(Reddit 6 + HN 6
+    = 12회 HTTP)이 실행당 6번 반복됐다. 캐시를 호출부가 아니라 이 함수에 두면
+    호출부 수정 없이 중복이 사라진다.
     """
     if not is_signal_enabled():
         return []
+    cached = _get_cached_topics(force_refresh=force_refresh)
+    if cached is not None:
+        return cached[: max(0, max_items)]
     now = time.time()
     merged = _fetch_reddit_topics(now) + _fetch_hn_topics(now)
     relevant = [topic for topic in merged if is_ai_relevant(topic.title)]
     deduped = _dedupe_topics(relevant)
+    _store_cached_topics(deduped)
     return deduped[: max(0, max_items)]
+
+
+def _get_cached_topics(*, force_refresh: bool) -> list[CommunityTopic] | None:
+    if force_refresh:
+        return None
+    with _MODULE_CACHE_LOCK:
+        if _MODULE_CACHE["topics"] is None:
+            return None
+        if (time.time() - _MODULE_CACHE["cached_at"]) >= _DEFAULT_TTL_SECONDS:
+            return None
+        return list(_MODULE_CACHE["topics"])
+
+
+def _store_cached_topics(topics: list[CommunityTopic]) -> None:
+    # 빈 결과도 캐시한다 — 전부 실패한 실행에서 6번 재시도하는 것이 정확히
+    # 이번에 고치려는 낭비다. TTL이 지나면 자연히 재시도된다.
+    with _MODULE_CACHE_LOCK:
+        _MODULE_CACHE["topics"] = list(topics)
+        _MODULE_CACHE["cached_at"] = time.time()
+
+
+def reset_community_topic_cache() -> None:
+    """테스트/강제 갱신용 — 모듈 캐시와 Reddit 회로차단 상태를 함께 초기화한다."""
+    with _MODULE_CACHE_LOCK:
+        _MODULE_CACHE["topics"] = None
+        _MODULE_CACHE["cached_at"] = 0.0
+    _REDDIT_BREAKER["tripped"] = False
 
 
 def is_ai_relevant(title: str) -> bool:
@@ -253,12 +313,24 @@ def _dedupe_topics(topics: list[CommunityTopic]) -> list[CommunityTopic]:
 
 
 def _http_get_json(url: str) -> dict | None:
+    """HTTP GET → dict. 실패 시 None.
+
+    실패의 HTTP 상태코드는 `_LAST_HTTP_STATUS`에 남긴다 — 반환 시그니처를
+    바꾸면 이 함수를 가짜 응답으로 치환하는 기존 테스트 seam이 깨지기 때문에,
+    seam은 그대로 두고 상태만 옆 채널로 전달한다. (테스트가 이 함수를 통째로
+    치환하면 상태는 None으로 남아 회로차단이 발동하지 않는다 — 의도된 동작.)
+    """
+    _LAST_HTTP_STATUS["code"] = None
     req = request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with request.urlopen(req, timeout=_FETCH_TIMEOUT_SECONDS) as response:
             body = response.read().decode("utf-8", errors="replace")
         payload = json.loads(body)
-    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except error.HTTPError as exc:
+        _LAST_HTTP_STATUS["code"] = getattr(exc, "code", None)
+        logger.warning("community_topic fetch failed (%s): %s", url, exc)
+        return None
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         logger.warning("community_topic fetch failed (%s): %s", url, exc)
         return None
     except Exception as exc:  # noqa: BLE001
@@ -270,10 +342,26 @@ def _http_get_json(url: str) -> dict | None:
 
 
 def _fetch_reddit_topics(now: float) -> list[CommunityTopic]:
+    """Reddit sweep. 차단 응답(403 등)을 한 번 받으면 남은 서브레딧과
+    이후 모든 호출을 건너뛴다 — 되살아날 성질의 실패가 아니기 때문이다.
+
+    5xx·타임아웃은 일시 장애일 수 있으므로 회로를 내리지 않는다(다음 후보에서
+    회복될 수 있다). HN은 이 회로와 무관하게 계속 돈다.
+    """
+    if _REDDIT_BREAKER["tripped"]:
+        return []
     topics: list[CommunityTopic] = []
     for sub in _reddit_subs():
         payload = _http_get_json(_REDDIT_URL_TEMPLATE.format(sub=sub))
         if payload is None:
+            if _LAST_HTTP_STATUS["code"] in _REDDIT_BLOCKED_STATUSES:
+                _REDDIT_BREAKER["tripped"] = True
+                logger.warning(
+                    "community_topic: Reddit HTTP %s — 이번 프로세스 동안 Reddit 수집을 중단한다"
+                    " (HN 신호는 계속 사용). 영구화하려면 COMMUNITY_REDDIT_SUBS=off",
+                    _LAST_HTTP_STATUS["code"],
+                )
+                break
             continue
         topics.extend(_parse_reddit_payload(payload, sub, now))
     return topics

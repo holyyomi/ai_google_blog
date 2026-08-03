@@ -3,19 +3,27 @@ name: holyyomi Fresh AI Issue Blog
 # cli_ai.py compatibility workflow.
 # The retired Naver Blog rewrite path is not used; cli_ai delegates to fresh AI/news discovery.
 #
-# ── 자동 발행 우선순위 (2026-07-24 사용자 결정): GHA 1순위, Cloud Run 폴백 ──
-# 이 schedule(12:31 UTC 하루 1회)이 1순위 자동 발행이다. Cloud Run
-# ai-blog-pipeline(Cloud Scheduler "ai-blog-evening", 12:50 UTC)은 이 run이
-# 실패했거나 아예 못 떴을 때(Actions-minute 한도 소진)만 발행하는 폴백이다
-# (scripts/cloud_run_pipeline.sh 참고).
-# 단, 2026-07은 Actions-minute 한도가 이미 소진돼 아래 게이트가 schedule을
-# 건너뛰고 Cloud Run이 1순위다. 2026-08-01(KST)부터 자동으로 GHA가 복귀한다.
+# ── 자동 발행 경로 (2026-08-03 사용자 결정): GHA 단독 ──
+# 이 schedule(12:31 UTC 하루 1회)이 **유일한** 자동 발행 경로다.
+# Cloud Run 폴백(ai-blog-pipeline / Cloud Scheduler "ai-blog-evening")은
+# 2026-08-03에 중단(PAUSED)했다. 이유:
+#   - 7월 GHA Actions 한도 소진 기간이 끝나 8/1부터 GHA가 정상 복귀했고
+#     (실측 8/1 48분·8/2 22분 완주), 폴백의 존재 이유가 사라졌다.
+#   - Cloud Run은 task-timeout 1800초(30분) 하드 상한이 있는데 파이프라인
+#     완주에 22~49분이 걸려 **7/29~8/2 5일 연속 100% 타임아웃 SIGKILL**됐다.
+#     원장 커밋이 파이프라인 뒤에 순차로 붙어 있어 죽으면 기록조차 안 남았고,
+#     GHA가 스킵되던 7/29~31 사흘은 발행이 통째로 증발했다.
+#   - GHA 12:31이 큐 지연되면(실측 95분) 12:50 Cloud Run이 "GHA 없음"으로
+#     오판해 매일 풀 파이프라인을 중복으로 태우고 있었다.
+# 되살릴 일이 생기면 scripts/deploy_cloud_run.sh의 --task-timeout을 먼저
+# 3300s 이상으로 올릴 것. 1800s로는 구조적으로 완주할 수 없다.
 #
-# ── 이중 발행 구조적 차단 ──
+# ── 이중 발행 구조적 차단 (경로가 하나여도 유지) ──
 # 과거(2026-07-20~21) 시간 기반 핸드셰이크는 GHA 큐 지연(57분~2시간)에 깨져
-# 슬롯당 2건 중복 발행됐다. 지금은 GHA·Cloud Run 양쪽 다 실행 시작 시점에
+# 슬롯당 2건 중복 발행됐다. 지금은 실행 시작 시점에
 # scripts/check_published_today.py로 원장을 직접 확인해 "오늘 라이브 발행이
-# 이미 있으면" 스킵한다 — 트리거가 얼마나 지연되든 하루 1건을 넘지 않는다.
+# 이미 있으면" 스킵한다 — 트리거가 얼마나 지연되든, 재실행이 몇 번이든
+# 하루 1건을 넘지 않는다.
 #
 # 발행 시각은 US-first 영어 블로그 타겟 기준: 12:31 UTC ≈ 미국 동부 아침
 # 8:31(EDT)·영국 오후 1:31·인도 저녁 6:01. 정각(0분) 회피로 GitHub cron 지연 완화.
@@ -55,12 +63,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # ── schedule 전용 게이트 ──
-      # (a) 2026-07 한정: Actions-minute 한도 소진으로 schedule을 건너뛰고
-      #     Cloud Run이 1순위. 2026-08-01(KST)부터 이 조건이 자동 해제돼 GHA 복귀.
-      # (b) 원장 중복 가드: 오늘(KST) 라이브 발행이 이미 원장에 있으면 스킵 —
-      #     이 run이 큐에서 몇 시간 지연됐다가 늦게 시작해도(2026-07-20~21 실측)
-      #     Cloud Run 폴백이 이미 발행한 슬롯을 또 발행하지 않는다.
-      # 수동 workflow_dispatch(리허설/스모크 테스트)는 두 게이트와 무관하게 항상 동작
+      # 원장 중복 가드: 오늘(KST) 라이브 발행이 이미 원장에 있으면 스킵 —
+      # 이 run이 큐에서 몇 시간 지연됐다가 늦게 시작해도(2026-07-20~21 실측)
+      # 같은 슬롯을 두 번 발행하지 않는다.
+      # (2026-07 한정 "Actions 한도 소진 시 Cloud Run 우선" 분기는 2026-08-03에
+      #  제거했다 — Cloud Run 폴백 자체를 중단해서 조건이 무의미해졌고, 날짜
+      #  비교가 남아 있으면 다음에 읽는 사람을 헷갈리게 한다.)
+      # 수동 workflow_dispatch(리허설/스모크 테스트)는 게이트와 무관하게 항상 동작
       # — CLAUDE.md 머지 조건(발행 경로 변경 시 publish_draft 리허설 필수) 유지.
       - name: Compute schedule gate
         id: gate
@@ -69,9 +78,6 @@ jobs:
           if [[ "${{ github.event_name }}" != "schedule" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "[gate] manual dispatch — always run. today(KST)=$NOW_KST"
-          elif [[ "$NOW_KST" < "2026-08-01" ]]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "[gate] 2026-07-31까지 schedule 자동실행 건너뜀 (Cloud Run이 1순위). 2026-08-01부터 자동 복귀. today(KST)=$NOW_KST"
           elif [[ "$(python3 scripts/check_published_today.py)" == "true" ]]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "[gate] 오늘 라이브 발행이 이미 원장에 있음 — 중복 방지 스킵. today(KST)=$NOW_KST"
@@ -189,12 +195,30 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-          ENABLE_TAVILY_SEARCH: "true"
+          # 2026-08-03: Tavily·Firecrawl 비활성화.
+          # 실측(7/29~8/2 로그): Tavily는 전 호출 HTTP 432(플랜 한도 소진),
+          # Firecrawl은 전 호출 HTTP 402(크레딧 소진). 재시도 6회 × 쿼리 3개로
+          # 실행당 Tavily 18회·Firecrawl 6회가 100% 실패하며 약 3분을 버렸다.
+          # 끊어도 발행 품질에 영향 없음이 확인됨 — 본문 팩트 수집 체인은
+          # Exa/Naver/Google News RSS만 쓰고(llm_content_service에 tavily·
+          # firecrawl 호출 0건), 이 둘의 결과는 스코어링 보너스(최대 +8점,
+          # 하드게이트 아님)와 후보 병합 URL에만 쓰였다. 발행 글의 Sources
+          # 블록도 Exa/Naver 응답 기반이다.
+          # 크레딧을 다시 채우면 이 두 값을 "true"로 되돌리면 된다. 그때 또
+          # 한도가 소진돼도 회로차단기(external_news_search_service)가 첫
+          # 확정 실패에서 자동으로 호출을 멈춘다.
+          ENABLE_TAVILY_SEARCH: "false"
+          ENABLE_FIRECRAWL_SEARCH: "false"
+          # Exa는 본문 팩트 수집의 핵심이라 유지 필수 — 끄면 팩트가 RSS
+          # 헤드라인만 남아 "껍데기 글"이 나온다(2026-07-24 실측 사고).
           ENABLE_EXA_SEARCH: "true"
-          ENABLE_FIRECRAWL_SEARCH: "true"
           NEWS_TAVILY_MAX_REQUESTS: "3"
           NEWS_EXA_MAX_REQUESTS: "3"
           NEWS_FIRECRAWL_MAX_REQUESTS: "1"
+          # 2026-08-03: Reddit은 6개 서브레딧 전부 HTTP 403 Blocked(실측).
+          # HN 신호는 정상이므로 Reddit만 끄고 HN은 유지한다.
+          # (ENABLE_COMMUNITY_TOPIC_SIGNAL로 끄면 HN까지 죽으므로 쓰지 않는다.)
+          COMMUNITY_REDDIT_SUBS: "off"
           # 색인 즉시 요청 (Bing·Naver IndexNow) — 키 없으면 안전하게 skip
           NAVER_INDEXNOW_KEY: ${{ secrets.NAVER_INDEXNOW_KEY }}
           NAVER_INDEXNOW_KEY_LOCATION: ${{ secrets.NAVER_INDEXNOW_KEY_LOCATION }}

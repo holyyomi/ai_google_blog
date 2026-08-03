@@ -217,6 +217,37 @@ _SYSTEM_PROMPT = """당신은 구글 블로그스팟에 매일 자동 업로드�
 - HTML entity 코드(&#숫자; 형태) 절대 사용 금지 — 이모지/아이콘은 유니코드 문자(✅ ✓ 🎯 등) 직접 사용.
 - 기계적인 템플릿 텍스트("이슈 정의", "핵심 내용") 금지 -> 실제 독자의 질문 형태(자연어)로 <h2> 소제목 구성."""
 
+# ─── 영어 본문 길이 계약 (2026-08-03 통일) ────────────────────────────────────
+# 이전에는 하한이 세 군데로 갈려 있었다: 프롬프트 본문 "1,600+ words", 프롬프트
+# 마지막 체크 "under 1,500 rejected", 검증기 `word_count < 1400`. 모델은 가장
+# 낮은 숫자(그리고 자기가 세는 방식)를 목표로 삼아 1,336~1,393단어를 냈고, 그때마다
+# 초안을 통째로 폐기하고 처음부터 재생성했다(호출 1회당 ~2분, 재시도 6회 안에서 반복
+# → 30분 타임아웃의 주범). 이제 하한은 이 상수 하나가 유일한 소스이고, 프롬프트는
+# 하한보다 확실히 위인 목표 구간을 요구한다(여유 200~700단어).
+#
+# 참고: 발행 게이트(news_quality_gate)에는 영어 단어 수 검사가 없다 — 게이트의
+# 길이 조건은 `article_body_too_short`(plain text 800자)뿐이라 이 하한과 충돌하지
+# 않는다. 즉 이 값은 애드센스 thin-content 방어를 위한 자체 계약이다.
+EN_MIN_BODY_WORDS = 1500
+EN_TARGET_BODY_WORDS_MIN = 1700
+EN_TARGET_BODY_WORDS_MAX = 2200
+
+
+def count_body_words(text: str) -> int:
+    """영어 본문의 '단어 수'를 센다 (HTML 태그 제거 후 호출할 것).
+
+    2026-08-03: 예전 정규식 `[A-Za-z][A-Za-z'’-]*`는 **숫자를 아예 세지 않았다**.
+    이 블로그의 핵심 자산이 가격·한도·토큰 수치라, 데이터가 많은 글일수록 단어 수가
+    깎여 불리해지는 역인센티브가 있었다("$20 a month for 200K tokens" = 4단어로 계산).
+    지금은 사람이 세는 방식(공백으로 끊고, 영숫자를 하나라도 포함한 토큰만 셈)과
+    같게 센다 — 발행 게이트에는 대응 계산이 없어 새 불일치가 생기지 않는다.
+    """
+    plain = re.sub(r"\s+", " ", text or "").strip()
+    if not plain:
+        return 0
+    return sum(1 for token in plain.split(" ") if re.search(r"[A-Za-z0-9]", token))
+
+
 # ─── 영어 모드 프롬프트 (2026-07-17 영어 전환) ────────────────────────────────
 # 대상: 미국·영국·캐나다·인도 영어권 검색 독자 + AI 챗봇 인용(GEO).
 # 수익 모델: 애드센스 단일 — thin content·낚시 제목·확인 안 된 수치가 최대 리스크.
@@ -252,7 +283,7 @@ Never state any of the following unless it appears in the provided [SEARCH FACTS
 1. English only. US blog register: short sentences, second person ("you"), active voice. No throat-clearing — never open with "In this article, we will..." or "AI is evolving rapidly". Start with the reader's situation or the direct answer.
 1-0. PLAIN LANGUAGE (readability is a ranking factor): write for a smart friend, not a boardroom — 8th-grade reading level, everyday words, contractions (you're, it's, don't) welcome. Say "costs $20 a month", never "is priced at a monthly rate of $20". Define any technical term in plain words the first time it appears — "per-seat pricing (you pay separately for each team member)". No academic connectors ("thus", "moreover", "functions as", "constructs", "concentrates on") — use "so", "also", "works as", "builds", "focuses on". Facts are raw material, not quotes: never copy sentences from [SEARCH FACTS] verbatim or wrap them in quotation marks — rewrite every fact in your own plain words. Quotation marks are only for words an actual named person said.
 1-1. PARAGRAPH RHYTHM (readability contract): each paragraph is 2-3 sentences and at most 85 words; the opening paragraph stays under 60 words. Never write more than two consecutive paragraphs without a visual break — a table, list, step card, or callout box. One idea per paragraph; when the idea grows, split the paragraph instead of stretching it. Never use <br> for line breaks inside prose.
-    SHORT PARAGRAPHS DO NOT MEAN A SHORT ARTICLE: keep total length at 1,600+ words by writing MORE paragraphs and sections, not longer ones. A typical section runs 3-5 short paragraphs plus a visual element. If you feel the article getting thin, add depth (another beginner blocker, another worked example, another reader profile in the judgment) — never re-inflate paragraph size.
+    SHORT PARAGRAPHS DO NOT MEAN A SHORT ARTICLE: keep total length at {target_min}-{target_max} words by writing MORE paragraphs and sections, not longer ones. A typical section runs 3-5 short paragraphs plus a visual element. If you feel the article getting thin, add depth (another beginner blocker, another worked example, another reader profile in the judgment) — never re-inflate paragraph size.
 2. Opening = the direct answer. The first paragraph answers the title's question in 2-3 sentences WITH the key number(s). Write it so a search user — or an AI search system assembling an answer — can lift it accurately on its own. A clear, sourced, self-contained answer raises the chance of being cited; nothing guarantees it, so optimize for the reader first.
 3. Depth duty: at least 2 things a knowledgeable reader would not already know — exact limits, price math with a worked example, cause-and-effect ("turning on X cuts Y by ~Z because..."), order-of-operations that only applies to this tool. If a paragraph teaches nothing new, cut it or make it concrete.
 4. Judgment duty: never end on "it depends". Give explicit conditions: "Use it now if [plan/usage/job condition]. Skip it if [condition]." This is what separates the article from a press-release summary.
@@ -275,7 +306,8 @@ Never state any of the following unless it appears in the provided [SEARCH FACTS
 [HTML — use exactly these classes; the publish CSS styles them]
 - No Markdown, no HTML entity codes (&#...;) — use unicode characters directly. No hashtags in the body (the system appends them).
 - Never expose internal jargon: "SEO", "GEO", "AEO", "SGE", "CTA", "AdSense" (unless AdSense itself is the article topic).
-- Allowed classes only: actions-box, risk-note, verdict-box, quick-decision-table, quality-checklist, faq-section/faq-item/faq-q/faq-a, confirmed-needed-box. Inventing other classes or inline styles leaves the article unstyled."""
+- Allowed classes only: actions-box, risk-note, verdict-box, quick-decision-table, quality-checklist, faq-section/faq-item/faq-q/faq-a, confirmed-needed-box. Inventing other classes or inline styles leaves the article unstyled.
+- DEBUG-LOOKING TEXT IS AUTO-BLOCKED: an automated scan rejects the article if the visible body contains the words "fallback", "raw", or "scoring" used as a label — i.e. immediately followed by ":" or "=" ("Fallback: Claude", "raw = the model output", "scoring: 90/100") — or wrapped in double quotes ("fallback", "raw", "scoring"). These read as leaked debug output. Write "Backup option: Claude", "the unedited model output", "how it scores" instead. Using the words inside ordinary prose ("the fallback model kicks in", "raw text files") is fine — it is the label form and the quoted form that are blocked."""
 
 _USER_PROMPT_TMPL_EN = """[Write one complete blog article]
 
@@ -291,7 +323,9 @@ Content family: {content_family}
 {questions}
 
 ---
-One person found this through a Google search. Write one continuous article they read top to bottom — a flow, not a form. Length: 1,600-2,400 words of plain text (excluding HTML tags). Never below 1,500 words — thin content fails AdSense review.
+One person found this through a Google search. Write one continuous article they read top to bottom — a flow, not a form.
+
+LENGTH CONTRACT (one number, no ambiguity): the body must be AT LEAST {min_words} words of plain text and should land between {target_min} and {target_max} words. Aim for {target_min}+ so you are never near the floor. How the automatic counter works: HTML tags do not count; everything else separated by spaces does, including numbers and prices ("$20 a month" = 4 words). Anything under {min_words} words is thin content and is sent back for expansion before it can be published.
 
 [STRUCTURE]
 1) Opening paragraphs (plain <p>, no box — the system builds the top summary box from them):
@@ -305,10 +339,21 @@ One person found this through a Google search. Write one continuous article they
 3) MANDATORY: one comparison/pricing/spec table inside the flow, wrapped exactly like this (the wrapper enables mobile scroll + first-column emphasis):
    <div class="quick-decision-table"><table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
    Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. NO empty cells, and at least half of the data cells must carry REAL verified values (a number, a limit, a plan name) from the facts. "check official page" / "n/a" may fill AT MOST 2 cells in the whole table — if you can't verify enough values, drop that column or shrink the table to the tools you CAN verify; a table of deferrals is a blocked article. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. Clean, sourced tables are what readers save and what answer engines most readily cite.
-4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs (each answer 15-50 words — never a one-liner under 15 words — complete and only verified content; pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation; answers must NOT repeat body sentences):
+   PRICE-CELL RULE — checked mechanically, and failing it blocks publishing outright:
+   - It applies whenever the Title above contains any of: "pricing", "price", "prices", "cost", "costs", "subscription", "fee", "fees", or "/month".
+   - When it applies, the FIRST quick-decision-table in the article must contain AT LEAST 2 data cells (<td>) whose text holds a real currency amount — "$20", "$0.50", "USD 20", "£16", "€18", "₹1,999" — or the single word "Free".
+   - ONLY those two forms count. A cell reading "200K tokens", "Pro plan", "unlimited", "5 seats", "20 dollars", "check the official page", or "n/a" counts as ZERO. Limits and plan names are useful columns, but they are not prices.
+   - So build the table with a dedicated price column and put the currency symbol inside each cell: <td>$20/month</td>, <td>Free</td>, <td>$0.003 per 1K input tokens</td>.
+   - If the facts verify fewer than 2 real prices, do NOT fake them and do NOT fill the price column with deferrals — both fail. Write the article around what IS verified (limits, quotas, feature differences) and keep price framing out of the body. A price-promising title with no verifiable prices is the wrong article to write; the correct fix is a different title/topic, not a padded table.
+4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs. Pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation — and never restate a body sentence:
 <section class="faq-section">
   <article class="faq-item"><h3 class="faq-q">Actual search question?</h3><p class="faq-a">Direct, complete answer.</p></article>
 </section>
+   THE MARKUP IS PARSED MECHANICALLY — an answer is only recognized when a <p> follows its <h3> IMMEDIATELY, with nothing in between. Break the adjacency and the checker sees ZERO answers and blocks the article as "FAQ answers too short":
+   - The question must be <h3 class="faq-q">…</h3> — never <h4>, <strong>, <dt>, <p>, or a heading wrapped in a <div>.
+   - The answer must be the very next tag: <h3 class="faq-q">Question?</h3><p class="faq-a">Answer.</p>. Put NOTHING between them — no <div>, no <br>, no "A:" prefix, no <strong>Answer</strong> label, no comment, no extra wrapper around the <p>.
+   - Answer length: 25-50 words (roughly 150-300 characters). The automatic check measures CHARACTERS and rejects anything under 20, so aim at the word range and you are never close to the floor. One-line fragments read as filler and get cut.
+   - Each of the 3 items is its own <article class="faq-item"> inside the single <section class="faq-section">.
 5) Closing: no summary rehash. One or two sentences: who should use this today vs. who should wait (concrete conditions). Then output this block verbatim in structure (keep id and classes exactly; fill with topic-specific items only):
 <section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">
   <div class="confirmed-section"><h3>What's confirmed</h3><ul><li>3 facts that are settled for this topic</li></ul></div>
@@ -329,8 +374,9 @@ Output rules:
 - Output only the inner HTML (no div.post-content wrapper, no <html>/<head>). Complete every tag.
 - <h2> for sections, <h3> for sub-points. English only.
 - No Markdown, no &#...; entities, no hashtags.
+- Never use "fallback", "raw", or "scoring" as a label followed by ":" or "=", and never put those three words in double quotes — the publish scan reads that shape as leaked debug output and blocks the article. Write "Backup option:", "the unedited output", "how it scores" instead.
 
-FINAL LENGTH CHECK (do this before you output): the article body must be AT LEAST 1,600 words of plain text — anything under 1,500 words is automatically rejected as thin content and never published. If your draft is short, do not pad with fluff; go deeper instead: expand the beginner-blockers section with one more concrete failure-and-fix, add a worked example under the table, and extend the judgment section with one more reader profile. Aim for 1,700-2,200 words."""
+FINAL LENGTH CHECK (do this before you output): count the words of plain text — HTML tags excluded, numbers and prices included. The body must be AT LEAST {min_words} words; target {target_min}-{target_max}. If your draft is short, do not pad with fluff; go deeper instead: expand the beginner-blockers section with one more concrete failure-and-fix, add a worked example under the table, and extend the judgment section with one more reader profile."""
 
 # 영어 모드 '저장용 무기' 지시 — 비교·가격·비용계산·통계 유형에서 켠다.
 _ASSET_RICH_DIRECTIVE_EN = """
@@ -350,6 +396,30 @@ Readers save this article to reuse its numbers. Fill 1-2 of these with REAL valu
  - Checklist: pre-purchase or pre-setup checks specific to this topic in a quality-checklist div.
 [Honesty rule]
  - No first-person measured results ("I ran it and got X seconds"). Give the reader a reproducible recipe instead: the exact prompt/settings to run, under which condition, and what to measure — so they generate the evidence themselves.
+"""
+
+# ─── 길이 미달 '보강(repair)' 프롬프트 (2026-08-03) ───────────────────────────
+# 예전에는 단어 수가 하한에 몇십 단어 모자라면 초안을 통째로 버리고 처음부터 다시
+# 생성했다(실측: 1393·1336단어에서 전면 재생성). 재생성은 (1) 2분짜리 호출을 통째로
+# 다시 쓰고 (2) 이미 통과한 팩트 정합·표·FAQ까지 주사위를 다시 굴린다. 지금은 초안을
+# 그대로 돌려주며 "어디를 얼마나 늘려라"만 지시한다 — 좋은 부분 보존이 최우선이라
+# 프롬프트가 전면 재작성을 명시적으로 금지한다.
+_REPAIR_LENGTH_INSTRUCTIONS_EN = """[REVISION TASK — expand an existing draft, do not rewrite it]
+
+Your previous draft is below. It is good but TOO SHORT: it has about {word_count} words of plain text, and the minimum is {min_words}. You need to add roughly {needed_words} more words to land in the {target_min}-{target_max} target range.
+
+HOW TO REVISE (this is an expansion, not a rewrite):
+1. Keep every existing sentence, heading, table, FAQ, and block EXACTLY as written unless it is factually wrong. Do not reorder sections, do not re-phrase paragraphs you already wrote, do not "improve" wording. Anything you change costs quality that already passed review.
+2. Add the missing length as NEW material in these places, in this order of preference:
+   a. The beginner-blockers section: one more concrete place a first-time user gets stuck, with the cause and the fix.
+   b. Under the table: a worked example that walks one number through the reader's real situation (e.g. what the plan costs for 40 hours of use a month).
+   c. The judgment section: one more reader profile with an explicit "use it if / skip it if" condition.
+   d. One additional <h2> section that goes a step deeper on the topic — only if a-c are not enough.
+3. Do NOT pad. No filler sentences, no restating what the article already said, no generic "AI is useful" paragraphs, no repeated guidance. Every added sentence must carry a fact, a number, a cause-and-effect, or a decision rule. Repeated sentences are detected and rejected.
+4. Do NOT add new prices, dates, versions, limits, or product names that are not in the original [SEARCH FACTS]. If you need more length and have no more facts, go deeper on explaining and applying the facts you already used.
+5. Keep all the original constraints: same allowed HTML classes, EXACTLY 3 FAQs in <h3 class="faq-q">…</h3><p class="faq-a">…</p> pairs with the <p> immediately after the <h3>, the CONFIRMED_VS_CHECK_NEEDED_BLOCK unchanged at the end, no Markdown, no hashtags, no &#...; entities, English only, at most 3 deferral phrases in the whole article.
+
+OUTPUT: the COMPLETE revised article as inner HTML — the original content plus your additions, from the first paragraph to the closing block. Do not output a diff, a fragment, a note, or a comment about what you changed. Output nothing but the article HTML.
 """
 
 _USER_PROMPT_TMPL = """[블로그 글 작성 (최고 수익화/SEO 최적화 버전)]
@@ -639,6 +709,9 @@ class LlmContentService:
                 questions=questions_str,
                 asset_directive=asset_directive,
                 month_year=month_year,
+                min_words=EN_MIN_BODY_WORDS,
+                target_min=EN_TARGET_BODY_WORDS_MIN,
+                target_max=EN_TARGET_BODY_WORDS_MAX,
             )
         else:
             content_angle = raw.get("content_angle") if isinstance(raw.get("content_angle"), dict) else {}
@@ -1154,15 +1227,22 @@ class LlmContentService:
         태그 불균형)을 validator로 걸러, 불합격이면 다음 provider(→유료 OpenAI)로
         폴백한다. 정상 출력은 그대로 통과시켜 무료 우선 정책과 비용 0을 유지한다.
 
-        영어 모드: 영어 시스템 프롬프트 + 1,500단어 하한(thin content 방지) 적용.
+        영어 모드: 영어 시스템 프롬프트 + EN_MIN_BODY_WORDS 하한(thin content 방지)
+        적용. 길이만 모자란 초안은 버리지 않고 같은 provider에 '보강(repair)'을
+        요청한다(_build_length_repair_prompt).
         """
         if is_english_mode():
             return self.call_with_fallback(
                 user_prompt,
-                system_prompt=_SYSTEM_PROMPT_EN.format(month_year=_month_year_en()),
-                # 1,500단어 영어 본문은 태그 포함 8,000자를 훌쩍 넘는다 — 얇은 응답 조기 컷.
+                system_prompt=_SYSTEM_PROMPT_EN.format(
+                    month_year=_month_year_en(),
+                    target_min=EN_TARGET_BODY_WORDS_MIN,
+                    target_max=EN_TARGET_BODY_WORDS_MAX,
+                ),
+                # 하한 단어수의 영어 본문은 태그 포함 8,000자를 훌쩍 넘는다 — 얇은 응답 조기 컷.
                 min_chars=4000,
                 validator=_validate_generated_content,
+                repair_builder=_build_length_repair_prompt,
             )
         return self.call_with_fallback(
             user_prompt,
@@ -1177,6 +1257,8 @@ class LlmContentService:
         system_prompt: str | None = None,
         min_chars: int = 200,
         validator: Any = None,
+        repair_builder: Any = None,
+        max_repairs: int = 2,
     ) -> str | None:
         """Provider 폴백 체인으로 LLM 호출 — 외부 system_prompt 주입 가능.
 
@@ -1185,7 +1267,14 @@ class LlmContentService:
 
         validator: 응답을 추가 검증하는 callable(text). 예외 raise 시 다음 provider로 fallback.
                    응답이 길이만 통과하고 형식(JSON 등)이 깨진 경우 자동 fallback에 사용.
+        repair_builder: callable(draft, error) -> str | None. validator가 실패했을 때
+                   "고쳐 쓸 수 있는 결함"이면 보강용 프롬프트를 돌려준다(아니면 None).
+                   반환값이 있으면 초안을 버리지 않고 **같은 provider**에 그 프롬프트로
+                   1회 재호출해 보강본을 받고, 보강본이 validator를 통과하면 채택한다.
+                   기본 None — 기존 호출부(ko 모드·ai_slot_enricher 등) 동작은 그대로다.
+        max_repairs: 체인 전체에서 허용하는 보강 호출 총 횟수(무한루프 방지 상한).
         """
+        repairs_used = 0
         for provider in _PROVIDERS:
             api_key = os.getenv(provider["api_key_env"], "").strip()
             if not api_key:
@@ -1216,6 +1305,34 @@ class LlmContentService:
                         try:
                             validator(result)
                         except Exception as ve:
+                            # 1) 고칠 수 있는 결함(예: 길이 미달)이면 초안을 버리지 않고
+                            #    같은 provider에 보강을 요청한다 — 전면 재생성은 이미
+                            #    통과한 팩트·표·FAQ까지 주사위를 다시 굴리고 2분을 더 쓴다.
+                            if repair_builder is not None and repairs_used < max_repairs:
+                                repair_prompt = None
+                                try:
+                                    repair_prompt = repair_builder(result, ve)
+                                except Exception as rb_exc:  # noqa: BLE001 — 보강 실패는 비치명
+                                    logger.warning(
+                                        "LlmContentService: repair 프롬프트 생성 실패 — %s", rb_exc
+                                    )
+                                if repair_prompt:
+                                    repairs_used += 1
+                                    repaired = self._attempt_repair(
+                                        provider=provider,
+                                        api_key=api_key,
+                                        repair_prompt=repair_prompt,
+                                        system_prompt=system_prompt,
+                                        min_chars=min_chars,
+                                        validator=validator,
+                                        reason=str(ve),
+                                    )
+                                    if repaired:
+                                        return repaired
+                                    # 자기 초안을 손에 쥐고도 못 고친 모델이 백지에서
+                                    # 다시 굴려 성공할 확률은 낮다 — 같은 provider
+                                    # 전면 재생성(≈2분)을 태우지 않고 바로 다음 provider로.
+                                    validator_retry_budget = 0
                             if validator_retry_budget > 0 and attempt < attempts:
                                 validator_retry_budget -= 1
                                 logger.warning(
@@ -1252,6 +1369,52 @@ class LlmContentService:
                         time.sleep(6.0 if is_capacity_exhausted else 2.5)
 
         return None
+
+    def _attempt_repair(
+        self,
+        *,
+        provider: dict[str, Any],
+        api_key: str,
+        repair_prompt: str,
+        system_prompt: str | None,
+        min_chars: int,
+        validator: Any,
+        reason: str,
+    ) -> str | None:
+        """초안 보강 1회 시도 — 성공하면 보강본, 실패하면 None(호출부가 기존 폴백 진행).
+
+        같은 provider를 쓴다(초안을 쓴 모델이 자기 글을 이어 쓰는 게 가장 자연스럽고,
+        폴백 체인의 무료 우선 순서도 흐트러지지 않는다). 여기서 절대 재귀하지 않으므로
+        보강 호출은 항상 정확히 1회다 — 총량은 call_with_fallback의 max_repairs가 막는다.
+        """
+        logger.info(
+            "LlmContentService: %s 초안 보강 시도 (사유: %s)", provider["name"], reason
+        )
+        try:
+            repaired = self._call_provider(provider, api_key, repair_prompt, system_prompt)
+        except Exception as exc:  # noqa: BLE001 — 보강 실패는 비치명, 기존 폴백으로 진행
+            logger.warning("LlmContentService: %s 보강 호출 실패 — %s", provider["name"], exc)
+            return None
+        if not repaired or len(repaired.strip()) <= min_chars:
+            logger.warning(
+                "LlmContentService: %s 보강본이 너무 짧음 (%d자) — 폴백 계속",
+                provider["name"], len(repaired or ""),
+            )
+            return None
+        if validator is not None:
+            try:
+                validator(repaired)
+            except Exception as ve:  # noqa: BLE001
+                logger.warning(
+                    "LlmContentService: %s 보강본도 검증 실패 — %s. 폴백 계속",
+                    provider["name"], ve,
+                )
+                return None
+        logger.info(
+            "LlmContentService: %s 보강 성공 (%d자) — 재생성 없이 채택",
+            provider["name"], len(repaired),
+        )
+        return repaired
 
     def _call_provider(
         self,
@@ -1416,6 +1579,40 @@ def _clean_llm_output(text: str) -> str:
 
 class _ContentValidationError(ValueError):
     """생성 콘텐츠가 잘림·반복·언어·구조 결함을 보여 다음 provider로 폴백해야 함을 뜻한다."""
+
+
+class _WordCountShortfallError(_ContentValidationError):
+    """길이만 모자란 초안 — 폐기 대상이 아니라 '보강(repair)' 대상이다.
+
+    다른 결함(절단·태그 불균형·한국어 혼입·상투구·헤지 포화)과 달리 길이 미달은
+    이미 쓴 내용이 멀쩡하다는 뜻이라, 초안을 돌려주며 섹션을 늘리게 하는 편이
+    전면 재생성보다 싸고(호출 1회 ~2분 절약) 품질 분산도 작다.
+    """
+
+    def __init__(self, word_count: int, min_words: int) -> None:
+        self.word_count = int(word_count)
+        self.min_words = int(min_words)
+        super().__init__(f"영어 본문 단어 수 부족 ({self.word_count} < {self.min_words})")
+
+
+def _build_length_repair_prompt(draft: str, error: Exception) -> str | None:
+    """길이 미달 초안에 대한 보강 프롬프트를 만든다 (다른 결함이면 None).
+
+    초안 HTML은 `.format()`에 넣지 않고 뒤에 붙인다 — 본문에 중괄호가 있으면
+    포맷이 터지기 때문이다.
+    """
+    if not isinstance(error, _WordCountShortfallError):
+        return None
+    # 하한에 딱 맞추려다 또 미달하는 것을 막기 위해 목표 하단까지 요구한다.
+    needed = max(150, EN_TARGET_BODY_WORDS_MIN - error.word_count)
+    head = _REPAIR_LENGTH_INSTRUCTIONS_EN.format(
+        word_count=error.word_count,
+        min_words=error.min_words,
+        needed_words=needed,
+        target_min=EN_TARGET_BODY_WORDS_MIN,
+        target_max=EN_TARGET_BODY_WORDS_MAX,
+    )
+    return f"{head}\n[PREVIOUS DRAFT — expand this exact HTML]\n{draft}"
 
 
 # 시스템 프롬프트의 문체 규칙이 금지한 대표 AI 필러 표현. 오탐을 피하기 위해
@@ -1585,9 +1782,10 @@ def _validate_generated_content(html: str) -> None:
     if english:
         if re.search(r"[가-힣]", text):
             raise _ContentValidationError("영어 모드에 한국어 혼입")
-        word_count = len(re.findall(r"[A-Za-z][A-Za-z'’-]*", text))
-        if word_count < 1400:
-            raise _ContentValidationError(f"영어 본문 단어 수 부족 ({word_count} < 1400)")
+        word_count = count_body_words(text)
+        if word_count < EN_MIN_BODY_WORDS:
+            # 길이만 모자란 경우는 전용 예외 — 호출부가 재생성 대신 보강을 시도한다.
+            raise _WordCountShortfallError(word_count, EN_MIN_BODY_WORDS)
     elif re.search(r"[A-Za-z]{2,}(?:[ ,]+[A-Za-z]{2,}){5,}", text):
         raise _ContentValidationError("영어 문장 혼입 의심")
 

@@ -76,7 +76,13 @@ _MIN_CORPORATE_SIGNALS_FOR_PENALTY = 2
 
 _MAX_TOPIC_TOKEN_COUNT = 14
 _MAX_TOPIC_MIDDOT_COUNT = 3
-_BROKEN_SURFACE_MARKERS = ("…", "...")
+# RSS/HN 피드 제목은 전송 과정에서 길이 제한으로 잘리면서 '…'/'...'가 붙는다.
+# 이건 "깨진 주제"가 아니라 절단 흔적이므로, 매칭 전에 제거하고 남은 텍스트로
+# 점수를 매긴다 (2026-08-03 실측: 키워드 3히트로 100점이 될 뉴스 제목이
+# 말줄임표 하나 때문에 confidence 25로 캡되어 하드 차단되고 있었다).
+_TRUNCATION_MARKERS = ("…", "...")
+# 다만 잘려나가고 남은 게 사실상 없으면(예: "OpenAI…") 여전히 쓸 수 없는 주제다.
+_MIN_CHARS_AFTER_TRUNCATION_STRIP = 12
 _VERB_ENDING_FOLLOWED_BY_NOUN_PATTERN = (
     "됐고 ", "했고 ", "되고 ", "였고 ",
 )
@@ -160,10 +166,17 @@ class GoldenPatternService:
         if content_type in _PATTERN_BLOCKED_CONTENT_TYPES:
             return _no_match_result(f"content_type_not_pattern_eligible:{content_type}")
 
-        combined = f"{topic} {summary}".strip()
+        # 절단 흔적('…'/'...')은 매칭 전에 제거한다 — 피드 전송 과정의 흔적이지
+        # 주제 자체가 깨진 게 아니다. 원본에 마커가 있었다는 사실만 따로 넘겨서
+        # "잘리고 남은 게 없는" 경우만 broken surface로 판정한다.
+        topic_truncated = _has_truncation_marker(topic)
+        topic_clean = _strip_truncation_markers(topic)
+        summary_clean = _strip_truncation_markers(summary)
+
+        combined = f"{topic_clean} {summary_clean}".strip()
         combined_lower = combined.lower()
         combined_words = combined.split()
-        topic_only = (topic or "").strip()
+        topic_only = topic_clean.strip()
 
         best: dict[str, Any] | None = None
         best_confidence = -1
@@ -171,6 +184,7 @@ class GoldenPatternService:
             result = self._score(
                 pattern, combined, combined_lower, combined_words, content_type, topic_group,
                 topic_only=topic_only,
+                topic_truncated=topic_truncated,
             )
             if result["confidence"] > best_confidence:
                 best_confidence = result["confidence"]
@@ -298,6 +312,7 @@ class GoldenPatternService:
         topic_group: str,
         *,
         topic_only: str = "",
+        topic_truncated: bool = False,
     ) -> dict[str, Any]:
         pid: str = pattern.get("pattern_id", "")
         if pid in _DISABLED_PATTERN_IDS:
@@ -352,7 +367,9 @@ class GoldenPatternService:
             if len(corporate_signal_hits) >= _MIN_CORPORATE_SIGNALS_FOR_PENALTY:
                 penalty += _CORPORATE_SIGNAL_PENALTY
 
-        broken_surface_reason = _detect_broken_topic_surface(topic_only or combined)
+        broken_surface_reason = _detect_broken_topic_surface(
+            topic_only or combined, truncated=topic_truncated
+        )
 
         confidence = max(0, min(100, kw_score + bonus - penalty))
         if strong_non_viral_hits:
@@ -414,14 +431,39 @@ class GoldenPatternService:
 # Module-level helpers                                                #
 # ------------------------------------------------------------------ #
 
-def _detect_broken_topic_surface(text: str) -> str:
+def _has_truncation_marker(text: str) -> bool:
+    """원본 주제 문자열에 절단 흔적('…'/'...')이 있었는지."""
+    if not text:
+        return False
+    return any(marker in text for marker in _TRUNCATION_MARKERS)
+
+
+def _strip_truncation_markers(text: str) -> str:
+    """'…'/'...'를 제거하고 공백을 정규화한다.
+
+    문자열 끝뿐 아니라 중간의 말줄임표도 제거한다 — 피드 제목에서 중간
+    말줄임표 역시 원문 문장이 잘려 이어붙은 흔적이고, 앞뒤에 남은 명사들은
+    그대로 유효한 매칭 재료이기 때문이다
+    (예: "I asked ChatGPT ... It said…" → ChatGPT/GPT/AI 히트는 모두 유효).
+    """
+    if not text:
+        return text or ""
+    out = text
+    for marker in _TRUNCATION_MARKERS:
+        out = out.replace(marker, " ")
+    return " ".join(out.split())
+
+
+def _detect_broken_topic_surface(text: str, *, truncated: bool = False) -> str:
     if not text:
         return ""
+    # text는 이미 _strip_truncation_markers()를 거친 상태다. 절단 마커가
+    # 있었더라도 남은 본문이 충분하면 정상 주제로 취급하고, 껍데기만 남았을
+    # 때만 broken surface로 캡한다.
+    if truncated and len(text.strip()) < _MIN_CHARS_AFTER_TRUNCATION_STRIP:
+        return "truncated_to_stub"
     if text.count("·") >= _MAX_TOPIC_MIDDOT_COUNT:
         return "too_many_middots"
-    for marker in _BROKEN_SURFACE_MARKERS:
-        if marker in text:
-            return f"truncate_marker:{marker}"
     # 영어 헤드라인은 관사·전치사 때문에 정상 제목도 14토큰을 훌쩍 넘는다
     # (2026-07-17 실측: 15토큰 정상 헤드라인이 too_many_tokens로 confidence 캡).
     # 한국어 기준(14)은 유지하고 영어 모드에서만 상한을 넉넉히 둔다.

@@ -28,9 +28,13 @@ def test_community_candidate_shape_now_beats_golden_match_threshold() -> None:
 
     # Before the fix, community candidates carried no topic_group/content_type
     # (exactly this call) and could never near_match an ai_work_tip pattern.
+    # 2026-08-03: ai_work_time_savings의 영어 AI 도메인 어휘를 확장한 뒤로는
+    # 이 제목이 키워드만으로도(benchmark/coding 히트) 임계값에 닿는다. 이 테스트가
+    # 지키려는 계약은 "matched 여부"가 아니라 "ct/tg를 안 넘기면 두 매칭 차원이
+    # 비고 confidence가 낮다"이므로, 그 계약만 남기고 matched 단정은 뺀다.
     unfixed = ps.match_pattern(topic=clipped, content_type="", topic_group="", summary="")
-    assert not unfixed["matched"]
     assert not unfixed.get("topic_group_match")
+    assert not unfixed.get("content_type_match")
 
     # After the fix, news_pipeline.py tags community candidates with
     # topic_group="ai_work" / content_type="ai_work_tip" — the same title now
