@@ -362,15 +362,28 @@ class TopicDedupService:
         } and bool(raw.get("evergreen_fallback")):
             return True
 
-        # AI_BLOG_MODE(2026-07-23 실측 추가): 이 모드의 후보는 100%
-        # topic_group="ai_work"이고, 실질적으로 5~8개 상시 기업(OpenAI/Anthropic/
-        # Google/Microsoft 등)을 계속 다뤄야 하는 단일 주제 블로그다. "같은 회사
-        # 뉴스 재탕 방지"용 엔티티 쿨다운을 그대로 적용하면 오늘 실제로 벌어진
-        # AI 뉴스(예: "OpenAI-Hugging Face 보안 사고", "Gemini 3.6 출시", "$1.5B
-        # Anthropic 합의")까지도 그 회사가 최근 3일 내 한 번이라도 언급됐다는
-        # 이유만으로 전부 차단된다 — 실측 확인: 오늘 HN 상위 뉴스 3건이 전부 이
-        # 규칙에만 걸려 탈락(다른 게이트는 통과). 콘텐츠 레벨 dedup(7일, 제목/
-        # 키워드 근접중복)은 여전히 적용되어 "같은 이야기 재탕"은 계속 막는다.
+        # AI_BLOG_MODE(2026-07-23 실측 추가, 2026-08-05 기본값 재반전): 이 모드의
+        # 후보는 100% topic_group="ai_work"이고, 실질적으로 5~8개 상시 기업
+        # (OpenAI/Anthropic/Google/Microsoft 등)을 계속 다뤄야 하는 단일 주제
+        # 블로그다. "같은 회사 뉴스 재탕 방지"용 엔티티 쿨다운을 그대로 적용하면
+        # 오늘 실제로 벌어진 AI 뉴스(예: "OpenAI-Hugging Face 보안 사고",
+        # "Gemini 3.6 출시", "$1.5B Anthropic 합의")까지도 그 회사가 최근 3일
+        # 내 한 번이라도 언급됐다는 이유만으로 전부 차단된다 — 2026-07-23 실측
+        # 확인: 그날 HN 상위 뉴스 3건이 전부 이 규칙에만 걸려 탈락(다른 게이트는
+        # 통과). 그래서 당시엔 AI_BLOG_MODE를 통째로 면제했다.
+        #
+        # 2026-08-05: 그 면제가 실제로는 "GPT를 3일 연속으로도 계속 다룰 수
+        # 있다"는 뜻이 돼버려, 최근 40건 중 21건(52.5%)이 GPT/OpenAI로 쏠리는
+        # 사용자 지적 사고로 이어졌다. cli_ai.py/ai_blog.yml에서
+        # ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE=true를 기본값으로 켜서
+        # 쿨다운이 다시 발동하게 했다 — 단, 오늘 EN_QUERY_GROUPS·에버그린 뱅크를
+        # 12개+ 기업으로 크게 넓혀서(news_topic_service.py, evergreen_topic_
+        # service.py) 특정 한 회사가 쿨다운에 걸려도 다른 회사 후보가 항상
+        # 남도록 했고, news_pipeline.py의 기존 에버그린 폴백 체인(라이브 풀이
+        # 쿨다운으로 전멸해도 에버그린 풀로 한 번 더 재시도)이 안전망 역할을
+        # 한다 — 그래도 양쪽 다 막히면 2026-07-23과 동일하게 그날은 스킵한다
+        # (물량보다 품질/다양성 우선 정책은 그대로). 콘텐츠 레벨 dedup(7일,
+        # 제목/키워드 근접중복)은 이 값과 무관하게 항상 적용된다.
         if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", "") or "").strip().lower() in {
             "1", "true", "yes", "on",
         }:

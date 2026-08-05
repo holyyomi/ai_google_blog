@@ -131,6 +131,9 @@ jobs:
           AI_FORCE_TOPIC: ${{ github.event.inputs.force_topic }}
           NEWS_MODE: "news"
           AI_BLOG_MODE: "true"
+          # 2026-08-05: 같은 AI(예: GPT)를 3일 내 재선택하지 못하게 강제 —
+          # cli_ai.py의 setdefault와 동일 값을 명시해 워크플로우만 봐도 알 수 있게 함.
+          ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE: "true"
           AI_BLOG_AUTO_PUBLISH: "true"
           ALLOW_AI_NEWS_TOPICS: "true"
           NEWS_EXCLUDED_QUERY_GROUPS: ""
