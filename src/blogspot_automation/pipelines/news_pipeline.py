@@ -2356,6 +2356,31 @@ class NewsPipeline:
             blocking_reasons.append("geo_ready_false")
         if not bool(base_result.get("sge_ready")) and not top_issue_direct_publish:
             blocking_reasons.append("sge_ready_false")
+        # 2026-08-05 사용자 지적(실제 발행글: "Agent Skills for Claude Code and
+        # Codex" — 사람들이 검색·궁금해할 만한 내용이 아니라는 지적) 대응.
+        # topic_engine_score/topic_candidate_grade(Topic Engine v2)는 이미
+        # 정확히 이 문제를 "grade C, score 51"로 잡아냈지만, publish_ready는
+        # content_candidate_grade(글이 잘 쓰였는가)만 보고 topic_candidate_grade
+        # (그 주제를 사람들이 원하는가)는 전혀 안 봐서 그대로 발행됐다. "잘 쓴
+        # 글"과 "쓸 가치가 있는 주제"를 구분하는 게이트가 없었던 게 근본원인 —
+        # AI블로그(ai_work_tip)에 한해 grade A/B만 자동발행 허용한다(B의 기준인
+        # score>=70·safety>=10은 _compute_topic_candidate_grade가 이미 정의해
+        # 둔 경계선을 그대로 재사용한 것). 초안 생성 자체는 막지 않으므로 사람이
+        # 검토 후 수동 발행하는 경로는 그대로 열려 있다.
+        # 주의: evergreen 폴백 후보(사람이 미리 큐레이션한 뱅크, evergreen_
+        # topic_service.py)는 이 v2 스코어 자체를 안 거치는 경우가 있어
+        # topic_candidate_grade가 아예 비어있을 수 있다 — 그 경우는 "채점해보니
+        # 나쁨(C/D)"이 아니라 "채점 자체를 안 함"이므로 막지 않는다(실제로
+        # evergreen daily fallback 테스트가 이 케이스로 실패해 발견함). 값이
+        # 채워져 있는데 C/D인 경우에만 막는다.
+        if ai_blog_content_allowed:
+            raw_topic_grade = base_result.get("topic_candidate_grade")
+            if raw_topic_grade:
+                topic_candidate_grade = str(raw_topic_grade).strip().upper()
+                if topic_candidate_grade not in {"A", "B"}:
+                    blocking_reasons.append(
+                        f"topic_candidate_grade_too_low:{topic_candidate_grade or 'unknown'}"
+                    )
 
         return {
             "allowed": not blocking_reasons,
@@ -2374,6 +2399,8 @@ class NewsPipeline:
                 self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES
                 | (frozenset({"ai_work_tip"}) if ai_blog_content_allowed else frozenset())
             ),
+            "topic_candidate_grade": base_result.get("topic_candidate_grade"),
+            "topic_engine_score": base_result.get("topic_engine_score"),
         }
 
     @staticmethod
