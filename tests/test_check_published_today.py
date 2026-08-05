@@ -80,3 +80,40 @@ def test_broken_run_at_falls_back_to_date_field():
 def test_empty_or_malformed_entries_are_false():
     assert published_today([], TODAY) is False
     assert published_today([None, "junk", 42], TODAY) is False
+
+
+def test_daily_guard_bypass_date_today_prints_false(tmp_path, monkeypatch, capsys):
+    """DAILY_GUARD_BYPASS_DATE가 오늘(KST)과 일치하면 라이브 발행이 있어도 false.
+
+    2026-08-05 일회성 우회: 아침 수동 테스트 발행이 하루 1건을 소진해도
+    그날 저녁 스케줄이 돌 수 있게 한다. 날짜 불일치면 우회는 무효."""
+    import json as _json
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    _KST = _tz(_td(hours=9))
+    today = _dt.now(_KST).strftime("%Y-%m-%d")
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(_json.dumps([
+        {
+            "run_at": _dt.now(_tz.utc).isoformat(),
+            "date": today,
+            "published": True,
+            "url": "https://holyyomiai.blogspot.com/2026/08/post.html",
+        }
+    ]), encoding="utf-8")
+
+    # 우회 없음 → true (오늘 발행 있음)
+    monkeypatch.delenv("DAILY_GUARD_BYPASS_DATE", raising=False)
+    monkeypatch.setattr(sys, "argv", ["check_published_today.py", str(ledger)])
+    _MOD.main()
+    assert capsys.readouterr().out.strip() == "true"
+
+    # 오늘 날짜 우회 → false
+    monkeypatch.setenv("DAILY_GUARD_BYPASS_DATE", today)
+    _MOD.main()
+    assert capsys.readouterr().out.strip() == "false"
+
+    # 지난 날짜 우회 → 무효, 다시 true
+    monkeypatch.setenv("DAILY_GUARD_BYPASS_DATE", "2026-01-01")
+    _MOD.main()
+    assert capsys.readouterr().out.strip() == "true"

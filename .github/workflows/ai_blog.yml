@@ -73,6 +73,12 @@ jobs:
       # — CLAUDE.md 머지 조건(발행 경로 변경 시 publish_draft 리허설 필수) 유지.
       - name: Compute schedule gate
         id: gate
+        env:
+          # 2026-08-05 하루만 유효한 일회성 우회(사용자 지시: 아침 수동 테스트
+          # 발행이 하루 1건을 소진했지만 오늘 저녁 스케줄부터 새 로직 자동발행
+          # 시작). 날짜가 지나면 스크립트 쪽 비교가 절대 참이 안 되므로 이 줄은
+          # 무해한 잔재가 된다 — 다음 워크플로 정리 때 제거.
+          DAILY_GUARD_BYPASS_DATE: "2026-08-05"
         run: |
           NOW_KST=$(TZ=Asia/Seoul date +%Y-%m-%d)
           if [[ "${{ github.event_name }}" != "schedule" ]]; then
