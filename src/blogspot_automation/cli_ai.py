@@ -39,6 +39,16 @@ def main() -> None:
 
     os.environ.setdefault("NEWS_MODE", "news")
     os.environ.setdefault("AI_BLOG_MODE", "true")
+    # 2026-08-05 사용자 지시: 같은 AI(예: GPT)를 오늘 다뤘으면 3일간 다른 AI를
+    # 찾게 강제한다. TopicDedupService.entity_cooldown_days(기본 3일)는 이미
+    # 있었지만 _is_entity_cooldown_exempt()가 AI_BLOG_MODE에서 통째로 면제해
+    # 실제로는 한 번도 발동하지 않았다(2026-07-23 에버그린 고갈 사고의 임시
+    # 봉합). 오늘 EN_QUERY_GROUPS·에버그린 뱅크를 다양한 AI로 크게 넓혔으므로
+    # (news_topic_service.py, evergreen_topic_service.py), 쿨다운이 라이브
+    # 후보를 전부 막아도 news_pipeline.py의 기존 에버그린 폴백 체인(같은
+    # 쿨다운이 적용된 채로 재시도)이 안전망 역할을 한다 — 그래도 둘 다 막히면
+    # 그날은 스킵(품질/다양성 우선, 예전과 동일 정책).
+    os.environ.setdefault("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", "true")
     # 2026-07-17 영어 전환: holyyomiai 블로그는 영어권(미국·영국·캐나다·인도) 대상
     # 영어 AI 블로그다. ai_blog.yml 스케줄이 이 엔트리포인트를 쓰므로 여기 기본값이
     # 곧 운영값이다 (BLOG_LANGUAGE=ko를 명시하면 옛 한국어 동작으로 복귀).

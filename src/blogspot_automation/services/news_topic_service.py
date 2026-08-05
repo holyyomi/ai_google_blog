@@ -116,43 +116,63 @@ RSS_SUFFIX_PATTERN = re.compile(
 # 4) 대형 소비자용 출시만 소수 유지(진짜 큰 뉴스는 여전히 표면화)
 # B2B/투자 노이즈만 잡던 쿼리(ARR·raises·enterprise류)는 제거.
 EN_QUERY_GROUPS: dict[str, list[str]] = {
+    # 2026-08-05 재조정(사용자 지시: 특정 AI에 편중되지 말고 모든 AI를 열어놓고
+    # 찾을 것) — 기존 뱅크는 32개 중 14개(44%)가 ChatGPT/OpenAI 전용이라 실제
+    # 발행이 GPT로 쏠렸다(최근 40건 중 21건). ChatGPT 전용 쿼리를 대폭 줄이고
+    # Grok/Nvidia/Meta/DeepSeek/Mistral/Perplexity/Midjourney/ElevenLabs/
+    # Runway/Character.AI/Qwen/Hugging Face/Stability AI/Cohere에 각각
+    # 최소 1개 쿼리를 배정. 5번 그룹은 특정 회사명에 의존하지 않는 열린 검색
+    # 쿼리로, 아직 이름이 알려지지 않은 신생 AI도 표면화되게 한다.
     "ai_work": [
         # 1) 브랜드+선택 (vs / best / worth it — 결정 의도)
         "ChatGPT vs Gemini",
         "Claude vs ChatGPT",
         "ChatGPT alternatives",
         "best AI chatbot",
-        "ChatGPT Plus worth it",
+        "Grok vs ChatGPT",
         "Copilot vs Cursor",
-        "best AI app",
         "Perplexity vs Google",
+        "DeepSeek vs ChatGPT",
         # 2) 가격·한도 (고 CPC — 요금 변경 뉴스도 여기서 잡힌다)
         "ChatGPT price",
-        "ChatGPT Plus price",
         "Claude pricing",
         "Gemini Advanced price",
         "AI subscription cost",
-        "ChatGPT free limit",
         "GitHub Copilot price",
-        "AI subscription price increase",
+        "Grok price",
+        "Midjourney subscription price",
         # 3) 문제·장애·제한 (급한 의도 — 문제해결형 소재)
         "ChatGPT down",
-        "ChatGPT not working",
-        "ChatGPT rate limit",
         "Claude usage limit",
         "Gemini not working",
         "AI chatbot error",
-        # 4) 대형 소비자용 출시 (진짜 큰 뉴스만 표면화)
+        "Grok down",
+        # 4) 대형 소비자용 출시 (진짜 큰 뉴스만 표면화, 회사당 1~2개로 제한)
         "OpenAI GPT",
-        "OpenAI ChatGPT update",
         "Google Gemini update",
         "Anthropic Claude update",
         "Microsoft Copilot update",
-        "ChatGPT new feature",
-        "ChatGPT voice mode",
-        "Gemini new feature",
+        "xAI Grok update",
+        "Nvidia AI announcement",
+        "Meta AI Llama update",
+        "DeepSeek AI update",
+        "Mistral AI update",
+        "Midjourney new feature",
+        "ElevenLabs AI update",
+        "Runway AI update",
+        "Character.AI update",
+        "Qwen AI update",
+        "Hugging Face AI update",
+        "Stability AI update",
+        "Cohere AI update",
         "NotebookLM update",
         "free AI image generator",
+        # 5) 신생/미확인 AI 발굴 — 특정 회사명에 의존하지 않는 열린 검색
+        "new AI model launch",
+        "AI startup funding announcement",
+        "viral AI tool 2026",
+        "new AI chatbot launch",
+        "open source AI model release",
     ],
 }
 
