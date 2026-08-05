@@ -660,6 +660,7 @@ class NewsQualityGate:
             warnings.append("missing_misconception_box")
         if content_type and not quick_decision_table_present:
             warnings.append("missing_quick_decision_table")
+        warnings.extend(self._dense_paragraph_warnings(html))
         reader_value = self._reader_value_score(
             title=title,
             html=html,
@@ -1267,6 +1268,45 @@ class NewsQualityGate:
         from blogspot_automation.services.llm_content_service import hedge_saturation_en
 
         return hedge_saturation_en(html or "")
+
+    @staticmethod
+    def _dense_paragraph_warnings(html: str) -> list[str]:
+        """가독성 경고: 90단어 넘는 <p> 또는 시각 요소 없이 3개+ 연속되는 <p>.
+
+        2026-08-05 사용자 지적("글이 다닥다닥하고 너무 어렵다") 대응. 프롬프트
+        (llm_content_service._SYSTEM_PROMPT_EN 규칙 1-1)에 문단 리듬 규칙이
+        이미 있었지만 기계로 검사하지 않아 실제로는 안 지켜졌다 — 이 프로젝트
+        에서 반복 확인된 패턴("지침만으론 안 지켜진다")과 동일. 아직 관찰
+        단계라 경고만 하고 발행을 막지는 않는다 — 정규식 기반 탐지라 오탐
+        가능성이 있고, 하드 게이트로 바로 가면 2026-08-03 게이트 오탐 사고와
+        같은 문제가 재발할 수 있다.
+        """
+        if not html:
+            return []
+        warnings: list[str] = []
+        paragraphs = re.findall(r"<p\b[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL)
+        long_count = 0
+        for raw in paragraphs:
+            text = re.sub(r"<[^>]+>", " ", raw)
+            text = unescape(text)
+            word_count = len(text.split())
+            if word_count > 90:
+                long_count += 1
+        if long_count:
+            warnings.append(f"dense_paragraph_over_90_words:{long_count}")
+
+        block_tags = re.findall(r"<(p|h2|h3|div|table|ul|ol|section)\b", html, flags=re.IGNORECASE)
+        run = 0
+        max_run = 0
+        for tag in block_tags:
+            if tag.lower() == "p":
+                run += 1
+                max_run = max(max_run, run)
+            else:
+                run = 0
+        if max_run >= 3:
+            warnings.append(f"consecutive_paragraphs_without_visual_break:{max_run}")
+        return warnings
 
     @staticmethod
     def _pricing_table_price_cells(

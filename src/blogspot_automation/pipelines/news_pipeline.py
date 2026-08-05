@@ -1995,6 +1995,7 @@ class NewsPipeline:
             auto_publish_gate = self._evaluate_auto_publish_gate(
                 base_result=base_result,
                 publish_quality_gate=publish_quality_gate,
+                html=html,
             )
             base_result["auto_publish_gate"] = auto_publish_gate
             if publish_mode_active and not auto_publish_gate["allowed"]:
@@ -2294,6 +2295,7 @@ class NewsPipeline:
         *,
         base_result: dict[str, Any],
         publish_quality_gate: dict[str, Any],
+        html: str = "",
     ) -> dict[str, Any]:
         blocking_reasons: list[str] = []
         source_type = str(base_result.get("source_type") or "").strip().lower()
@@ -2356,6 +2358,34 @@ class NewsPipeline:
             blocking_reasons.append("geo_ready_false")
         if not bool(base_result.get("sge_ready")) and not top_issue_direct_publish:
             blocking_reasons.append("sge_ready_false")
+        # 2026-08-05 사용자 지적(실제 발행글: "Agent Skills for Claude Code and
+        # Codex" — 사람들이 검색·궁금해할 만한 내용이 아니라는 지적) 대응.
+        #
+        # 1차 시도(폐기): topic_candidate_grade가 A/B가 아니면 무조건 차단 —
+        # 이 글이 grade C(score 51)였던 건 맞지만, 로컬 재현 실험에서 같은
+        # 게이트가 "Alibaba's new AI claims to match Claude"(traffic=7,
+        # search_intent=13, usefulness=10 — 사고 글과 거의 동일한 하위점수,
+        # grade D)까지 막는 걸 확인했다. Topic Engine v2는 community_hackernews
+        # 출처 후보 전반에 구조적으로 낮은 점수를 매긴다(가격/무료 같은 상업
+        # 의도 키워드가 없는 뉴스형 제목이라 그렇다) — 즉 이 점수는 "이 블로그
+        # 독자가 원하는 주제인가"가 아니라 "상업적 검색의도 키워드가 있는가"를
+        # 재는 지표였다. 그래서 `_content_grade_overrides_topic_grade`(위
+        # 3299번째 줄 근처, 3차례 리허설로 이미 튜닝된 기존 로직)가 애초에
+        # "글이 잘 쓰였으면 topic 점수가 낮아도 통과시킨다"로 설계돼 있었던
+        # 것 — 내가 그 설계를 되돌릴 뻔했다.
+        #
+        # 2차(채택): 점수가 아니라 "이 글의 진짜 주제가 무엇인가"를 직접 본다.
+        # 사고 글의 실체는 AI 제품/모델 뉴스가 아니라 "GitHub owner/repo 형태의
+        # 서드파티 개발자 도구(AI 에이전트 설정 파일·코딩 규칙 저장소)"였다 —
+        # 이 블로그 독자(AI 도구를 고르는 일반 사용자)가 아니라 소프트웨어
+        # 엔지니어링 팀이 대상인 자료다. "owner/repo-name" 패턴 + 저장소
+        # 문맥 단어(github/repo/repository/open-source/stars/mit licensed)가
+        # 같이 나오면 이런 개발자 전용 도구 소개 글로 보고 자동발행만 막는다
+        # (초안 생성은 막지 않음 — 사람이 검토 후 수동 발행은 가능).
+        if ai_blog_content_allowed and self._looks_like_dev_tooling_repo_topic(
+            f"{base_result.get('selected_topic', '')} {base_result.get('selected_title', '')} {html or ''}"
+        ):
+            blocking_reasons.append("topic_is_developer_tooling_repo_not_consumer_ai")
 
         return {
             "allowed": not blocking_reasons,
@@ -2374,7 +2404,61 @@ class NewsPipeline:
                 self.NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES
                 | (frozenset({"ai_work_tip"}) if ai_blog_content_allowed else frozenset())
             ),
+            "topic_candidate_grade": base_result.get("topic_candidate_grade"),
+            "topic_engine_score": base_result.get("topic_engine_score"),
         }
+
+    _DEV_TOOLING_REPO_PATTERN = re.compile(
+        r"\b[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?\b"
+    )
+    # 의도적으로 좁게 잡음: "github"/"repo"/"open-source"처럼 흔한 단어를 넣으면
+    # 정당한 AI 모델 출시 기사(예: "DeepSeek released V4 on Hugging Face as
+    # deepseek-ai/DeepSeek-V4", 허깅페이스 조직/모델명도 하이픈 슬래시 형태다)
+    # 까지 걸린다. "stars"(깃허브 star 수)와 "licensed"는 실제 AI 모델 뉴스에서
+    # 거의 안 쓰는, 소프트웨어 저장소 소개글에만 특징적으로 나오는 표현이다.
+    _DEV_TOOLING_REPO_CONTEXT_TERMS = (
+        "stars",
+        "mit licensed",
+        "mit license",
+    )
+    _DEV_TOOLING_REPO_CONTEXT_WINDOW = 80
+
+    @classmethod
+    def _looks_like_dev_tooling_repo_topic(cls, text: str) -> bool:
+        """"owner/repo" 형태 서드파티 개발자 도구가 글의 실제 주제인지 탐지.
+
+        2026-08-05 사고("Agent Skills for Claude Code and Codex" — 실체는
+        GitHub 저장소 2개, MIT 라이선스, 별 6개/2,366개 소개글) 재발 방지.
+        이 블로그 독자는 AI 제품/모델을 고르는 일반 사용자이지 그 제품을
+        확장하는 서드파티 개발자 도구를 찾는 엔지니어링 팀이 아니다.
+
+        오탐 방지 3중 조건 — 하나만 걸면 이 블로그의 실제 정상 소재와 겹친다:
+        1. owner/repo 양쪽 중 하나 이상에 하이픈/언더스코어가 있어야 한다.
+           "input/output tokens", "and/or"처럼 흔한 영어 표현은 걸러지고
+           "coding-standards-skill"처럼 실제 저장소명 형태만 남는다.
+        2. 저장소 문맥 단어(github/repo/stars/mit licensed 등)가 슬래시
+           패턴과 80자 이내로 붙어 있어야 한다 — 기사 앞부분에 "GitHub
+           Copilot"이 나오고 한참 뒤에서 가격을 "input/output"으로 표기하는
+           것처럼, 문서 전체 어딘가에 각각 따로 나오는 정상 기사를 걸러낸다.
+        3. 숫자만으로 된 세그먼트(날짜 "2026/08" 등)는 애초에 제외한다.
+        """
+        if not text:
+            return False
+        lowered = re.sub(r"<[^>]+>", " ", text.lower())
+        for match in cls._DEV_TOOLING_REPO_PATTERN.finditer(lowered):
+            owner, _, repo = match.group(0).partition("/")
+            if len(owner) < 2 or len(repo) < 2:
+                continue
+            if owner.isdigit() or repo.isdigit():
+                continue
+            if "-" not in owner and "_" not in owner and "-" not in repo and "_" not in repo:
+                continue
+            window_start = max(0, match.start() - cls._DEV_TOOLING_REPO_CONTEXT_WINDOW)
+            window_end = match.end() + cls._DEV_TOOLING_REPO_CONTEXT_WINDOW
+            nearby = lowered[window_start:window_end]
+            if any(term in nearby for term in cls._DEV_TOOLING_REPO_CONTEXT_TERMS):
+                return True
+        return False
 
     @staticmethod
     def _evergreen_auto_publish_allowed() -> bool:

@@ -18,6 +18,7 @@ GHA(1순위)와 Cloud Run(폴백)이 같은 슬롯을 중복 발행하는 것을
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -58,6 +59,15 @@ def main() -> None:
         print("false")
         return
     today_kst = datetime.now(KST).strftime("%Y-%m-%d")
+    # 일회성 우회(자동 소멸): 이 값이 오늘(KST)과 정확히 일치하는 날만 가드를
+    # 통과시킨다. 2026-08-05 사용자 지시 — 그날 아침 수동 테스트 발행이 하루
+    # 1건을 소진해 저녁 스케줄이 스킵될 상황에서, 그날 저녁부터 새 로직의
+    # 자동발행을 바로 돌리기 위한 것. 날짜가 지나면 조건이 절대 참이 될 수
+    # 없으므로 지워지지 않아도 무해하다(다음 정리 때 제거).
+    bypass_date = (os.getenv("DAILY_GUARD_BYPASS_DATE", "") or "").strip()
+    if bypass_date and bypass_date == today_kst:
+        print("false")
+        return
     print("true" if published_today(entries, today_kst) else "false")
 
 

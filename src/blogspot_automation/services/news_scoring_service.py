@@ -4,6 +4,7 @@ from typing import Any
 
 from blogspot_automation.models.news_models import NewsCandidate, ScoredNewsCandidate
 from blogspot_automation.services.community_topic_service import CommunityTopicSignal
+from blogspot_automation.services.google_autocomplete_signal import GoogleAutocompleteSignal
 from blogspot_automation.services.google_trends_signal import GoogleTrendsSignal
 from blogspot_automation.services.news_taxonomy import (
     build_search_angle,
@@ -386,6 +387,26 @@ class NewsScoringService:
                 raw["community_topic_boost"] = community_boost
                 raw["community_topic_matched"] = community_matched
                 total_score = int(total_score) + community_boost
+
+            # 2026-08-05 사용자 지시("사람들이 실제로 검색하는 주제로 골라라")
+            # 연결: 제목의 구체 제품/모델 구문("GPT-5.6", "Gemini Robotics 2")을
+            # Google Autocomplete에 실제로 넣어, 지금 사용자들이 그 이름을
+            # 검색창에 치고 있다는 직접 증거가 잡히는 후보에 가산점을 준다.
+            # 브랜드 단독명은 probe에서 제외되므로 대형 브랜드(GPT) 편중을
+            # 강화하지 않는다 — 한국어 자매 블로그에서 검증된 자동완성 실측
+            # 게이트(그쪽 교훈 #17·#20)의 영어판.
+            try:
+                autocomplete_boost, autocomplete_matched = (
+                    GoogleAutocompleteSignal.score_topic_boost(
+                        f"{title} {search_demand_topic}", max_boost=15
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                autocomplete_boost, autocomplete_matched = 0, []
+            if autocomplete_boost > 0:
+                raw["autocomplete_boost"] = autocomplete_boost
+                raw["autocomplete_matched"] = autocomplete_matched
+                total_score = int(total_score) + autocomplete_boost
 
             scored_items.append(
                 ScoredNewsCandidate(
