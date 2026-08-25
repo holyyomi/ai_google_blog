@@ -345,6 +345,26 @@ _PATTERN_TITLE_TEMPLATES: dict[str, list[tuple[str, str]]] = {
 _GENERAL_LIFE_POLICY_PHRASES = ("신청 전", "대상 조건", "환급", "지원금")
 
 
+_MEASURED_DEMAND_TITLE_BONUS = 8
+
+
+def _matching_demand_phrase(title: str, demand_phrases: list[str] | tuple = ()) -> str:
+    """실측 검색어를 제목에 그대로 담았는지 소문자/공백 정규화로 확인한다."""
+    title_norm = _normalize_demand_match_text(title)
+    if not title_norm:
+        return ""
+    for phrase in demand_phrases or ():
+        phrase_text = str(phrase or "").strip()
+        phrase_norm = _normalize_demand_match_text(phrase_text)
+        if phrase_norm and phrase_norm in title_norm:
+            return phrase_text
+    return ""
+
+
+def _normalize_demand_match_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").casefold()).strip()
+
+
 class TitleCandidateService:
     """골든 패턴 기반 제목 후보 10개를 생성하고 CTR 예상 점수로 평가한다."""
 
@@ -355,6 +375,7 @@ class TitleCandidateService:
         topic_group: str = "",
         pattern_id: str = "",
         candidate_raw: dict | None = None,
+        demand_phrases: list[str] | tuple = (),
     ) -> dict[str, Any]:
         """제목 후보 목록과 최적 제목을 반환한다."""
         raw = candidate_raw or {}
@@ -370,7 +391,13 @@ class TitleCandidateService:
                 if title in seen:
                     continue
                 seen.add(title)
-                scored = self.score_title(title, content_type=content_type, topic_group=topic_group, pattern_id=pattern_id)
+                scored = self.score_title(
+                    title,
+                    content_type=content_type,
+                    topic_group=topic_group,
+                    pattern_id=pattern_id,
+                    demand_phrases=demand_phrases,
+                )
                 candidates.append({
                     "title": title,
                     "title_type": title_type,
@@ -412,7 +439,13 @@ class TitleCandidateService:
             raw=raw,
         )
         for title, title_type in contextual_titles:
-            scored = self.score_title(title, content_type=content_type, topic_group=topic_group, pattern_id=pattern_id)
+            scored = self.score_title(
+                title,
+                content_type=content_type,
+                topic_group=topic_group,
+                pattern_id=pattern_id,
+                demand_phrases=demand_phrases,
+            )
             bonus = _contextual_hook_bonus(title, raw, pattern_id)
             scored["ctr_score"] = min(100, scored["ctr_score"] + bonus)
             candidates.append({
@@ -441,7 +474,13 @@ class TitleCandidateService:
                 if title in seen_titles:
                     continue
                 seen_titles.add(title)
-                scored = self.score_title(title, content_type=content_type, topic_group=topic_group, pattern_id=pattern_id)
+                scored = self.score_title(
+                    title,
+                    content_type=content_type,
+                    topic_group=topic_group,
+                    pattern_id=pattern_id,
+                    demand_phrases=demand_phrases,
+                )
                 # discovery 후보는 entity 보존이 우선 — risk score 약간 완화 안전 제목
                 candidates.append({
                     "title": title,
@@ -458,7 +497,13 @@ class TitleCandidateService:
             if title in seen_titles:
                 continue
             seen_titles.add(title)
-            scored = self.score_title(title, content_type=content_type, topic_group=topic_group, pattern_id=pattern_id)
+            scored = self.score_title(
+                title,
+                content_type=content_type,
+                topic_group=topic_group,
+                pattern_id=pattern_id,
+                demand_phrases=demand_phrases,
+            )
             candidates.append({
                 "title": title,
                 "title_type": title_type,
@@ -483,7 +528,13 @@ class TitleCandidateService:
                 if t["title"] in seen_titles:
                     continue
                 seen_titles.add(t["title"])
-                scored = self.score_title(t["title"], content_type=content_type, topic_group=topic_group, pattern_id=pattern_id)
+                scored = self.score_title(
+                    t["title"],
+                    content_type=content_type,
+                    topic_group=topic_group,
+                    pattern_id=pattern_id,
+                    demand_phrases=demand_phrases,
+                )
                 candidates.append({
                     "title": t["title"],
                     "title_type": t["title_type"],
@@ -526,6 +577,7 @@ class TitleCandidateService:
         content_type: str = "",
         topic_group: str = "",
         pattern_id: str = "",
+        demand_phrases: list[str] | tuple = (),
     ) -> dict[str, Any]:
         """단일 제목의 CTR/risk/promise_match 점수를 반환한다."""
         blocking: list[str] = []
@@ -623,6 +675,10 @@ class TitleCandidateService:
         kw_hits = sum(1 for kw in _PATTERN_REQUIRED_KEYWORDS.get(pattern_id, []) if kw in title)
         ctr += min(15, kw_hits * 5)
 
+        demand_match = _matching_demand_phrase(title, demand_phrases)
+        if demand_match:
+            ctr += _MEASURED_DEMAND_TITLE_BONUS
+
         # 과장어 감점 (일반)
         for phrase in ("무조건", "반드시", "절대", "역대급", "충격"):
             if phrase in title:
@@ -687,6 +743,8 @@ class TitleCandidateService:
             f"ctr={ctr} risk={risk} pms={pms}"
             + (f" | blocked: {blocking[0]}" if blocking else "")
         )
+        if is_allowed and demand_match:
+            reason += f" | measured_search_demand_bonus={_MEASURED_DEMAND_TITLE_BONUS}:{demand_match}"
 
         return {
             "ctr_score": ctr,

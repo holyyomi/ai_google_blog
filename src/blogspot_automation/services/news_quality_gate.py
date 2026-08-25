@@ -189,6 +189,17 @@ def _visible_text_for_debug_marker_scan(html: str) -> str:
     return " ".join(unescape(content).split())
 
 
+def _title_has_measured_demand_phrase(title: str, phrases: list[str]) -> bool:
+    title_norm = re.sub(r"\s+", " ", str(title or "").casefold()).strip()
+    if not title_norm:
+        return False
+    for phrase in phrases or []:
+        phrase_norm = re.sub(r"\s+", " ", str(phrase or "").casefold()).strip()
+        if phrase_norm and phrase_norm in title_norm:
+            return True
+    return False
+
+
 class NewsQualityGate:
     def evaluate(
         self,
@@ -308,6 +319,19 @@ class NewsQualityGate:
         _title_length_warn_limit = 70 if is_english_mode() else 45
         if len(title) > _title_length_warn_limit:
             warnings.append("selected_title_longer_than_45_chars")
+        measured_demand_phrases = [
+            str(phrase).strip()
+            for phrase in list(raw.get("measured_search_demand_phrases") or raw.get("_llm_demand_phrases") or [])
+            if str(phrase).strip()
+        ]
+        if (
+            is_english_mode()
+            and bool(raw.get("measured_search_demand"))
+            and measured_demand_phrases
+            and title
+            and not _title_has_measured_demand_phrase(title, measured_demand_phrases)
+        ):
+            warnings.append("title_without_measured_search_demand")
         if "사람들이 놓친" in title:
             blocking_issues.append("selected_title_uses_repeated_missed_people_pattern")
         if "진짜 변수" in title:
@@ -1110,6 +1134,8 @@ class NewsQualityGate:
             "fact_sources_used": list(fact_supply.get("sources_used") or []),
             "pricing_table_is_pricing_family": pricing_table_check["is_pricing_family"],
             "pricing_table_price_cell_count": pricing_table_check["price_cell_count"],
+            "measured_search_demand": bool(raw.get("measured_search_demand")),
+            "measured_search_demand_phrases": measured_demand_phrases,
             "passed": not blocking_issues,
             "score": score,
             "topic_group": topic_group,
