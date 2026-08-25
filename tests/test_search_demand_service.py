@@ -183,6 +183,9 @@ def test_measured_demand_is_added_to_english_prompt(monkeypatch):
             "seeds": ["claude code pricing"],
             "phrases": ["claude code pricing", "claude code install", "claude code skills"],
             "questions": ["claude code pricing", "claude code install", "claude code skills"],
+            # 2026-08-25부터 프롬프트에 들어가는 건 phrases가 아니라 answerable이다.
+            "answerable": ["claude code pricing", "claude code install", "claude code skills"],
+            "excluded": [],
             "failures": 0,
         },
     )
@@ -423,3 +426,63 @@ def test_single_seed_cannot_monopolize_the_phrase_budget(monkeypatch):
         # 만든 문구만 센다.
         taken = [p for p in result["phrases"] if p.startswith(f"{seed} variant ")]
         assert len(taken) <= demand._PER_SEED_LIMIT, (seed, taken)
+
+
+def test_unanswerable_queries_are_classified_and_excluded():
+    """검색량이 있어도 블로그가 만족시킬 수 없는 질의는 재료에서 뺀다.
+
+    2026-08-25 실측 사고: "claude status"가 자동완성에 잡힌다는 이유로
+    "claude status 99.35% uptime 2026"을 발행했다. 그 검색을 하는 사람은
+    실시간 상태 페이지를 원하지 어제 쓴 글을 원하지 않는다. 같은 측정 목록에
+    "claude api pricing"처럼 답할 수 있는 게 있었는데도 못 답하는 걸 골랐다.
+    """
+    assert demand.classify_intent("claude status") == "realtime"
+    assert demand.classify_intent("claude outage today") == "realtime"
+    assert demand.classify_intent("claude down detector") == "realtime"
+    assert demand.classify_intent("claude login") == "navigational"
+    assert demand.classify_intent("claude app download") == "navigational"
+    assert demand.classify_intent("claude api pricing") == "informational"
+    assert demand.classify_intent("how to use claude code") == "informational"
+    assert demand.classify_intent("claude vs chatgpt") == "informational"
+    # 신호가 없는 브랜드 단독어는 좋은 검색어로 오인하지 않는다
+    assert demand.classify_intent("claude ai") == "unknown"
+
+
+def test_collect_splits_answerable_from_unanswerable(monkeypatch):
+    def fake_fetch(seed, *, lang, timeout):
+        return ["claude status page", "claude api pricing", "claude login", "claude api costs"], True
+
+    monkeypatch.setattr(demand, "_fetch_suggestions_result", fake_fetch)
+    result = demand._collect_demand_phrases("Claude API outage", limit=12)
+    assert "claude api pricing" in result["answerable"]
+    assert "claude api costs" in result["answerable"]
+    assert all("status" not in p for p in result["answerable"]), result["answerable"]
+    excluded = {row["phrase"] for row in result["excluded"]}
+    assert "claude status page" in excluded
+    assert "claude login" in excluded
+
+
+def test_prompt_block_is_skipped_when_nothing_is_answerable(monkeypatch):
+    """전부 못 쓰는 검색어면 검색어 블록을 아예 넣지 않는다 — 억지로 넣느니 뺀다."""
+    monkeypatch.setenv("BLOG_LANGUAGE", "en")
+    monkeypatch.setattr(
+        ai_slot_enricher,
+        "collect_demand_phrases",
+        lambda topic, raw=None: {
+            "measured": True,
+            "seeds": ["claude status"],
+            "phrases": ["claude status page", "claude down detector"],
+            "questions": [],
+            "answerable": [],
+            "excluded": [{"phrase": "claude status page", "intent": "realtime", "reason": "realtime:status"}],
+            "failures": 0,
+        },
+    )
+    llm = _FakeLlm(_enrich_response())
+    ai_slot_enricher.enrich_slots_with_llm(
+        slots={"hook_opening": "old", "yomi_judgment": "old", "faq": []},
+        topic="Anthropic Claude and API service outages",
+        content_type="ai_tool_review",
+        llm_service=llm,
+    )
+    assert "[MEASURED GOOGLE AUTOCOMPLETE SEARCH DEMAND]" not in llm.prompts[0]
