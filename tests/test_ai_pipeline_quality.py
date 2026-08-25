@@ -328,10 +328,16 @@ class TestAiBlogYml(unittest.TestCase):
         content = self._yml_content()
         if not content:
             self.skipTest("ai_blog.yml not found")
-        for marker in ("ENABLE_AI_LLM_ENRICH", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "IMGBB_API_KEY", "CLOUDFLARE_API_TOKEN"):
+        for marker in ("ENABLE_AI_LLM_ENRICH", "OPENROUTER_API_KEY", "IMGBB_API_KEY", "CLOUDFLARE_API_TOKEN"):
             self.assertIn(marker, content, f"키 주입 누락: {marker}")
         # 운영 방침(2026-07-03): Gemini는 더 이상 사용하지 않음
         self.assertNotIn("GOOGLE_AI_API_KEY", content)
+        # 운영 방침(2026-08-25): 유료 폴백 없이 무료 provider로만 간다.
+        # 키가 401로 죽은 채 매 실행 헛호출만 하던 걸 제거했고, 되살리는 건
+        # 요미님 명시적 결정이 있을 때만 — 무심코 다시 붙는 것을 여기서 막는다.
+        # (주석으로 언급하는 건 허용 — 실제 env 주입 라인만 금지한다)
+        self.assertNotIn("OPENAI_API_KEY: ${{", content)
+        self.assertNotIn("OPENAI_MODEL:", content)
 
     def test_artifact_upload_present(self):
         content = self._yml_content()

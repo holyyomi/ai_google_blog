@@ -32,7 +32,8 @@ def test_news_env_diagnostics_lists_only_user_owned_missing_keys() -> None:
     diagnostics = build_news_env_diagnostics({})
 
     assert "Create or register OPENROUTER_API_KEY for free-first article generation." in diagnostics["user_required_actions"]
-    assert "Create or register OPENAI_API_KEY as paid fallback." in diagnostics["user_required_actions"]
+    # 2026-08-25: 유료 폴백은 운영 정책에서 빠졌다 — 없다고 조치 요구를 띄우지 않는다.
+    assert not any("OPENAI_API_KEY" in action for action in diagnostics["user_required_actions"])
     assert diagnostics["provider_chain"][0]["configured"] is False
 
 

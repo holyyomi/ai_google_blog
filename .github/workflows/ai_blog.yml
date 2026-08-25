@@ -180,8 +180,11 @@ jobs:
           # openrouter.ai/collections/free-models로 생존 여부를 주기적으로
           # 재확인할 것 — 무료 모델은 카탈로그에서 예고 없이 빠질 수 있다.
           OPENROUTER_MODEL_FALLBACK: "google/gemma-4-26b-a4b-it:free"
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: "gpt-5-mini"
+          # 2026-08-25: 유료 폴백(OpenAI) 제거 — 요미님 결정 "무료로만 간다,
+          # 안 되면 그날은 패스". 8/18~8/23 전 실행에서 이 키는 401 Unauthorized로
+          # 죽어 있었고(과금 0, 매 실행 헛호출 2회), 복구하지 않기로 확정했다.
+          # 되살리려면 OPENAI_API_KEY / OPENAI_MODEL 두 줄을 다시 넣으면 된다 —
+          # 키가 비면 llm_content_service가 openai_api_fallback provider를 그냥 skip한다.
           # 2026-07-10 재활성화: cover_image_service의 _STYLE_SUFFIX가 wordless/textless를
           # 강제해 한글 텍스트 깨짐 문제를 완화했음 확인 후 재개. (과거 DISABLE_IMAGE_GENERATION/
           # DISABLE_IMAGE_UPLOAD는 어떤 코드도 읽지 않는 죽은 env였음 — 2026-07-08 env 계약
