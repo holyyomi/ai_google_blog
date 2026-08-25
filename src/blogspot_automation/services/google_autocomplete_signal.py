@@ -19,13 +19,12 @@ GoogleTrendsSignal과 동일한 계약: 실패는 조용히 0점(신호 없음)�
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 import threading
 import time
-from urllib import error, parse, request
+from blogspot_automation.services import autocomplete_client
 
 logger = logging.getLogger(__name__)
 
@@ -106,16 +105,10 @@ class GoogleAutocompleteSignal:
             if cached and (now - cached[0]) < _CACHE_TTL_SECONDS:
                 return list(cached[1])
         hl = "en" if (os.getenv("BLOG_LANGUAGE", "ko") or "ko").strip().lower() == "en" else "ko"
-        url = _ENDPOINT.format(hl=hl, q=parse.quote(query))
-        try:
-            req = request.Request(url, headers={"User-Agent": _USER_AGENT})
-            with request.urlopen(req, timeout=_FETCH_TIMEOUT_SECONDS) as resp:
-                payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-            items = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
-            result = [str(item) for item in items if str(item).strip()]
-        except (error.URLError, TimeoutError, ValueError, IndexError, OSError) as exc:
-            logger.debug("autocomplete fetch failed (%s): %s", query, exc)
-            result = []
+        # 전송은 autocomplete_client 하나로 모았다(2026-08-25).
+        result, _ok = autocomplete_client.fetch_suggestions(
+            query, hl=hl, timeout=_FETCH_TIMEOUT_SECONDS, user_agent=_USER_AGENT, limit=0
+        )
         with cls._lock:
             cls._cache[key] = (now, result)
         return result

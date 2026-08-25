@@ -8,6 +8,7 @@ import pytest
 
 from blogspot_automation.models.news_models import NewsCandidate, ScoredNewsCandidate
 from blogspot_automation.services import ai_slot_enricher
+from blogspot_automation.services import autocomplete_client
 from blogspot_automation.services import search_demand_service as demand
 from blogspot_automation.services.news_quality_gate import NewsQualityGate
 from blogspot_automation.services.title_candidate_service import TitleCandidateService
@@ -53,7 +54,7 @@ def _urlopen_factory(payloads: dict[str, list[str] | BaseException], calls: list
 def test_collect_demand_parses_dedupes_longtails_and_questions(monkeypatch):
     calls: list[tuple[str, float | None]] = []
     monkeypatch.setattr(
-        demand.request,
+        autocomplete_client.request,
         "urlopen",
         _urlopen_factory(
             {
@@ -95,7 +96,7 @@ def test_collect_demand_parses_dedupes_longtails_and_questions(monkeypatch):
 def test_fetch_suggestions_uses_seed_cache(monkeypatch):
     calls: list[tuple[str, float | None]] = []
     monkeypatch.setattr(
-        demand.request,
+        autocomplete_client.request,
         "urlopen",
         _urlopen_factory({"grok pricing": ["grok pricing plans"]}, calls),
     )
@@ -108,7 +109,7 @@ def test_fetch_suggestions_uses_seed_cache(monkeypatch):
 def test_all_failures_are_nonfatal_and_open_circuit(monkeypatch):
     calls: list[tuple[str, float | None]] = []
     monkeypatch.setattr(
-        demand.request,
+        autocomplete_client.request,
         "urlopen",
         _urlopen_factory(
             {
