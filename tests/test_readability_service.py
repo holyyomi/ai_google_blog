@@ -128,3 +128,32 @@ def test_korean_mode_skips_readability_gate_and_repair_prompt(monkeypatch) -> No
     assert warnings == []
     assert metrics == {}
     assert llm_content_service._build_readability_repair_prompt(html) is None
+
+
+def test_block_boundaries_end_a_sentence():
+    """소제목·목록 항목은 마침표가 없어도 문장 경계다.
+
+    2026-08-25 실측 사고: 이 경계를 잃어서 <h2>가 다음 문단에 흡수됐고
+    ("Frequently Asked Questions Use this if You run production workloads..."),
+    문장 수가 줄어 평균 문장길이가 부풀었다. 그 상태로는 글이 실제보다 훨씬
+    어렵게 측정되고, 보정 패스에도 문장이 아닌 덩어리가 넘어간다.
+    """
+    html = (
+        "<div class='post-body'>"
+        "<h2>Frequently Asked Questions</h2>"
+        "<p>You can turn it off in settings.</p>"
+        "<ul><li>Open the menu</li><li>Pick your plan</li></ul>"
+        "</div>"
+    )
+    metrics = measure_html(html)
+    # 문장 4개(소제목 1 + 문장 1 + 목록 2)로 세어야 한다. 경계를 잃으면 1~2개가 된다.
+    assert metrics["sentences"] >= 4, metrics
+    assert all("Frequently Asked Questions You" not in s for s in metrics["hard_sentences"])
+
+
+def test_headings_do_not_inflate_average_sentence_length():
+    html = "<div class='post-body'>" + "".join(
+        f"<h2>Section {i}</h2><p>This is a short sentence.</p>" for i in range(5)
+    ) + "</div>"
+    metrics = measure_html(html)
+    assert metrics["avg_sentence_words"] < 8, metrics

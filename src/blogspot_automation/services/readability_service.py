@@ -108,12 +108,19 @@ class _VisibleTextParser(HTMLParser):
             self._parts.append(data)
 
     def text(self) -> str:
-        return " ".join(unescape(" ".join(self._parts)).split())
+        # 블록 경계 줄바꿈을 살려서 돌려준다. 2026-08-25 실측 사고: 여기서
+        # split()으로 뭉개는 바람에 <h2>가 다음 문단과 한 문장으로 붙었다
+        # ("Frequently Asked Questions Use this if You run production workloads
+        # on Grok and need to..."). 문장 수가 줄어 평균 문장길이가 부풀고,
+        # 보정 패스에는 문장이 아닌 덩어리가 "어려운 문장"으로 넘어갔다.
+        raw = unescape(" ".join(self._parts))
+        lines = [" ".join(line.split()) for line in raw.split("\n")]
+        return "\n".join(line for line in lines if line)
 
 
 def measure(text: str) -> dict[str, object]:
-    plain = " ".join(unescape(text or "").split())
-    words = _word_tokens(plain)
+    plain = _normalize_keeping_breaks(unescape(text or ""))
+    words = _word_tokens(plain.replace("\n", " "))
     sentences = _sentence_tokens(plain)
     word_count = len(words)
     sentence_count = len(sentences)
@@ -183,11 +190,27 @@ def _word_tokens(text: str) -> list[str]:
     return [m.group(0) for m in _WORD_RE.finditer(text or "")]
 
 
+def _normalize_keeping_breaks(text: str) -> str:
+    """줄바꿈은 남기고 나머지 공백만 정리한다.
+
+    소제목·목록 항목·표 셀은 마침표로 끝나지 않는 일이 흔하다. 줄바꿈을 지우면
+    그것들이 뒤 문장에 흡수돼 문장 경계가 사라진다.
+    """
+    lines = [" ".join(line.split()) for line in str(text or "").split("\n")]
+    return "\n".join(line for line in lines if line)
+
+
 def _sentence_tokens(text: str) -> list[str]:
-    normalized = " ".join((text or "").split())
+    normalized = _normalize_keeping_breaks(text or "")
     if not normalized:
         return []
-    sentences = [m.group(0).strip() for m in _SENTENCE_RE.finditer(normalized)]
+    sentences: list[str] = []
+    # 줄(=블록) 안에서만 마침표 기준으로 나눈다 — 줄 자체도 문장 경계다.
+    for line in normalized.split("\n"):
+        for m in _SENTENCE_RE.finditer(line):
+            piece = m.group(0).strip()
+            if piece:
+                sentences.append(piece)
     return [s for s in sentences if _WORD_RE.search(s)]
 
 
