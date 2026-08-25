@@ -38,6 +38,24 @@ def test_llm_provider_chain_excludes_gemini_for_main_generation() -> None:
     assert all("gemini" not in provider["name"] for provider in module._PROVIDERS)
 
 
+def test_english_prompt_removes_reusable_heading_examples() -> None:
+    prompt = module._USER_PROMPT_TMPL_EN
+
+    for phrase in (
+        "Pricing and limits",
+        "Where beginners get stuck",
+        "worked example",
+        "What's confirmed",
+        "The short answer",
+        "Bottom line first",
+    ):
+        assert phrase not in prompt
+
+    assert "generic stock labels" in prompt
+    assert "[MEASURED GOOGLE AUTOCOMPLETE SEARCH DEMAND]" in prompt
+    assert "at least 2 <h2> headings" in prompt
+
+
 def test_custom_search_is_disabled_by_default(monkeypatch) -> None:
     monkeypatch.delenv("ENABLE_GOOGLE_CUSTOM_SEARCH", raising=False)
     monkeypatch.setenv("GOOGLE_SEARCH_API_KEY", "search-key")

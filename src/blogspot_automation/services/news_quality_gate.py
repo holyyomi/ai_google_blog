@@ -61,6 +61,26 @@ _BANNED_DEFAULT_PHRASES: tuple[str, ...] = (
     "unleash",
 )
 
+# 실측(2026-08-17~24 발행 5편)에서 매 글에 그대로 반복된 소제목들. 이 목록은
+# "다른 글에 그대로 옮겨 붙여도 말이 되는" 문구만 담는다 — 주제어가 들어간
+# 소제목은 반복이 아니라 그 글의 내용이다.
+_STOCK_SECTION_HEADINGS_EN: tuple[str, ...] = (
+    "where beginners get stuck",
+    "beginners get stuck",
+    "use this if",
+    "skip it if",
+    "worked example",
+    "little-known tip",
+    "what's confirmed",
+    "what stays the same",
+    "the short answer",
+    "bottom line first",
+    "related guides",
+    "check for yourself",
+    "the backstory in brief",
+    "sources",
+)
+
 _BANNED_TITLE_PHRASES = (
     "충격",
     "경악",
@@ -689,6 +709,8 @@ class NewsQualityGate:
             warnings.append("missing_misconception_box")
         if content_type and not quick_decision_table_present:
             warnings.append("missing_quick_decision_table")
+        section_headings = self._section_headings(html)
+        warnings.extend(self._stock_heading_warnings(html))
         warnings.extend(self._dense_paragraph_warnings(html))
         readability_blocking, readability_warnings, readability_metrics = self._readability_issues(html)
         blocking_issues.extend(readability_blocking)
@@ -1027,6 +1049,21 @@ class NewsQualityGate:
                 f"{'+'.join(pricing_axis_overlap['shared_tools'])}"
             )
 
+        headings_overlap_recent_posts = {
+            "overlap": False,
+            "ratio": 0.0,
+            "pct": 0,
+            "shared_headings": [],
+            "compared_records": 0,
+        }
+        if publish_mode_active:
+            headings_overlap_recent_posts = self._headings_overlap_recent_posts(section_headings)
+            if bool(headings_overlap_recent_posts.get("overlap")):
+                warnings.append(
+                    "headings_overlap_recent_posts:"
+                    f"{int(headings_overlap_recent_posts.get('pct') or 0)}"
+                )
+
         # --- 존재하지 않는 GitHub 툴 추천 감지 (2026-07-21) ---
         # 라이브 실측: "Etsy AI Tools" 글이 존재하지 않는 저장소
         # (PCSAdmin081/keepr-etsy-ops — 실제 404)를 추천 오픈소스 툴로 제시했다.
@@ -1149,6 +1186,10 @@ class NewsQualityGate:
             "pricing_table_price_cell_count": pricing_table_check["price_cell_count"],
             "measured_search_demand": bool(raw.get("measured_search_demand")),
             "measured_search_demand_phrases": measured_demand_phrases,
+            "section_headings": section_headings,
+            "headings_overlap_recent_posts_ratio": headings_overlap_recent_posts["ratio"],
+            "headings_overlap_recent_posts_shared": headings_overlap_recent_posts["shared_headings"],
+            "headings_overlap_recent_posts_compared_records": headings_overlap_recent_posts["compared_records"],
             "passed": not blocking_issues,
             "score": score,
             "topic_group": topic_group,
@@ -1307,6 +1348,106 @@ class NewsQualityGate:
         from blogspot_automation.services.llm_content_service import hedge_saturation_en
 
         return hedge_saturation_en(html or "")
+
+    @staticmethod
+    def _section_headings(html: str) -> list[str]:
+        if not html:
+            return []
+        headings: list[str] = []
+        for raw in re.findall(r"<h2\b[^>]*>(.*?)</h2>", html, flags=re.IGNORECASE | re.DOTALL):
+            text = re.sub(r"<[^>]+>", " ", raw)
+            text = NewsQualityGate._normalize_heading_text(text)
+            if text:
+                headings.append(text)
+        return headings
+
+    @staticmethod
+    def _normalize_heading_text(text: str) -> str:
+        text = unescape(str(text or ""))
+        text = text.replace("’", "'").replace("`", "'")
+        text = re.sub(r"\s+", " ", text).strip().lower()
+        return text
+
+    @staticmethod
+    def _stock_heading_warnings(html: str) -> list[str]:
+        if not is_english_mode():
+            return []
+        count = sum(
+            1
+            for heading in NewsQualityGate._section_headings(html)
+            if NewsQualityGate._is_stock_section_heading(heading)
+        )
+        if count > 2:
+            return [f"stock_headings_reused:{count}"]
+        return []
+
+    @staticmethod
+    def _is_stock_section_heading(heading: str) -> bool:
+        normalized = NewsQualityGate._normalize_heading_text(heading).rstrip(":.!?")
+        # 접두/정확 일치만 보면 변형을 놓친다. 실측: "Where beginners get stuck
+        # with GPT-5.6", "A little-known tip for routing across tiers"처럼 뒤나
+        # 앞에 한두 마디를 덧붙인 형태가 흔했고, 그래서 5편 중 2편이 상투어
+        # 7개를 달고도 탐지되지 않았다. 포함 여부로 본다 — 이건 경고용 신호이지
+        # 차단이 아니므로 조금 넓게 잡는 쪽이 맞다.
+        return any(phrase in normalized for phrase in _STOCK_SECTION_HEADINGS_EN)
+
+    @staticmethod
+    def _headings_overlap_recent_posts(
+        section_headings: list[str], *, window_records: int = 5
+    ) -> dict[str, object]:
+        result: dict[str, object] = {
+            "overlap": False,
+            "ratio": 0.0,
+            "pct": 0,
+            "shared_headings": [],
+            "compared_records": 0,
+        }
+        if not is_english_mode():
+            return result
+        candidate_set = {
+            NewsQualityGate._normalize_heading_text(heading)
+            for heading in section_headings
+            if NewsQualityGate._normalize_heading_text(heading)
+        }
+        if not candidate_set:
+            return result
+
+        try:
+            from blogspot_automation.services.publish_history_service import PublishHistoryService
+
+            records = PublishHistoryService().recent_records(limit=window_records, published_only=True)
+        except Exception:  # noqa: BLE001 - history read failures are non-blocking here.
+            return result
+
+        recent_headings: set[str] = set()
+        compared_records = 0
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            raw_headings = record.get("section_headings")
+            if not isinstance(raw_headings, list) or not raw_headings:
+                continue
+            normalized_headings = {
+                NewsQualityGate._normalize_heading_text(str(heading))
+                for heading in raw_headings
+                if NewsQualityGate._normalize_heading_text(str(heading))
+            }
+            if not normalized_headings:
+                continue
+            compared_records += 1
+            recent_headings.update(normalized_headings)
+        if not recent_headings:
+            return result
+
+        shared = sorted(candidate_set & recent_headings)
+        ratio = len(shared) / len(candidate_set)
+        return {
+            "overlap": ratio > 0.5,
+            "ratio": round(ratio, 4),
+            "pct": int(round(ratio * 100)),
+            "shared_headings": shared,
+            "compared_records": compared_records,
+        }
 
     @staticmethod
     def _dense_paragraph_warnings(html: str) -> list[str]:

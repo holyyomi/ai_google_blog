@@ -20,3 +20,51 @@ def test_history_record_keeps_published_url_for_future_internal_links() -> None:
     assert record["published"] is True
     assert record["url"].endswith("/kakao-service-news.html")
     assert record["post_id"] == "post-1"
+
+
+def test_history_record_stores_normalized_section_headings_from_quality_gate() -> None:
+    record = NewsPipeline._build_history_record(
+        status="published",
+        result={
+            "selected_title": "Claude Code team setup",
+            "selected_topic": "Claude Code team setup",
+            "topic_group": "ai_work",
+            "content_angle": {"content_type": "ai_work_tip"},
+            "publish_quality_gate": {
+                "passed": True,
+                "section_headings": [
+                    "Claude Code Install Limits",
+                    "  Team Setup Risks  ",
+                ],
+            },
+            "publish_succeeded": True,
+        },
+    )
+
+    assert record["section_headings"] == [
+        "claude code install limits",
+        "team setup risks",
+    ]
+
+
+def test_history_record_extracts_section_headings_from_html_fallback() -> None:
+    record = NewsPipeline._build_history_record(
+        status="published",
+        result={
+            "selected_title": "Claude Code team setup",
+            "selected_topic": "Claude Code team setup",
+            "topic_group": "ai_work",
+            "content_angle": {"content_type": "ai_work_tip"},
+            "article_html": (
+                "<h2>Claude Code Install Limits</h2>"
+                "<h2>Team <em>Setup</em> Risks</h2>"
+            ),
+            "publish_quality_gate": {"passed": True},
+            "publish_succeeded": True,
+        },
+    )
+
+    assert record["section_headings"] == [
+        "claude code install limits",
+        "team setup risks",
+    ]

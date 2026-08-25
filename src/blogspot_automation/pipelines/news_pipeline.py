@@ -5295,6 +5295,26 @@ class NewsPipeline:
         )
         quality_blocking = list(quality_gate.get("blocking_issues") or []) if isinstance(quality_gate, dict) else []
         quality_warnings = list(quality_gate.get("warnings") or []) if isinstance(quality_gate, dict) else []
+        section_headings_raw = (
+            list(quality_gate.get("section_headings") or [])
+            if isinstance(quality_gate, dict)
+            else []
+        )
+        if not section_headings_raw:
+            section_headings_raw = list(result.get("section_headings") or [])
+        if not section_headings_raw:
+            html_for_headings = str(
+                result.get("article_html")
+                or result.get("html")
+                or result.get("final_html")
+                or ""
+            )
+            section_headings_raw = NewsQualityGate._section_headings(html_for_headings)
+        section_headings = [
+            NewsQualityGate._normalize_heading_text(str(heading))
+            for heading in section_headings_raw
+            if NewsQualityGate._normalize_heading_text(str(heading))
+        ]
         recommendation_policy = quality_gate.get("recommendation_policy") if isinstance(quality_gate, dict) else {}
         if not isinstance(recommendation_policy, dict):
             recommendation_policy = {}
@@ -5368,6 +5388,7 @@ class NewsPipeline:
             "status": status,
             "retry_attempt": result.get("retry_attempt", ""),
             "max_publish_attempts": result.get("max_publish_attempts", ""),
+            "section_headings": section_headings,
             # 본문 문장 지문 — 이후 발행 후보의 재탕(near-duplicate) 감지에 사용.
             "content_fingerprint": (
                 list(quality_gate.get("content_fingerprint") or [])
