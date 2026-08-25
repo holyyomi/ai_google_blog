@@ -161,6 +161,7 @@ jobs:
           ALLOW_EVERGREEN_AUTO_PUBLISH: "true"
           # LLM 주제 특화 본문 생성
           ENABLE_AI_LLM_ENRICH: "true"
+          ENABLE_SEARCH_DEMAND: "true"
           # Custom Search JSON API는 Google이 신규 고객에게 폐쇄(2026-07-10 확정:
           # API 활성화·새 키 발급 후에도 전 호출 403 "This project does not have
           # the access" — 콘솔 설정으로 해결 불가, 기존 고객도 2027-01 마이그레이션

@@ -46,6 +46,7 @@ from blogspot_automation.services.seo_policy import (
     normalize_search_description,
     prepare_blogspot_html,
 )
+from blogspot_automation.services.search_demand_service import collect_demand_phrases
 from blogspot_automation.services.title_generation_service import TitleGenerationService
 from blogspot_automation.services.topic_dedup_service import TopicDedupService
 from blogspot_automation.utils.html_meta import extract_meta_description
@@ -1393,6 +1394,8 @@ class NewsPipeline:
                     "internal_link_suggestions": internal_link_suggestions,
                     "search_angle": selected.candidate.raw.get("search_angle"),
                     "search_demand_topic": selected.candidate.raw.get("search_demand_topic"),
+                    "measured_search_demand": selected.candidate.raw.get("measured_search_demand", False),
+                    "measured_search_demand_phrases": selected.candidate.raw.get("measured_search_demand_phrases", []),
                     "reader_search_questions": selected.candidate.raw.get("reader_search_questions"),
                     "click_reason": selected.candidate.raw.get("click_reason"),
                     "reader_benefit": selected.candidate.raw.get("reader_benefit"),
@@ -1796,6 +1799,8 @@ class NewsPipeline:
                 "issue_content_profile": selected.candidate.raw.get("issue_content_profile"),
                 "search_angle": selected.candidate.raw.get("search_angle"),
                 "search_demand_topic": selected.candidate.raw.get("search_demand_topic"),
+                "measured_search_demand": selected.candidate.raw.get("measured_search_demand", False),
+                "measured_search_demand_phrases": selected.candidate.raw.get("measured_search_demand_phrases", []),
                 "reader_search_questions": selected.candidate.raw.get("reader_search_questions"),
                 "click_reason": selected.candidate.raw.get("click_reason"),
                 "reader_benefit": selected.candidate.raw.get("reader_benefit"),
@@ -3242,12 +3247,36 @@ class NewsPipeline:
                 _ct = str((_raw.get("content_angle") or {}).get("content_type") or "")
                 _tg = str(_raw.get("topic_group") or "")
                 _topic = selected.candidate.topic or ""
+                _demand_phrases = [
+                    str(phrase).strip()
+                    for phrase in list(_raw.get("measured_search_demand_phrases") or _raw.get("_llm_demand_phrases") or [])
+                    if str(phrase).strip()
+                ]
+                if is_english_mode() and not _demand_phrases and "measured_search_demand" not in _raw:
+                    # 제목 후보 점수에도 같은 실측 구절을 쓰기 위해 후보 생성 직전에 1회 측정한다.
+                    # ai_slot_enricher가 뒤에서 다시 호출돼도 서비스의 시드 캐시가 HTTP 중복을 막는다.
+                    _demand_result = collect_demand_phrases(_topic, raw=None)
+                    _raw["measured_search_demand"] = bool(_demand_result.get("measured"))
+                    _raw["measured_search_demand_seeds"] = list(_demand_result.get("seeds") or [])
+                    _raw["measured_search_demand_failures"] = int(_demand_result.get("failures") or 0)
+                    if bool(_demand_result.get("measured")):
+                        _demand_phrases = [
+                            str(phrase).strip()
+                            for phrase in list(_demand_result.get("phrases") or [])
+                            if str(phrase).strip()
+                        ]
+                        _raw["measured_search_demand_phrases"] = _demand_phrases
+                        _raw["measured_search_demand_questions"] = list(_demand_result.get("questions") or [])
+                if _demand_phrases:
+                    _raw.setdefault("measured_search_demand", True)
+                    _raw["measured_search_demand_phrases"] = _demand_phrases
                 _title_result = self.title_candidate_service.generate_candidates(
                     topic=_topic,
                     content_type=_ct,
                     topic_group=_tg,
                     pattern_id=str(_pm_for_cand.get("pattern_id") or ""),
                     candidate_raw=_raw,
+                    demand_phrases=_demand_phrases,
                 )
             except Exception as _te:
                 logger.warning("title_candidate_service failed: %s", _te)
@@ -3270,6 +3299,14 @@ class NewsPipeline:
                     _sr_e = golden_preview_result.get("slot_result") or {}
                     _slots_e = _sr_e.get("slots") or {}
                     if _slots_e:
+                        _demand_for_enrich = [
+                            str(phrase).strip()
+                            for phrase in list(_raw_e.get("measured_search_demand_phrases") or [])
+                            if str(phrase).strip()
+                        ]
+                        if _demand_for_enrich and "_llm_demand_phrases" not in _slots_e:
+                            _slots_e = dict(_slots_e)
+                            _slots_e["_llm_demand_phrases"] = _demand_for_enrich
                         _enriched = enrich_slots_with_llm(
                             slots=_slots_e,
                             topic=selected.candidate.topic or "",
@@ -3281,6 +3318,14 @@ class NewsPipeline:
                         )
                         _sr_e["slots"] = _enriched
                         golden_preview_result["slot_result"] = _sr_e
+                        _enriched_demand = [
+                            str(phrase).strip()
+                            for phrase in list(_enriched.get("_llm_demand_phrases") or [])
+                            if str(phrase).strip()
+                        ]
+                        if _enriched_demand:
+                            _raw_e["measured_search_demand"] = True
+                            _raw_e["measured_search_demand_phrases"] = _enriched_demand
                         _llm_t = _enriched.get("_llm_title")
                         if _llm_t:
                             logger.info("NewsPipeline: LLM 제목 채택 — %s", _llm_t)
@@ -3475,6 +3520,8 @@ class NewsPipeline:
                 "cooldown_penalty": selected.candidate.raw.get("cooldown_penalty", 0),
                 "search_angle": selected.candidate.raw.get("search_angle"),
                 "search_demand_topic": selected.candidate.raw.get("search_demand_topic"),
+                "measured_search_demand": selected.candidate.raw.get("measured_search_demand", False),
+                "measured_search_demand_phrases": selected.candidate.raw.get("measured_search_demand_phrases", []),
                 "reader_search_questions": selected.candidate.raw.get("reader_search_questions"),
                 "click_reason": selected.candidate.raw.get("click_reason"),
                 "reader_benefit": selected.candidate.raw.get("reader_benefit"),

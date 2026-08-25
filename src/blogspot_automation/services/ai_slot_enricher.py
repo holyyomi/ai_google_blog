@@ -15,6 +15,7 @@ import re
 from typing import Any
 
 from blogspot_automation.services.blog_language import is_english_mode
+from blogspot_automation.services.search_demand_service import collect_demand_phrases
 
 logger = logging.getLogger(__name__)
 
@@ -332,10 +333,52 @@ def enrich_slots_with_llm(
         except Exception as exc:  # noqa: BLE001 — 팩트 수집 실패는 비치명
             logger.warning("ai_slot_enricher: 팩트 수집 실패(근거 없이 진행): %s", exc)
 
+    demand_part = ""
+    demand_phrases: list[str] = []
+    if is_english_mode():
+        try:
+            demand_seeds: list[str] = []
+            demand_phrases = [
+                str(phrase).strip()
+                for phrase in list(slots.get("_llm_demand_phrases") or [])
+                if str(phrase).strip()
+            ]
+            measured_demand = bool(demand_phrases)
+            if not demand_phrases:
+                # 검색 수요는 실패해도 발행을 막지 않는 보조 신호다. measured=True일 때만
+                # 프롬프트에 강한 제약으로 넣어 뉴스 요약형 제목 회귀를 줄인다.
+                demand_result = collect_demand_phrases(topic, raw=None)
+                measured_demand = bool(demand_result.get("measured"))
+                fetched_phrases = [
+                    str(phrase).strip()
+                    for phrase in list(demand_result.get("phrases") or [])
+                    if str(phrase).strip()
+                ]
+                demand_phrases = fetched_phrases if measured_demand else []
+                demand_seeds = [str(seed) for seed in list(demand_result.get("seeds") or [])]
+            if measured_demand:
+                logger.info(
+                    "ai_slot_enricher: search demand measured seeds=%s phrases=%d",
+                    ",".join(demand_seeds or ["reused"]),
+                    len(demand_phrases),
+                )
+                if demand_phrases:
+                    demand_lines = "\n".join(f"- {phrase}" for phrase in demand_phrases)
+                    demand_part = (
+                        "\n[MEASURED GOOGLE AUTOCOMPLETE SEARCH DEMAND]\n"
+                        f"{demand_lines}\n"
+                        "Use these measured queries as hard search-intent constraints:\n"
+                        "- Include one phrase from this list verbatim in the title.\n"
+                        "- Make at least 3 FAQ items answer what these queries ask.\n"
+                        "- Do not invent the `paa` list; choose `paa` entries from this measured list.\n"
+                    )
+        except Exception as exc:  # noqa: BLE001 - 검색 수요 보강 실패는 조용한 폴백 대상이다.
+            logger.warning("ai_slot_enricher: search demand collection failed (fallback): %s", exc)
+
     if is_english_mode():
         user_prompt = (
             f"Topic: {topic}\n{title_part}Article focus: {focus}\n"
-            f"{facts_part}\n"
+            f"{facts_part}{demand_part}\n"
             "Output exactly one JSON object with the keys below. Keep every key name EXACTLY as "
             "written (including Korean-named keys like \"착각\"/\"실제\") and write every VALUE in "
             "natural, specific ENGLISH.\n"
@@ -393,6 +436,8 @@ def enrich_slots_with_llm(
         return slots
 
     enriched = dict(slots)
+    if demand_phrases:
+        enriched["_llm_demand_phrases"] = demand_phrases
     # 실제로 검색에서 가져온 인용 URL(제목 중복 제거) — 렌더러(golden_article_
     # preview_service)가 SOURCE_TRUST_BLOCK에 실제 <a href> 링크로 사용한다.
     # 조작·추정 URL은 절대 넣지 않는다 — 여기 담기는 항목은 전부 실제 API 응답에서
