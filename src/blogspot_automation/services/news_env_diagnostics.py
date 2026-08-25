@@ -97,11 +97,11 @@ def build_news_env_diagnostics(env: Mapping[str, str] | None = None) -> dict[str
 def user_required_actions(env: Mapping[str, str] | None = None) -> list[str]:
     source = os.environ if env is None else env
     actions: list[str] = []
-    # 운영자 정책: 무료(OpenRouter) 우선, OpenAI는 유료 폴백.
+    # 운영자 정책(2026-08-25 개정): 무료(OpenRouter) 전용. 유료 폴백(OpenAI)은
+    # 쓰지 않기로 확정했으므로 그 키가 없다고 해서 사용자 조치 항목으로 올리지
+    # 않는다 — 무료가 전멸한 날은 발행을 건너뛰는 것이 의도된 동작이다.
     if not str(source.get("OPENROUTER_API_KEY", "")).strip():
         actions.append("Create or register OPENROUTER_API_KEY for free-first article generation.")
-    if not str(source.get("OPENAI_API_KEY", "")).strip():
-        actions.append("Create or register OPENAI_API_KEY as paid fallback.")
     if _publish_mode_active(source):
         blogger_required = {
             "BLOGGER_CLIENT_ID": "Register BLOGGER_CLIENT_ID for scheduled Blogger publishing.",
