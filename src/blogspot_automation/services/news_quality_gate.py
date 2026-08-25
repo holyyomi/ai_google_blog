@@ -12,6 +12,11 @@ from blogspot_automation.services.cover_image_policy import cover_image_coverage
 from blogspot_automation.services.final_html_audit_service import audit_final_html_quality
 from blogspot_automation.services.news_focus_policy import ai_blog_mode_from_env, evaluate_news_focus
 from blogspot_automation.services.news_recommendation_policy import evaluate_news_recommendation_policy
+from blogspot_automation.services.readability_service import (
+    is_below_floor as _readability_below_floor,
+    is_below_target as _readability_below_target,
+    measure_html as _measure_readability_html,
+)
 from blogspot_automation.services.news_taxonomy import is_delivery_money_text, is_tax_refund_text
 from blogspot_automation.services.publish_preview_scorecard import build_publish_preview_scorecard
 from blogspot_automation.services.seo_policy import (
@@ -685,6 +690,9 @@ class NewsQualityGate:
         if content_type and not quick_decision_table_present:
             warnings.append("missing_quick_decision_table")
         warnings.extend(self._dense_paragraph_warnings(html))
+        readability_blocking, readability_warnings, readability_metrics = self._readability_issues(html)
+        blocking_issues.extend(readability_blocking)
+        warnings.extend(readability_warnings)
         reader_value = self._reader_value_score(
             title=title,
             html=html,
@@ -1127,6 +1135,11 @@ class NewsQualityGate:
             "hedge_sentence_ratio": hedge_ratio,
             "hedge_sentences": hedge_sentences,
             "hedge_sentence_total": hedge_sentence_total,
+            "readability": readability_metrics,
+            "readability_words": int(readability_metrics.get("words") or 0),
+            "readability_fre": float(readability_metrics.get("flesch_reading_ease") or 0.0),
+            "readability_avg_sentence_words": float(readability_metrics.get("avg_sentence_words") or 0.0),
+            "readability_long_word_pct": float(readability_metrics.get("long_word_pct") or 0.0),
             "fact_headline_only": fact_headline_only,
             "fact_has_source_body": fact_has_body,
             "fact_official_count": int(fact_supply.get("official_count") or 0),
@@ -1333,6 +1346,26 @@ class NewsQualityGate:
         if max_run >= 3:
             warnings.append(f"consecutive_paragraphs_without_visual_break:{max_run}")
         return warnings
+
+    @staticmethod
+    def _readability_issues(html: str) -> tuple[list[str], list[str], dict[str, object]]:
+        """영어 본문 읽기쉬움 게이트. 측정 불가는 위반으로 보지 않는다."""
+        if not is_english_mode():
+            return [], [], {}
+        try:
+            metrics = _measure_readability_html(html or "")
+        except Exception as exc:  # noqa: BLE001 — 측정 실패는 비치명
+            logger.warning("readability measurement failed (skipped): %s", exc)
+            return [], [], {}
+        if int(metrics.get("words") or 0) <= 0:
+            return [], [], metrics
+
+        fre = float(metrics.get("flesch_reading_ease") or 0.0)
+        if _readability_below_floor(metrics):
+            return [f"readability_below_floor:{fre:.1f}"], [], metrics
+        if _readability_below_target(metrics):
+            return [], [f"readability_below_target:{fre:.1f}"], metrics
+        return [], [], metrics
 
     @staticmethod
     def _pricing_table_price_cells(

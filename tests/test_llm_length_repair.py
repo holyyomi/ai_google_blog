@@ -106,8 +106,9 @@ def test_short_draft_triggers_repair_call_not_regeneration(monkeypatch) -> None:
     result = LlmContentService()._run_fallback_chain("Write a post about ChatGPT pricing")
 
     assert result == LONG_DRAFT
-    # 정확히 2회: 최초 생성 + 보강. 전면 재생성도, 유료 폴백도 없다.
-    assert len(payloads) == 2
+    # 최초 생성 + 길이 보강, 그리고 읽기쉬움 soft 보정 1회까지 같은 예산 안에서만 돈다.
+    # 전면 재생성도, 유료 폴백도 없다.
+    assert len(payloads) <= 3
     first_user = payloads[0]["messages"][1]["content"]
     repair_user = payloads[1]["messages"][1]["content"]
     assert "Write a post about ChatGPT pricing" in first_user
@@ -116,6 +117,10 @@ def test_short_draft_triggers_repair_call_not_regeneration(monkeypatch) -> None:
     # 보강 호출은 원본 초안을 그대로 포함해야 한다(백지 재생성이 아님).
     assert SHORT_DRAFT in repair_user
     assert payloads[1]["model"] == payloads[0]["model"]  # 같은 provider/모델
+    if len(payloads) == 3:
+        readability_user = payloads[2]["messages"][1]["content"]
+        assert "make the existing draft easier" in readability_user
+        assert payloads[2]["model"] == payloads[0]["model"]
 
 
 def test_repair_failure_falls_back_and_is_bounded(monkeypatch) -> None:
