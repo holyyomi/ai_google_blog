@@ -92,6 +92,8 @@ _SYSTEM_PROMPT = (
 # 한국어 키명 그대로 유지해야 한다(키를 번역하면 슬롯 적용이 통째로 폴백된다).
 _SYSTEM_PROMPT_EN = (
     "You are a senior editor for an English-language AI blog (readers: US, UK, Canada, India). "
+    "The reader is not a developer; write for one worker or small business owner trying an AI tool. "
+    "Do not switch audiences inside one article, such as moving from an individual user to an enterprise admin. "
     "If the topic names a specific tool, focus deeply on that one tool; if it is broad, pick 1-3 "
     "representative tools (e.g. ChatGPT, Claude, Gemini) and write concretely about them — never "
     "anonymous 'AI tools' vagueness. The tool name must appear in the title and the first paragraph. "
@@ -105,6 +107,8 @@ _SYSTEM_PROMPT_EN = (
     "rather than fabricating a repo path or link. Banned: 'guaranteed income', '100% safe', 'works for everyone', income amounts, "
     "affiliate wording, clickbait. Include at least 3 little-known practical tips (hidden menus, "
     "free-tier-saving usage order, common mistakes and recovery). Be concise and information-dense. "
+    "Keep sentences under 20 words where possible. If you use terms like SLA, latency, tenant, OAuth, "
+    "throughput, inference, connector, or Zero Trust, explain the term in plain words in that same sentence. "
     "No hashtags anywhere. "
     "Output VALID JSON only (no code fences, no commentary). CRITICAL: keep every JSON key EXACTLY "
     "as specified in the instructions — including Korean-named keys — and write every VALUE in "
@@ -388,6 +392,8 @@ def enrich_slots_with_llm(
             "If a fact is uncertain, state the general principle and add 'verify on the official page'. "
             "The title must follow [keyword] + [specific number or angle] + [2026] where natural, "
             "in English, under 70 characters. "
+            "Keep one non-developer reader fixed from start to finish; explain technical terms in the same sentence. "
+            "Aim for sentences under 20 words. "
             "Give the reader at least one savable asset (a reusable comparison rule, cost math, or checklist) per slot group."
         )
     else:

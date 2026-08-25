@@ -162,6 +162,14 @@ jobs:
           # LLM 주제 특화 본문 생성
           ENABLE_AI_LLM_ENRICH: "true"
           ENABLE_SEARCH_DEMAND: "true"
+          # 읽기쉬움 기준(2026-08-25). 실측: 발행 5편의 Flesch가 34.9~52.5로
+          # 일반 독자 기준(60+)에 한참 못 미쳤다. TARGET 미달이면 "쉬운 말로 다시
+          # 써라" 보정을 1회 돌리고, FLOOR 미달이면 그때만 차단한다. 차단부터 걸면
+          # 지금 글이 거의 다 막히므로 순서가 중요하다. 발행률을 보며 조절할 값이라
+          # 코드가 아니라 여기 둔다.
+          READABILITY_TARGET_FRE: "55"
+          READABILITY_TARGET_ASL: "18"
+          READABILITY_FLOOR_FRE: "40"
           # Custom Search JSON API는 Google이 신규 고객에게 폐쇄(2026-07-10 확정:
           # API 활성화·새 키 발급 후에도 전 호출 403 "This project does not have
           # the access" — 콘솔 설정으로 해결 불가, 기존 고객도 2027-01 마이그레이션

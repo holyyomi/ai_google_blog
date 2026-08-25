@@ -53,6 +53,19 @@ from blogspot_automation.utils.html_meta import extract_meta_description
 
 logger = logging.getLogger(__name__)
 
+
+def _log_readability_metrics(quality_gate: dict[str, Any]) -> None:
+    metrics = quality_gate.get("readability") if isinstance(quality_gate, dict) else {}
+    if not isinstance(metrics, dict) or int(metrics.get("words") or 0) <= 0:
+        return
+    logger.info(
+        "readability: fre=%.1f asl=%.1f long=%.1f%%",
+        float(metrics.get("flesch_reading_ease") or 0.0),
+        float(metrics.get("avg_sentence_words") or 0.0),
+        float(metrics.get("long_word_pct") or 0.0),
+    )
+
+
 _HISTORY_RECORDABLE_STATUSES: frozenset[str] = frozenset({
     "published",
     "trending_published",
@@ -1332,6 +1345,7 @@ class NewsPipeline:
                 extra_allowed_urls=_llm_citation_urls,
                 fact_supply=_llm_fact_supply,
             )
+            _log_readability_metrics(publish_quality_gate)
             # 콘텐츠 품질: LLM 서술형 본문이 자체 품질 게이트를 통과했는지 여기서 캡처한다.
             # 통과했다면 아래 golden_preview promotion에서 발행 가부·플래그는 그대로 두되
             # 실제 발행 본문(html)만 한 편으로 읽히는 LLM 서술형을 유지한다(가독성 우선).
@@ -1506,6 +1520,7 @@ class NewsPipeline:
                         # 로그는 "팩트소스=official"인데 run_meta는 fact_sources_used=[]).
                         fact_supply=_llm_fact_supply,
                     )
+                    _log_readability_metrics(_regate)
                     if bool(_regate.get("passed")) or not _pre_override_llm_ok:
                         publish_quality_gate = _regate
                         _llm_body_gate_passed = bool(_regate.get("passed"))
@@ -1585,6 +1600,7 @@ class NewsPipeline:
                     extra_allowed_urls=_candidate_citation_urls,
                     fact_supply=_llm_fact_supply,
                 )
+                _log_readability_metrics(_candidate_publish_gate)
                 # 영어 모드 강화 게이트(2026-07-17): 템플릿 candidate는 구조·헤딩이
                 # 한국어라 영어 블로그에 그대로 나가면 안 된다. LLM 영어 서술 본문이
                 # 자체 게이트를 통과했을 때만 발행을 허용하고, 아니면 이 후보를
@@ -1687,6 +1703,7 @@ class NewsPipeline:
                             "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),
                             "article_focus_score": publish_quality_gate.get("article_focus_score"),
                             "reader_value_score": publish_quality_gate.get("reader_value_score"),
+                            "readability": publish_quality_gate.get("readability", {}),
                             "related_ai_blog_box_present": publish_quality_gate.get("related_ai_blog_box_present", False),
                         },
                         scoring_updates={
@@ -1696,6 +1713,7 @@ class NewsPipeline:
                             "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),
                             "article_focus_score": publish_quality_gate.get("article_focus_score"),
                             "reader_value_score": publish_quality_gate.get("reader_value_score"),
+                            "readability": publish_quality_gate.get("readability", {}),
                         },
                     )
                     logger.info(
@@ -1740,6 +1758,7 @@ class NewsPipeline:
                                 "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),
                                 "article_focus_score": publish_quality_gate.get("article_focus_score"),
                                 "reader_value_score": publish_quality_gate.get("reader_value_score"),
+                                "readability": publish_quality_gate.get("readability", {}),
                             },
                             scoring_updates={
                                 "final_publish_html_source": "article_candidate_quality_review",
@@ -1748,6 +1767,7 @@ class NewsPipeline:
                                 "faqpage_json_ld_present": publish_quality_gate.get("faqpage_json_ld_present"),
                                 "article_focus_score": publish_quality_gate.get("article_focus_score"),
                                 "reader_value_score": publish_quality_gate.get("reader_value_score"),
+                                "readability": publish_quality_gate.get("readability", {}),
                             },
                         )
                         logger.info(
@@ -2623,6 +2643,7 @@ class NewsPipeline:
             # 안 넘기면 facts_headline_only 검사를 우회하는 경로가 생긴다.
             fact_supply=fact_supply,
         )
+        _log_readability_metrics(repaired_gate)
         if not self._quality_title_repair_improved(
             before=publish_quality_gate,
             after=repaired_gate,
@@ -2657,6 +2678,7 @@ class NewsPipeline:
                 "faqpage_json_ld_present": repaired_gate.get("faqpage_json_ld_present"),
                 "article_focus_score": repaired_gate.get("article_focus_score"),
                 "reader_value_score": repaired_gate.get("reader_value_score"),
+                "readability": repaired_gate.get("readability", {}),
                 "related_ai_blog_box_present": repaired_gate.get("related_ai_blog_box_present", False),
             },
             scoring_updates={
@@ -2667,6 +2689,7 @@ class NewsPipeline:
                 "faqpage_json_ld_present": repaired_gate.get("faqpage_json_ld_present"),
                 "article_focus_score": repaired_gate.get("article_focus_score"),
                 "reader_value_score": repaired_gate.get("reader_value_score"),
+                "readability": repaired_gate.get("readability", {}),
             },
         )
         logger.info(
@@ -3506,6 +3529,7 @@ class NewsPipeline:
             "selected_title_risk_score": (_title_result.get("best_title") or {}).get("risk_score", 0),
             "selected_title_promise_match_score": (_title_result.get("best_title") or {}).get("promise_match_score", 0),
             "publish_quality_gate": publish_quality_gate,
+            "readability": publish_quality_gate.get("readability", {}),
         }
 
         run_path = self.artifact_service.save_dry_run_result(
@@ -3550,6 +3574,7 @@ class NewsPipeline:
                 "target_reader": run_meta.get("target_reader", ""),
                 "article_focus_score": publish_quality_gate.get("article_focus_score"),
                 "reader_value_score": publish_quality_gate.get("reader_value_score"),
+                "readability": publish_quality_gate.get("readability", {}),
                 "labels": run_meta.get("labels", []),
                 "label_count": run_meta.get("label_count", 0),
                 "hashtags": run_meta.get("hashtags", []),

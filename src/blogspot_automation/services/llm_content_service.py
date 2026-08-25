@@ -33,6 +33,10 @@ from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.issue_content_profile_service import IssueContentProfileService
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.news_topic_service import _google_api_error_summary
+from blogspot_automation.services.readability_service import (
+    is_below_target as _readability_below_target,
+    measure_html as _measure_readability_html,
+)
 from blogspot_automation.services.reader_interest_brief_service import ReaderInterestBriefService
 from blogspot_automation.templates.blog_post_template import render_full_post
 
@@ -429,6 +433,28 @@ HOW TO REVISE (this is an expansion, not a rewrite):
 5. Keep all the original constraints: same allowed HTML classes, EXACTLY 3 FAQs in <h3 class="faq-q">…</h3><p class="faq-a">…</p> pairs with the <p> immediately after the <h3>, the CONFIRMED_VS_CHECK_NEEDED_BLOCK unchanged at the end, no Markdown, no hashtags, no &#...; entities, English only, at most 3 deferral phrases in the whole article.
 
 OUTPUT: the COMPLETE revised article as inner HTML — the original content plus your additions, from the first paragraph to the closing block. Do not output a diff, a fragment, a note, or a comment about what you changed. Output nothing but the article HTML.
+"""
+
+_REPAIR_READABILITY_INSTRUCTIONS_EN = """[REVISION TASK — make the existing draft easier to read]
+
+The draft below already passed the structural checks, but its English is too hard for a general reader.
+
+Current readability:
+- Flesch Reading Ease: {fre}
+- Average sentence length: {asl} words
+- Long-word share: {long_word_pct}%
+
+Rewrite the COMPLETE article in easier English without changing the meaning, facts, numbers, prices, links, HTML structure, or allowed classes.
+
+Rules:
+1. Keep each sentence under 20 words where possible.
+2. Use common words. If you must use technical terms such as SLA, latency, tenant, OAuth, throughput, inference, connector, or Zero Trust, add a plain-English explanation in the same sentence.
+3. Keep one reader in mind: a worker or small business owner trying an AI tool, not a developer or enterprise admin.
+4. Do not add new facts, prices, dates, versions, tools, URLs, or claims.
+5. Fix these hard sentences first:
+{hard_sentences}
+
+OUTPUT: the COMPLETE revised article as inner HTML. Do not output notes, Markdown, a diff, or a fragment.
 """
 
 _USER_PROMPT_TMPL = """[블로그 글 작성 (최고 수익화/SEO 최적화 버전)]
@@ -1252,6 +1278,7 @@ class LlmContentService:
                 min_chars=4000,
                 validator=_validate_generated_content,
                 repair_builder=_build_length_repair_prompt,
+                acceptance_repair_builder=_build_readability_repair_prompt,
             )
         return self.call_with_fallback(
             user_prompt,
@@ -1267,6 +1294,7 @@ class LlmContentService:
         min_chars: int = 200,
         validator: Any = None,
         repair_builder: Any = None,
+        acceptance_repair_builder: Any = None,
         max_repairs: int = 2,
     ) -> str | None:
         """Provider 폴백 체인으로 LLM 호출 — 외부 system_prompt 주입 가능.
@@ -1281,6 +1309,10 @@ class LlmContentService:
                    반환값이 있으면 초안을 버리지 않고 **같은 provider**에 그 프롬프트로
                    1회 재호출해 보강본을 받고, 보강본이 validator를 통과하면 채택한다.
                    기본 None — 기존 호출부(ko 모드·ai_slot_enricher 등) 동작은 그대로다.
+        acceptance_repair_builder: callable(draft) -> str | None. validator를 통과한
+                   초안에 대해 1회 후처리 보정이 필요하면 프롬프트를 돌려준다.
+                   이 호출도 max_repairs 예산을 같이 쓴다. 보정본이 원본보다 나쁘면
+                   원본을 유지한다.
         max_repairs: 체인 전체에서 허용하는 보강 호출 총 횟수(무한루프 방지 상한).
         """
         repairs_used = 0
@@ -1302,6 +1334,31 @@ class LlmContentService:
             # ko 모드는 기존대로 즉시 다음 provider (비용·시간 특성 유지).
             validator_retry_budget = 1 if is_english_mode() else 0
             for attempt in range(1, attempts + 1):
+                def _maybe_acceptance_repair(draft: str) -> str:
+                    nonlocal repairs_used
+                    if acceptance_repair_builder is None or repairs_used >= max_repairs:
+                        return draft
+                    repair_prompt = None
+                    try:
+                        repair_prompt = acceptance_repair_builder(draft)
+                    except Exception as rb_exc:  # noqa: BLE001 — 보정 실패는 비치명
+                        logger.warning(
+                            "LlmContentService: acceptance repair 프롬프트 생성 실패 — %s",
+                            rb_exc,
+                        )
+                    if not repair_prompt:
+                        return draft
+                    repairs_used += 1
+                    return self._attempt_acceptance_repair(
+                        provider=provider,
+                        api_key=api_key,
+                        draft=draft,
+                        repair_prompt=repair_prompt,
+                        system_prompt=system_prompt,
+                        min_chars=min_chars,
+                        validator=validator,
+                    )
+
                 try:
                     result = self._call_provider(provider, api_key, user_prompt, system_prompt)
                     if not result or len(result.strip()) <= min_chars:
@@ -1337,7 +1394,7 @@ class LlmContentService:
                                         reason=str(ve),
                                     )
                                     if repaired:
-                                        return repaired
+                                        return _maybe_acceptance_repair(repaired)
                                     # 자기 초안을 손에 쥐고도 못 고친 모델이 백지에서
                                     # 다시 굴려 성공할 확률은 낮다 — 같은 provider
                                     # 전면 재생성(≈2분)을 태우지 않고 바로 다음 provider로.
@@ -1358,7 +1415,7 @@ class LlmContentService:
                         "LlmContentService: %s 성공 (%d자)",
                         provider["name"], len(result),
                     )
-                    return result
+                    return _maybe_acceptance_repair(result)
                 except Exception as exc:
                     logger.warning(
                         "LlmContentService: %s 실패 (시도 %d/%d) — %s",
@@ -1378,6 +1435,65 @@ class LlmContentService:
                         time.sleep(6.0 if is_capacity_exhausted else 2.5)
 
         return None
+
+    def _attempt_acceptance_repair(
+        self,
+        *,
+        provider: dict[str, Any],
+        api_key: str,
+        draft: str,
+        repair_prompt: str,
+        system_prompt: str | None,
+        min_chars: int,
+        validator: Any,
+    ) -> str:
+        """validator 통과 후 보정 1회. 실패하거나 나빠지면 원본을 유지한다."""
+        before = _measure_readability_html(draft)
+        logger.info(
+            "LlmContentService: %s readability 보정 시도 (fre=%.1f asl=%.1f)",
+            provider["name"],
+            float(before.get("flesch_reading_ease") or 0.0),
+            float(before.get("avg_sentence_words") or 0.0),
+        )
+        try:
+            repaired = self._call_provider(provider, api_key, repair_prompt, system_prompt)
+        except Exception as exc:  # noqa: BLE001 — 보정 실패는 비치명
+            logger.warning("LlmContentService: %s readability 보정 호출 실패 — %s", provider["name"], exc)
+            return draft
+        if not repaired or len(repaired.strip()) <= min_chars:
+            logger.warning(
+                "LlmContentService: %s readability 보정본이 너무 짧음 (%d자) — 원본 유지",
+                provider["name"], len(repaired or ""),
+            )
+            return draft
+        if validator is not None:
+            try:
+                validator(repaired)
+            except Exception as ve:  # noqa: BLE001
+                logger.warning(
+                    "LlmContentService: %s readability 보정본 검증 실패 — %s. 원본 유지",
+                    provider["name"], ve,
+                )
+                return draft
+        selected = _select_readability_repair(draft, repaired)
+        after = _measure_readability_html(selected)
+        if selected == draft:
+            logger.info(
+                "LlmContentService: %s readability 보정본 회귀 — 원본 유지 (fre=%.1f asl=%.1f)",
+                provider["name"],
+                float(before.get("flesch_reading_ease") or 0.0),
+                float(before.get("avg_sentence_words") or 0.0),
+            )
+            return draft
+        logger.info(
+            "LlmContentService: %s readability 보정 채택 (fre %.1f→%.1f, asl %.1f→%.1f)",
+            provider["name"],
+            float(before.get("flesch_reading_ease") or 0.0),
+            float(after.get("flesch_reading_ease") or 0.0),
+            float(before.get("avg_sentence_words") or 0.0),
+            float(after.get("avg_sentence_words") or 0.0),
+        )
+        return selected
 
     def _attempt_repair(
         self,
@@ -1622,6 +1738,48 @@ def _build_length_repair_prompt(draft: str, error: Exception) -> str | None:
         target_max=EN_TARGET_BODY_WORDS_MAX,
     )
     return f"{head}\n[PREVIOUS DRAFT — expand this exact HTML]\n{draft}"
+
+
+def _build_readability_repair_prompt(draft: str) -> str | None:
+    """영어 초안이 soft readability 목표를 못 맞추면 1회 보정 프롬프트를 만든다."""
+    if not is_english_mode():
+        return None
+    metrics = _measure_readability_html(draft)
+    if not _readability_below_target(metrics):
+        return None
+    hard = [str(s).strip() for s in list(metrics.get("hard_sentences") or []) if str(s).strip()]
+    if hard:
+        hard_lines = "\n".join(f"- {sentence}" for sentence in hard[:5])
+    else:
+        hard_lines = "- No single sentence crossed the hard-sentence threshold; shorten the longest sentences anyway."
+    head = _REPAIR_READABILITY_INSTRUCTIONS_EN.format(
+        fre=f"{float(metrics.get('flesch_reading_ease') or 0.0):.1f}",
+        asl=f"{float(metrics.get('avg_sentence_words') or 0.0):.1f}",
+        long_word_pct=f"{float(metrics.get('long_word_pct') or 0.0):.1f}",
+        hard_sentences=hard_lines,
+    )
+    return f"{head}\n[PREVIOUS DRAFT — rewrite this exact HTML in easier English]\n{draft}"
+
+
+def _readability_rank(metrics: dict[str, object]) -> tuple[float, float, float]:
+    return (
+        float(metrics.get("flesch_reading_ease") or 0.0),
+        -float(metrics.get("avg_sentence_words") or 0.0),
+        -float(metrics.get("long_word_pct") or 0.0),
+    )
+
+
+def _select_readability_repair(original: str, repaired: str) -> str:
+    """보정본이 원본보다 읽기쉬움 지표상 나쁘면 원본을 유지한다."""
+    original_metrics = _measure_readability_html(original)
+    repaired_metrics = _measure_readability_html(repaired)
+    if int(repaired_metrics.get("words") or 0) <= 0:
+        return original
+    if int(original_metrics.get("words") or 0) <= 0:
+        return repaired
+    if _readability_rank(repaired_metrics) < _readability_rank(original_metrics):
+        return original
+    return repaired
 
 
 # 시스템 프롬프트의 문체 규칙이 금지한 대표 AI 필러 표현. 오탐을 피하기 위해
