@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from blogspot_automation.models.news_models import NewsCandidate, ScoredNewsCandidate
@@ -91,6 +92,33 @@ RISK_KEYWORDS = (
     # 영어 전환(2026-07-17) 추가 — 영어 소스의 수익 보장/투기 낚시 차단.
     "crypto pump", "get rich quick", "guaranteed returns", "stock picks",
 )
+
+
+# 장애·중단·상태처럼 "지금 어떤지"가 전부인 사건은 블로그가 이길 수 없다.
+# 2026-08-25 실측 사고: outage 뉴스를 골라 "claude status 99.35% uptime 2026"으로
+# 발행했는데, 그 검색을 하는 독자가 원하는 건 실시간 상태 페이지였다. 구글은 공식
+# status 페이지를 띄우고 어제 쓴 글은 자리를 못 뺏는다. 검색어 단계(search_demand_
+# service.classify_intent)에서 한 번 거르지만, 애초에 주제로 안 고르는 게 낫다.
+_REALTIME_EVENT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\boutage[sd]?\b", re.IGNORECASE),
+    re.compile(r"\bdowntime\b|\bis\s+down\b|\bgoes?\s+down\b|\bwent\s+down\b", re.IGNORECASE),
+    re.compile(r"\bservice\s+(?:status|disruption|interruption)\b", re.IGNORECASE),
+    re.compile(r"\bstatus\s+page\b|\bserver\s+status\b", re.IGNORECASE),
+    re.compile(r"\bincident\s+report\b|\bongoing\s+incident\b", re.IGNORECASE),
+    re.compile(r"\bdisruption[s]?\b", re.IGNORECASE),
+    re.compile(r"\brestored\b|\bback\s+online\b", re.IGNORECASE),
+)
+_REALTIME_EVENT_PENALTY = 12
+
+
+def realtime_event_penalty(text: str) -> tuple[int, str]:
+    """실시간 사건성 주제면 (감점, 사유)를 돌려준다. 아니면 (0, "")."""
+    body = str(text or "")
+    for pattern in _REALTIME_EVENT_PATTERNS:
+        m = pattern.search(body)
+        if m:
+            return _REALTIME_EVENT_PENALTY, f"realtime_event:{m.group(0).strip().lower()}"
+    return 0, ""
 
 
 class NewsScoringService:
@@ -282,7 +310,14 @@ class NewsScoringService:
                 click_potential_bonus = 5
             elif click_potential_score >= 7:
                 click_potential_bonus = 2
+            realtime_penalty, realtime_reason = realtime_event_penalty(text)
             raw_total_score += click_potential_bonus + hook_category_bonus + reader_interest_bonus
+            raw_total_score -= realtime_penalty
+            strategy_score_breakdown["realtime_event_penalty"] = realtime_penalty
+            strategy_score_breakdown["realtime_event_reason"] = realtime_reason
+            if realtime_penalty:
+                raw["realtime_event_penalty_applied"] = True
+                raw["realtime_event_reason"] = realtime_reason
             strategy_score_breakdown["raw_total_score_before_selection_bonus"] = raw_total_score_before_selection_bonus
             strategy_score_breakdown["click_potential_bonus"] = click_potential_bonus
             strategy_score_breakdown["hook_category_priority"] = hook_category_priority
