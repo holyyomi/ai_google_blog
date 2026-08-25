@@ -68,7 +68,7 @@ class TestScoreTopicBoost:
             {"GPT-5.6": ["gpt-5.6 price", "gpt-5.6 release date", "gpt-5.6 vs claude"]}
         )
         with patch(
-            "blogspot_automation.services.google_autocomplete_signal.request.urlopen",
+            "blogspot_automation.services.autocomplete_client.request.urlopen",
             side_effect=fake,
         ):
             boost, matched = GoogleAutocompleteSignal.score_topic_boost(
@@ -80,7 +80,7 @@ class TestScoreTopicBoost:
     def test_zero_when_no_suggestions(self):
         fake = _fake_urlopen_factory({})
         with patch(
-            "blogspot_automation.services.google_autocomplete_signal.request.urlopen",
+            "blogspot_automation.services.autocomplete_client.request.urlopen",
             side_effect=fake,
         ):
             boost, matched = GoogleAutocompleteSignal.score_topic_boost(
@@ -93,7 +93,7 @@ class TestScoreTopicBoost:
         many = [f"gpt-5.6 thing {i}" for i in range(10)]
         fake = _fake_urlopen_factory({"GPT-5.6": many})
         with patch(
-            "blogspot_automation.services.google_autocomplete_signal.request.urlopen",
+            "blogspot_automation.services.autocomplete_client.request.urlopen",
             side_effect=fake,
         ):
             boost, _ = GoogleAutocompleteSignal.score_topic_boost(
@@ -109,7 +109,7 @@ class TestScoreTopicBoost:
 
     def test_network_failure_is_silent_zero(self):
         with patch(
-            "blogspot_automation.services.google_autocomplete_signal.request.urlopen",
+            "blogspot_automation.services.autocomplete_client.request.urlopen",
             side_effect=OSError("boom"),
         ):
             boost, matched = GoogleAutocompleteSignal.score_topic_boost("GPT-5.6 update")

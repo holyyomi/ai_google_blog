@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import html
-import json
 import logging
 import os
 import re
 import threading
 from typing import Any, Callable
-from urllib import error, parse, request
+
+from blogspot_automation.services import autocomplete_client
 
 logger = logging.getLogger(__name__)
 
-_SUGGEST_ENDPOINT = "https://suggestqueries.google.com/complete/search"
 _USER_AGENT = "Mozilla/5.0 (compatible; blogspot-automation/1.0)"
 _FALSE_VALUES = {"0", "false", "no", "off"}
 _FAILURE_THRESHOLD = 2
@@ -256,25 +255,18 @@ def _fetch_suggestions_result(seed: str, *, lang: str, timeout: float) -> tuple[
         if _circuit_open:
             return [], False
 
-    params = parse.urlencode({"client": "firefox", "hl": language, "q": seed})
-    req = request.Request(f"{_SUGGEST_ENDPOINT}?{params}", headers={"User-Agent": _USER_AGENT})
-    try:
-        with request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="replace"))
-        raw_items = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
-        if not isinstance(raw_items, list):
-            raise ValueError("unexpected suggestqueries payload")
-        suggestions = tuple(
-            dict.fromkeys(_clean_phrase(str(item)) for item in raw_items if _clean_phrase(str(item)))
-        )
-    except (error.HTTPError, error.URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError, IndexError) as exc:
+    # 전송은 autocomplete_client 하나로 모았다(2026-08-25) — 캐시·회로차단기·
+    # env 스위치 같은 이 모듈 고유의 정책만 여기 남는다.
+    raw_items, ok = autocomplete_client.fetch_suggestions(
+        seed, hl=language, timeout=timeout, user_agent=_USER_AGENT, limit=0
+    )
+    if not ok:
         _cache_fetch_result(cache_key, False, ())
-        _note_failure(exc)
+        _note_failure(RuntimeError("autocomplete fetch failed"))
         return [], False
-    except Exception as exc:  # noqa: BLE001 - 검색어 보강 실패가 발행을 막으면 안 된다.
-        _cache_fetch_result(cache_key, False, ())
-        _note_failure(exc)
-        return [], False
+    suggestions = tuple(
+        dict.fromkeys(_clean_phrase(str(item)) for item in raw_items if _clean_phrase(str(item)))
+    )
 
     _cache_fetch_result(cache_key, True, suggestions)
     _note_success()

@@ -17,13 +17,12 @@ ENABLE_SEARCH_AUTOCOMPLETE_SIGNAL=false로 끈다. 네트워크 실패는 전부
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 import threading
 import time
-from urllib import error, parse, request
+from blogspot_automation.services import autocomplete_client
 
 logger = logging.getLogger(__name__)
 
@@ -134,18 +133,10 @@ def score_topic_boost(topic_text: str, *, max_boost: int = 12) -> tuple[int, lis
 
 
 def _fetch_suggestions(query: str) -> tuple[str, ...]:
+    # 전송은 autocomplete_client 하나로 모았다(2026-08-25). 여기 남는 건 이 신호의
+    # 정책(로케일 결정·개수 상한)뿐이다.
     hl, gl = _locale()
-    url = _SUGGEST_URL_TEMPLATE.format(hl=hl, gl=gl, q=parse.quote(query))
-    req = request.Request(url, headers={"User-Agent": _USER_AGENT})
-    try:
-        with request.urlopen(req, timeout=_FETCH_TIMEOUT_SECONDS) as response:
-            body = response.read().decode("utf-8", errors="replace")
-        payload = json.loads(body)
-        raw = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
-        return tuple(str(s).strip() for s in raw if str(s).strip())[:10]
-    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError, IndexError) as exc:
-        logger.warning("autocomplete fetch failed (non-fatal): %s", exc)
-        return ()
-    except Exception as exc:  # noqa: BLE001 — 수요 신호 실패는 항상 비치명
-        logger.warning("autocomplete fetch unexpected error (non-fatal): %s", exc)
-        return ()
+    suggestions, _ok = autocomplete_client.fetch_suggestions(
+        query, hl=hl, gl=gl, timeout=_FETCH_TIMEOUT_SECONDS, user_agent=_USER_AGENT, limit=10
+    )
+    return tuple(suggestions)
