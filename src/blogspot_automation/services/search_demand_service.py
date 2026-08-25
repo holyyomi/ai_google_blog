@@ -94,10 +94,129 @@ _GEO_NOISE = re.compile(
     re.IGNORECASE,
 )
 
+_REALTIME_INTENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bserver\s+status\b", re.IGNORECASE), "server status"),
+    (re.compile(r"\bright\s+now\b", re.IGNORECASE), "right now"),
+    (re.compile(r"\bis\s+[\w .+-]{1,60}\s+down\b", re.IGNORECASE), "is ... down"),
+    (re.compile(r"\bstatus\b", re.IGNORECASE), "status"),
+    (re.compile(r"\bdown\b", re.IGNORECASE), "down"),
+    (re.compile(r"\boutage\b", re.IGNORECASE), "outage"),
+    (re.compile(r"\bdowntime\b", re.IGNORECASE), "downtime"),
+    (re.compile(r"\buptime\b", re.IGNORECASE), "uptime"),
+    (re.compile(r"\bdetector\b", re.IGNORECASE), "detector"),
+    (re.compile(r"\btracker\b", re.IGNORECASE), "tracker"),
+    (re.compile(r"\bnow\b", re.IGNORECASE), "now"),
+    (re.compile(r"\btoday\b", re.IGNORECASE), "today"),
+)
+
+_NAVIGATIONAL_INTENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\blog\s+in\b", re.IGNORECASE), "log in"),
+    (re.compile(r"\bsign\s+in\b", re.IGNORECASE), "sign in"),
+    (re.compile(r"\bsign\s+up\b", re.IGNORECASE), "sign up"),
+    (re.compile(r"\bofficial\s+site\b", re.IGNORECASE), "official site"),
+    (re.compile(r"\bhome\s+page\b", re.IGNORECASE), "home page"),
+    (re.compile(r"\blogin\b", re.IGNORECASE), "login"),
+    (re.compile(r"\bapp\b", re.IGNORECASE), "app"),
+    (re.compile(r"\bdownload\b", re.IGNORECASE), "download"),
+    (re.compile(r"\bdashboard\b", re.IGNORECASE), "dashboard"),
+    (re.compile(r"\bconsole\b", re.IGNORECASE), "console"),
+)
+
+_INFORMATIONAL_INTENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bhow\s+to\b", re.IGNORECASE), "how to"),
+    (re.compile(r"\bwhat\s+is\b", re.IGNORECASE), "what is"),
+    (re.compile(r"\bnot\s+working\b", re.IGNORECASE), "not working"),
+    (re.compile(r"\bversus\b", re.IGNORECASE), "versus"),
+    (re.compile(r"\bwhy\b", re.IGNORECASE), "why"),
+    (re.compile(r"\bguide\b", re.IGNORECASE), "guide"),
+    (re.compile(r"\btutorial\b", re.IGNORECASE), "tutorial"),
+    (re.compile(r"\bexamples?\b", re.IGNORECASE), "example"),
+    (re.compile(r"\bvs\.?\b", re.IGNORECASE), "vs"),
+    (re.compile(r"\bcompare\b|\bcomparison\b|\bcompared\b", re.IGNORECASE), "compare"),
+    (re.compile(r"\bpricing\b", re.IGNORECASE), "pricing"),
+    (re.compile(r"\bprices?\b", re.IGNORECASE), "price"),
+    (re.compile(r"\bcosts?\b", re.IGNORECASE), "cost"),
+    (re.compile(r"\bfree\b", re.IGNORECASE), "free"),
+    (re.compile(r"\blimits?\b", re.IGNORECASE), "limits"),
+    (re.compile(r"\balternatives?\b", re.IGNORECASE), "alternatives"),
+    (re.compile(r"\bbest\b", re.IGNORECASE), "best"),
+    (re.compile(r"\berrors?\b", re.IGNORECASE), "error"),
+    (re.compile(r"\bfix(?:es)?\b", re.IGNORECASE), "fix"),
+    (re.compile(r"\bsetup\b|\bset\s+up\b", re.IGNORECASE), "setup"),
+    (re.compile(r"\binstall(?:ation)?\b", re.IGNORECASE), "install"),
+    (re.compile(r"\breviews?\b", re.IGNORECASE), "review"),
+    (re.compile(r"\bworth\s+it\b", re.IGNORECASE), "worth it"),
+    (re.compile(r"\bskills?\b", re.IGNORECASE), "skills"),
+)
+
+_TRANSACTIONAL_INTENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bbuy\b|\bpurchase\b|\bsubscribe\b|\bupgrade\b", re.IGNORECASE), "buy"),
+    (re.compile(r"\bcoupons?\b|\bpromo\s+codes?\b|\bdiscount\s+codes?\b", re.IGNORECASE), "coupon"),
+)
+
+_UNANSWERABLE_INTENTS = {"navigational", "realtime"}
+
 _lock = threading.Lock()
 _suggestion_cache: dict[tuple[str, str], tuple[bool, tuple[str, ...]]] = {}
 _consecutive_failures = 0
 _circuit_open = False
+
+
+def classify_intent(phrase: str) -> str:
+    """검색어가 블로그 글로 만족시킬 수 있는 의도인지 보수적으로 분류한다."""
+    intent, _reason = _classify_intent_with_reason(phrase)
+    return intent
+
+
+def _classify_intent_with_reason(phrase: str) -> tuple[str, str]:
+    text = _clean_phrase(phrase).casefold()
+    if not text:
+        return "unknown", "unknown:empty"
+
+    realtime_signal = _first_intent_signal(text, _REALTIME_INTENT_PATTERNS)
+    if realtime_signal:
+        # status/down/now 계열은 독자가 실시간 페이지를 원하므로 정보성 단어가 섞여도 제외한다.
+        return "realtime", f"realtime:{realtime_signal}"
+
+    navigational_signal = _first_intent_signal(text, _NAVIGATIONAL_INTENT_PATTERNS)
+    informational_signal = _first_intent_signal(text, _INFORMATIONAL_INTENT_PATTERNS)
+    if navigational_signal and not informational_signal:
+        return "navigational", f"navigational:{navigational_signal}"
+    if navigational_signal and informational_signal:
+        # 로그인/앱/콘솔에 해결형 단어가 섞이면 의도가 갈린다. 좋은 검색어로 오인하지 않게 중립 처리한다.
+        return "unknown", f"unknown:mixed_navigational:{navigational_signal}+{informational_signal}"
+    if informational_signal:
+        return "informational", f"informational:{informational_signal}"
+
+    transactional_signal = _first_intent_signal(text, _TRANSACTIONAL_INTENT_PATTERNS)
+    if transactional_signal:
+        return "transactional", f"transactional:{transactional_signal}"
+    return "unknown", "unknown:no_signal"
+
+
+def _first_intent_signal(
+    text: str,
+    patterns: tuple[tuple[re.Pattern[str], str], ...],
+) -> str:
+    for pattern, signal in patterns:
+        if pattern.search(text):
+            return signal
+    return ""
+
+
+def _classify_demand_phrases(phrases: list[str]) -> tuple[list[str], list[dict[str, str]], list[dict[str, str]]]:
+    answerable: list[str] = []
+    excluded: list[dict[str, str]] = []
+    classified: list[dict[str, str]] = []
+    for phrase in phrases:
+        intent, reason = _classify_intent_with_reason(phrase)
+        row = {"phrase": phrase, "intent": intent, "reason": reason}
+        classified.append(row)
+        if intent == "informational":
+            answerable.append(phrase)
+        elif intent in _UNANSWERABLE_INTENTS:
+            excluded.append(row)
+    return answerable, excluded, classified
 
 
 def extract_seeds(topic: str, raw: dict | None = None, *, limit: int = 3) -> list[str]:
@@ -182,6 +301,8 @@ def _collect_demand_phrases(
         "seeds": seeds,
         "phrases": [],
         "questions": [],
+        "answerable": [],
+        "excluded": [],
         "failures": 0,
     }
     if not _enabled():
@@ -238,6 +359,13 @@ def _collect_demand_phrases(
     result["phrases"] = phrases[: max(0, limit)]
     result["questions"] = questions[: max(0, limit)]
     result["failures"] = failures
+    # 검색량이 있다고 다 쓸 수 있는 게 아니다. 2026-08-25 실측: "claude status"는
+    # 자동완성에 잡히지만 그걸 치는 사람은 실시간 상태 페이지를 원한다 — 블로그 글로는
+    # 구조적으로 만족시킬 수 없고, 실제로 그 제목으로 발행해 놓고 보니 답이 없었다.
+    # 같은 목록에 "claude api costs"처럼 답할 수 있는 게 있었는데도 못 답하는 걸 골랐다.
+    answerable, excluded, _classified = _classify_demand_phrases(result["phrases"])
+    result["answerable"] = answerable
+    result["excluded"] = excluded
     return result
 
 

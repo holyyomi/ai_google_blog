@@ -357,6 +357,21 @@ class NewsQualityGate:
             and not _title_has_measured_demand_phrase(title, measured_demand_phrases)
         ):
             warnings.append("title_without_measured_search_demand")
+        # 2026-08-25: 검색량이 있어도 블로그가 못 이기는 질의가 있다. "claude status"를
+        # 제목에 넣어 발행했더니 독자가 원한 건 실시간 상태 페이지였고 우리 글은 답이
+        # 될 수 없었다. 그런 질의를 노린 제목은 눈에 띄게 남긴다(차단은 하지 않는다).
+        unanswerable_phrases = [
+            str(phrase).strip()
+            for phrase in list(raw.get("unanswerable_search_demand_phrases") or [])
+            if str(phrase).strip()
+        ]
+        if is_english_mode() and title and unanswerable_phrases:
+            hit = next(
+                (p for p in unanswerable_phrases if _title_has_measured_demand_phrase(title, [p])),
+                "",
+            )
+            if hit:
+                warnings.append(f"title_targets_unanswerable_query:{hit}")
         if "사람들이 놓친" in title:
             blocking_issues.append("selected_title_uses_repeated_missed_people_pattern")
         if "진짜 변수" in title:

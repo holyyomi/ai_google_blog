@@ -1410,6 +1410,7 @@ class NewsPipeline:
                     "search_demand_topic": selected.candidate.raw.get("search_demand_topic"),
                     "measured_search_demand": selected.candidate.raw.get("measured_search_demand", False),
                     "measured_search_demand_phrases": selected.candidate.raw.get("measured_search_demand_phrases", []),
+                    "unanswerable_search_demand_phrases": selected.candidate.raw.get("unanswerable_search_demand_phrases", []),
                     "reader_search_questions": selected.candidate.raw.get("reader_search_questions"),
                     "click_reason": selected.candidate.raw.get("click_reason"),
                     "reader_benefit": selected.candidate.raw.get("reader_benefit"),
@@ -1821,6 +1822,7 @@ class NewsPipeline:
                 "search_demand_topic": selected.candidate.raw.get("search_demand_topic"),
                 "measured_search_demand": selected.candidate.raw.get("measured_search_demand", False),
                 "measured_search_demand_phrases": selected.candidate.raw.get("measured_search_demand_phrases", []),
+                "unanswerable_search_demand_phrases": selected.candidate.raw.get("unanswerable_search_demand_phrases", []),
                 "reader_search_questions": selected.candidate.raw.get("reader_search_questions"),
                 "click_reason": selected.candidate.raw.get("click_reason"),
                 "reader_benefit": selected.candidate.raw.get("reader_benefit"),
@@ -3283,13 +3285,22 @@ class NewsPipeline:
                     _raw["measured_search_demand_seeds"] = list(_demand_result.get("seeds") or [])
                     _raw["measured_search_demand_failures"] = int(_demand_result.get("failures") or 0)
                     if bool(_demand_result.get("measured")):
+                        # answerable(정보형)만 제목 재료로 넘긴다 — 2026-08-25
+                        # "claude status 99.35% uptime" 발행 사고의 재발 방지.
                         _demand_phrases = [
                             str(phrase).strip()
-                            for phrase in list(_demand_result.get("phrases") or [])
+                            for phrase in list(_demand_result.get("answerable") or [])
                             if str(phrase).strip()
                         ]
                         _raw["measured_search_demand_phrases"] = _demand_phrases
                         _raw["measured_search_demand_questions"] = list(_demand_result.get("questions") or [])
+                        # 못 쓰는 검색어도 남긴다 — 게이트가 "제목이 실시간/길찾기형
+                        # 검색어를 노렸는지" 판정할 근거로 쓴다.
+                        _raw["unanswerable_search_demand_phrases"] = [
+                            str(item.get("phrase") or "").strip()
+                            for item in list(_demand_result.get("excluded") or [])
+                            if str(item.get("phrase") or "").strip()
+                        ]
                 if _demand_phrases:
                     _raw.setdefault("measured_search_demand", True)
                     _raw["measured_search_demand_phrases"] = _demand_phrases
@@ -3546,6 +3557,7 @@ class NewsPipeline:
                 "search_demand_topic": selected.candidate.raw.get("search_demand_topic"),
                 "measured_search_demand": selected.candidate.raw.get("measured_search_demand", False),
                 "measured_search_demand_phrases": selected.candidate.raw.get("measured_search_demand_phrases", []),
+                "unanswerable_search_demand_phrases": selected.candidate.raw.get("unanswerable_search_demand_phrases", []),
                 "reader_search_questions": selected.candidate.raw.get("reader_search_questions"),
                 "click_reason": selected.candidate.raw.get("click_reason"),
                 "reader_benefit": selected.candidate.raw.get("reader_benefit"),

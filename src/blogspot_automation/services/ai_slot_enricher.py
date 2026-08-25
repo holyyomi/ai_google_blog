@@ -353,9 +353,12 @@ def enrich_slots_with_llm(
                 # 프롬프트에 강한 제약으로 넣어 뉴스 요약형 제목 회귀를 줄인다.
                 demand_result = collect_demand_phrases(topic, raw=None)
                 measured_demand = bool(demand_result.get("measured"))
+                # 2026-08-25: "phrases"가 아니라 "answerable"만 쓴다. 측정된
+                # 검색어라도 실시간·길찾기형(claude status, claude login)은 블로그
+                # 글이 만족시킬 수 없다 — 그런 걸 제목에 박느니 안 박는 게 낫다.
                 fetched_phrases = [
                     str(phrase).strip()
-                    for phrase in list(demand_result.get("phrases") or [])
+                    for phrase in list(demand_result.get("answerable") or [])
                     if str(phrase).strip()
                 ]
                 demand_phrases = fetched_phrases if measured_demand else []
