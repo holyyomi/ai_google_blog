@@ -299,6 +299,11 @@ jobs:
             exit 0
           fi
           cp data/publish_history.json /tmp/run_ledger.json
+          # 직접 측정한 무료 모델 결과도 같이 보존한다(2026-08-26). 이게 없으면
+          # GHA 러너가 매번 새 파일시스템이라 7일 재사용 캐시가 영원히 비어 있고,
+          # 클러스터 글마다 4개 모델을 다시 재느라 실행 시간만 늘어난다.
+          rm -rf /tmp/run_benchmarks && mkdir -p /tmp/run_benchmarks
+          if [ -d data/benchmarks ]; then cp -r data/benchmarks/. /tmp/run_benchmarks/ || true; fi
           # 스크립트를 먼저 대피 — origin/main에 아직 없는 첫 배포 런에서도 동작해야 함
           cp scripts/merge_publish_history.py /tmp/merge_publish_history.py
           git config user.name "github-actions[bot]"
@@ -310,11 +315,14 @@ jobs:
               --base data/publish_history.json \
               --incoming /tmp/run_ledger.json \
               --out data/publish_history.json
-            if git diff --quiet -- data/publish_history.json; then
+            mkdir -p data/benchmarks
+            cp -r /tmp/run_benchmarks/. data/benchmarks/ 2>/dev/null || true
+            # 측정 파일은 새 파일(untracked)일 수 있어 git diff로는 안 잡힌다.
+            if git diff --quiet -- data/publish_history.json && [ -z "$(git status --porcelain data/benchmarks)" ]; then
               echo "ledger unchanged; skipping commit"
               exit 0
             fi
-            git add data/publish_history.json
+            git add data/publish_history.json data/benchmarks
             git commit -m "chore: merge publish history from ${GITHUB_REF_NAME} run [skip ci]"
             if git push origin HEAD:main; then
               exit 0

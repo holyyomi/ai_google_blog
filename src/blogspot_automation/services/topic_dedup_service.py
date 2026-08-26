@@ -297,6 +297,15 @@ class TopicDedupService:
         candidate_keywords = self.extract_keywords(candidate_text)
         candidate_entities = self.extract_entities(self._candidate_subject_text(candidate))
 
+        # 클러스터 후보(2026-08-26)는 엔티티 쿨다운과 키워드 중복 규칙에서 뺀다.
+        # 클러스터는 정의상 "같은 주제를 6~7편 연속으로 쓰는 것"이라, 이 두 규칙을
+        # 그대로 적용하면 1편을 쓴 순간 나머지 6편이 전부 자기 자신 때문에 막힌다
+        # (예: 'openrouter free models limit' 발행 → 'gemini free api limits'가
+        # free/api/limits 키워드 2개 겹침으로 차단). 같은 슬롯을 두 번 쓰는 것은
+        # 원장의 cluster_slot 진행 판정이 이미 구조적으로 막고 있고, 제목·본문
+        # 근접중복(norm 일치) 검사는 아래에서 그대로 적용된다.
+        cluster_candidate = self._is_cluster_candidate(candidate)
+
         for record in history_records:
             if not self.record_blocks_duplicate(record):
                 # 초안(draft_saved_for_review)은 발행이 아니므로 영구 dedup·엔티티
@@ -317,6 +326,7 @@ class TopicDedupService:
             # 발행 0건). 콘텐츠 레벨 dedup(제목/키워드 근접중복)은 계속 적용된다.
             if (
                 candidate_entities
+                and not cluster_candidate
                 and not self._is_entity_cooldown_exempt(candidate)
                 and self._is_within_window(record, self.entity_cooldown_days)
             ):
@@ -345,6 +355,9 @@ class TopicDedupService:
             ):
                 return True
 
+            if cluster_candidate:
+                continue
+
             history_text = " ".join(history_texts)
             history_keywords = self.extract_keywords(history_text)
             overlap_count = len(candidate_keywords & history_keywords)
@@ -352,6 +365,14 @@ class TopicDedupService:
                 return True
 
         return False
+
+    @staticmethod
+    def _is_cluster_candidate(candidate: ScoredNewsCandidate) -> bool:
+        from blogspot_automation.services.cluster_service import is_cluster_candidate
+
+        return is_cluster_candidate(
+            candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+        )
 
     @staticmethod
     def _is_entity_cooldown_exempt(candidate: ScoredNewsCandidate) -> bool:

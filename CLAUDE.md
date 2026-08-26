@@ -227,6 +227,45 @@ Tavily 전 호출 HTTP 432, Firecrawl 전 호출 HTTP 402, Reddit 6개 서브레
 > GitHub Actions schedule은 main 브랜치에서만 실행됨
 > GOOGLE_AI_API_KEY(Gemini)는 더 이상 사용하지 않음 — 팩트 수집은 Custom Search(키 있을 때) → Google News RSS(키 불필요) 폴백
 
+## 주제 클러스터 (2026-08-26 도입)
+
+**왜**: GSC 실측에서 사이트맵 32 URL 중 색인 0건, 검색 노출 0이었다. 남은 원인 세 개 중
+두 개가 "외부 링크 0 → 권위 0"과 **"주제 분산"**이었다 — 32편이 전부 다른 AI 뉴스라
+구글이 이 사이트를 무엇의 전문가로 볼 근거가 없다. 클러스터는 그중 주제 분산을 푼다.
+
+- **계획 파일**: `config/clusters.json` (활성 클러스터 1개 + 슬롯 6 + 허브 1).
+  슬롯의 `search_demand_topic`은 전부 Google Autocomplete 실측으로 고른 검색어다.
+- **진행 판정**: 별도 상태파일 없음. 원장(`data/publish_history.json`)의
+  `cluster_key`/`cluster_slot`만 본다. 허브(`is_pillar`)는 자식이 전부 발행된 뒤에 나온다.
+- **스케줄**: `CLUSTER_WEEKDAYS`(기본 `0,2,4,6` = 월·수·금·일) 요일에만 후보를 주입한다.
+  나머지 요일은 기존 뉴스 경로 그대로. `ENABLE_TOPIC_CLUSTER=false`로 통째로 끈다.
+- **링크 정책(2026-08-26 요미님 결정)**: **외부 링크는 걸지 않는다. 내부 링크만 쓴다.**
+  그래서 내부 링크 배분이 이 사이트가 가진 유일한 구조 신호다. 같은 `cluster_key`에 +20을
+  주고(기존 `topic_group` +8은 발행 53편이 전부 ai_work라 죽어 있었다 — 사실상 최근 글 3개
+  랜덤 링크였다), 링크 개수도 고정 3개가 아니라 **같은 클러스터의 발행된 형제 수만큼**
+  3~6개로 늘어난다(`NewsPipeline._internal_link_limit`). 3개로 고정하면 클러스터가 6편이
+  돼도 절반은 아무 데서도 링크받지 못한다. **이미 발행된 라이브 글은 수정하지 않는다** —
+  앞으로 쓸 글에만 적용한다(같은 날 확인한 범위 결정).
+- **후보 계약**: `source_type`은 일부러 `evergreen_fallback`을 재사용한다. 새 값을 만들면
+  신선도·자동발행 허용·골든패턴 분기를 전부 다시 통과시켜야 하고 하나만 놓쳐도
+  "글은 썼는데 발행만 안 되는" 조용한 0건이 된다. 클러스터 식별은 `topic_cluster`/
+  `cluster_slot` 마커로만 한다.
+
+**도입하며 실제로 밟은 지뢰 3개(같은 함정이 다음 클러스터에도 있다)**
+1. `publishable = real_news_publishable`이 evergreen 계열을 통째로 버려서, 뉴스 후보가
+   하나라도 있는 날엔 클러스터가 사라졌다 → `_narrow_publishable_to_real_news`가 살려둔다.
+2. 점수 부스트로 1등을 만들려 했으나 커뮤니티 뉴스가 수요 가산으로 **100점**까지 올라가
+   96점 클러스터를 이겼다 → 순위는 `_choose_selected_candidate`가 확정으로 정한다.
+3. 슬롯 7개 중 5개가 골든 패턴 confidence 52(기준 80)라 `article_candidate_not_generated`로
+   발행이 막혔다 → 후보 raw에 `sample_titles`를 싣고 슬롯 문안을 실제 글 어휘(free tier,
+   pricing, LLM 등)로 고쳤다. `tests/test_cluster_service.py`가 전 슬롯 매칭을 고정한다.
+
+**직접 측정한 표**: 클러스터 글에만 `model_benchmark_service`가 만든 "무료 모델 실측 표"가
+붙는다(`data/benchmarks/<date>.json`, 7일 재사용). AI 요약 뉴스는 인용되지 않는다는 진단의
+대응이라 1차 자료를 싣는 것이다. 1회 측정을 벤치마크라고 부르지 않고, 실패한 모델과
+라우팅된 실제 모델명을 표에 그대로 남긴다. 측정이 전멸하면 표를 아예 붙이지 않는다
+(추정치로 칸을 채우지 않는다). 표가 발행을 막는 일은 없다.
+
 ## 주제 선정 정책 (2026-07-24 확정)
 
 - **고정 주제 후보 금지**: 매 실행마다 신선 발굴(뉴스 RSS/Exa/커뮤니티 언급량/실측

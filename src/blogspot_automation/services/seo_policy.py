@@ -614,6 +614,7 @@ def build_internal_links_from_history(
     current_topic_group: str = "",
     current_content_type: str = "",
     current_url: str = "",
+    current_cluster_key: str = "",
     limit: int = 3,
 ) -> tuple[tuple[str, str], ...]:
     """Build crawlable links to already-published Blogspot posts."""
@@ -646,6 +647,13 @@ def build_internal_links_from_history(
         seen_urls.add(url)
 
         score = 10
+        # 같은 클러스터 글끼리 서로 링크하게 만드는 가중치(2026-08-26).
+        # topic_group 가중(+8)은 이 블로그에서 사실상 죽어 있다 — 발행 53편이
+        # 전부 topic_group="ai_work"이라 모든 후보가 똑같이 +8을 받아 결과적으로
+        # "최근 글 3개"를 링크해 왔다. 클러스터를 실제 허브-스포크로 묶으려면
+        # 같은 클러스터에는 그보다 확실히 큰 가중이 필요하다.
+        if current_cluster_key and str(record.get("cluster_key") or "") == current_cluster_key:
+            score += 20
         if current_topic_group and str(record.get("topic_group") or "") == current_topic_group:
             score += 8
         if current_content_type and str(record.get("content_type") or "") == current_content_type:
@@ -677,7 +685,9 @@ def build_internal_links_from_history(
 
 
 # 링크 생존 확인 상한/캐시 — 발행 1회당 여분 GET 몇 번으로 제한한다.
-_LIVENESS_MAX_CHECKS = 6
+# 2026-08-26: 6 → 9. 클러스터 글은 링크를 최대 6개까지 걸므로, 상한이 6이면
+# 죽은 링크가 하나만 있어도 살아있는 후보를 더 못 찾고 링크 수가 모자란다.
+_LIVENESS_MAX_CHECKS = 9
 _LIVENESS_CACHE: dict[str, bool] = {}
 
 
