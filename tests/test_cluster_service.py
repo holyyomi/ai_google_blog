@@ -353,7 +353,10 @@ def test_cluster_titles_do_not_reuse_a_stock_suffix_twice(tmp_path):
         json.dumps([
             {
                 "run_at": "2026-08-26T00:00:00+00:00", "date": "2026-08-26",
-                "title": "Openrouter Free Models Limit: What Actually Works (2026)",
+                # 발행 제목은 후보 선정 "이후" 다시 쓰인다 — 2026-08-26 GHA 리허설에서
+                # 후보 "…: What Actually Works (2026)"가 "…: What Works 2026"으로 나갔다.
+                # 문자열 일치로 보면 같은 꼬리를 못 알아본다.
+                "title": "OpenRouter Free Models Limit Reset: What Works 2026",
                 "cluster_key": "free_ai_api_reality", "cluster_slot": "openrouter_free_limits",
                 "published": True, "dry_run": False, "status": "published",
             }

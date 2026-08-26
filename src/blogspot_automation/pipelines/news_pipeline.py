@@ -5895,16 +5895,24 @@ class NewsPipeline:
 
     # 영어 제목 빌더(title_candidate_service)가 붙이는 상투 접미사들.
     # 키워드 기반이라 'limit'이 든 슬롯은 전부 같은 꼬리를 받는다.
-    _CLUSTER_TITLE_STOCK_SUFFIXES: tuple[str, ...] = (
-        "what actually works",
-        "causes and fixes",
-        "the real numbers",
-        "which one wins",
-        "what it means for you",
-        "a practical guide",
-        "the data",
-        "explained",
-        "compared",
+    #
+    # 문자열이 아니라 정규식인 이유(2026-08-26 GHA 리허설 실측): 최종 제목은 후보
+    # 선정 "이후" 측정 검색어를 넣으며 다시 쓰인다. 후보는
+    # "…: What Actually Works (2026)"였는데 발행 제목은 "…: What Works 2026"이 됐다.
+    # 문자열 일치로 보면 같은 꼬리를 못 알아보고 다음 슬롯도 같은 걸 받는다.
+    _CLUSTER_TITLE_STOCK_SUFFIXES: tuple[tuple[str, "re.Pattern[str]"], ...] = tuple(
+        (label, re.compile(pattern, re.IGNORECASE))
+        for label, pattern in (
+            ("what works", r"what\s+(?:actually\s+)?works"),
+            ("causes and fixes", r"causes\s+and\s+fixes"),
+            ("the real numbers", r"the\s+real\s+numbers"),
+            ("which one wins", r"which\s+one\s+wins"),
+            ("what it means for you", r"what\s+it\s+means\s+for\s+you"),
+            ("a practical guide", r"a\s+practical\s+guide"),
+            ("the data", r":\s*the\s+data\b"),
+            ("explained", r",\s*explained\b"),
+            ("compared", r"\bcompared\b"),
+        )
     )
 
     def _drop_titles_reusing_cluster_phrasing(
@@ -5936,17 +5944,22 @@ class NewsPipeline:
                 continue
             if not PublishHistoryService.is_published_record(record):
                 continue
-            title_text = str(record.get("title") or "").lower()
+            title_text = str(record.get("title") or "")
             used.update(
-                suffix for suffix in self._CLUSTER_TITLE_STOCK_SUFFIXES if suffix in title_text
+                label
+                for label, pattern in self._CLUSTER_TITLE_STOCK_SUFFIXES
+                if pattern.search(title_text)
             )
         if not used:
             return titles
 
+        used_patterns = [
+            pattern for label, pattern in self._CLUSTER_TITLE_STOCK_SUFFIXES if label in used
+        ]
         kept = [
             candidate
             for candidate in titles
-            if not any(suffix in str(candidate.title).lower() for suffix in used)
+            if not any(pattern.search(str(candidate.title)) for pattern in used_patterns)
         ]
         if not kept:
             logger.info("cluster title dedup: 후보가 전부 상투 접미사 재사용 — 원본 유지")
