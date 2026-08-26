@@ -685,7 +685,9 @@ def build_internal_links_from_history(
 
 
 # 링크 생존 확인 상한/캐시 — 발행 1회당 여분 GET 몇 번으로 제한한다.
-_LIVENESS_MAX_CHECKS = 6
+# 2026-08-26: 6 → 9. 클러스터 글은 링크를 최대 6개까지 걸므로, 상한이 6이면
+# 죽은 링크가 하나만 있어도 살아있는 후보를 더 못 찾고 링크 수가 모자란다.
+_LIVENESS_MAX_CHECKS = 9
 _LIVENESS_CACHE: dict[str, bool] = {}
 
 

@@ -439,6 +439,40 @@ def test_selection_falls_back_to_normal_path_without_cluster_candidate(monkeypat
     assert len(calls) == 1
 
 
+def test_internal_link_count_grows_with_the_cluster():
+    """3개로 고정하면 클러스터가 6편이 돼도 절반은 아무 데서도 링크받지 못한다."""
+    from blogspot_automation.pipelines.news_pipeline import NewsPipeline
+
+    def sibling(index: int) -> dict:
+        return {
+            "cluster_key": "free_ai_api_reality",
+            "cluster_slot": f"slot{index}",
+            "published": True,
+            "dry_run": False,
+            "status": "published",
+        }
+
+    cluster_raw = {"cluster_key": "free_ai_api_reality"}
+    # 형제가 없는 첫 글은 기존과 같은 3개 — 관련 없는 최근 글로 자리를 채우지 않는다.
+    assert NewsPipeline._internal_link_limit(cluster_raw, []) == 3
+    assert NewsPipeline._internal_link_limit(cluster_raw, [sibling(i) for i in range(2)]) == 3
+    assert NewsPipeline._internal_link_limit(cluster_raw, [sibling(i) for i in range(5)]) == 5
+    # 허브 시점(자식 6편)에는 6개 전부.
+    assert NewsPipeline._internal_link_limit(cluster_raw, [sibling(i) for i in range(6)]) == 6
+    # 상한을 넘지 않는다.
+    assert NewsPipeline._internal_link_limit(cluster_raw, [sibling(i) for i in range(20)]) == 6
+
+    # 미발행(게이트 탈락) 형제는 세지 않는다 — 링크할 URL이 없다.
+    blocked = dict(sibling(9))
+    blocked.update({"published": False, "status": "blocked_by_quality_gate"})
+    assert NewsPipeline._internal_link_limit(
+        cluster_raw, [sibling(i) for i in range(4)] + [blocked]
+    ) == 4
+
+    # 클러스터가 아닌 글은 기존 동작 그대로.
+    assert NewsPipeline._internal_link_limit({}, [sibling(i) for i in range(6)]) == 3
+
+
 def test_internal_links_prefer_same_cluster(monkeypatch):
     monkeypatch.setenv("ENABLE_INTERNAL_LINK_LIVENESS_CHECK", "false")
     base = {

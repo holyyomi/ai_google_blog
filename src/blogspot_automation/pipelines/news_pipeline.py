@@ -6045,10 +6045,37 @@ class NewsPipeline:
             current_topic_group=str(raw.get("topic_group") or "general_life"),
             current_content_type=content_type,
             current_cluster_key=str(raw.get("cluster_key") or ""),
-            # 허브(pillar) 글은 클러스터 자식 글 전부를 링크해야 허브 역할을 한다.
-            # 3개로 끊으면 나머지 글은 아무 데서도 링크받지 못한다.
-            limit=6 if raw.get("cluster_is_pillar") else 3,
+            limit=self._internal_link_limit(raw, records),
         )
+
+    # 클러스터 글의 내부링크 상한. 아래로는 기존 동작(3개)을 유지하고, 위로는
+    # 허브가 자식 6편을 전부 링크할 수 있는 데까지만 연다.
+    _INTERNAL_LINK_MIN = 3
+    _INTERNAL_LINK_MAX = 6
+
+    @classmethod
+    def _internal_link_limit(cls, raw: dict[str, Any], records: list[dict[str, Any]]) -> int:
+        """이 글이 걸 내부링크 개수.
+
+        클러스터 글은 형제 글이 쌓일수록 링크를 늘린다 — 3개로 고정하면 클러스터가
+        6편이 돼도 서로의 절반은 아무 데서도 링크받지 못해서 허브-스포크가 안 된다.
+        형제가 없는 첫 글은 기존과 똑같이 3개다(관련 없는 최근 글로 자리만 채우는 걸
+        피한다). 클러스터가 아닌 글은 기존 동작 그대로.
+
+        2026-08-26 요미님 결정: 외부 링크는 걸지 않고 내부 링크만 쓴다. 그래서
+        내부 링크 배분이 이 사이트가 가진 유일한 구조 신호다.
+        """
+        cluster_key = str(raw.get("cluster_key") or "")
+        if not cluster_key:
+            return cls._INTERNAL_LINK_MIN
+        siblings = sum(
+            1
+            for record in records or []
+            if isinstance(record, dict)
+            and str(record.get("cluster_key") or "") == cluster_key
+            and PublishHistoryService.is_published_record(record)
+        )
+        return max(cls._INTERNAL_LINK_MIN, min(cls._INTERNAL_LINK_MAX, siblings))
 
     def _resolve_cover_image_url(
         self,
