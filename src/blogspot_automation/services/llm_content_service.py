@@ -1684,7 +1684,11 @@ class LlmContentService:
         choices = result.get("choices", [])
         if not choices:
             raise RuntimeError(f"No choices in response: {result}")
-        content = choices[0].get("message", {}).get("content", "")
+        # content가 키는 있는데 값이 null인 응답이 실제로 온다(2026-08-26 GHA 실측:
+        # openrouter_free_router 보정 호출이 "'NoneType' object has no attribute
+        # 'strip'"으로 죽었다). .get(key, "") 기본값은 키가 없을 때만 쓰이므로
+        # 명시적 null은 걸러지지 않는다 — `or ""`로 받아야 한다.
+        content = (choices[0].get("message") or {}).get("content") or ""
         return _clean_llm_output(content)
 
 

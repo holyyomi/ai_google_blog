@@ -255,3 +255,25 @@ def test_rendered_table_states_measurement_conditions_and_keeps_failures():
 def test_empty_run_renders_nothing():
     run = BenchmarkRun(measured_on="2026-08-26", prompt_version=BENCHMARK_PROMPT_VERSION, results=())
     assert render_benchmark_table_html(run) == ""
+
+
+def test_llm_provider_survives_explicit_null_content(monkeypatch):
+    """2026-08-26 GHA 실측: content 키는 있는데 값이 null인 응답에 보정 호출이 죽었다.
+
+    .get("content", "")의 기본값은 키가 없을 때만 쓰인다 — 명시적 null은 그대로 통과한다.
+    """
+    from blogspot_automation.services.llm_content_service import LlmContentService
+
+    monkeypatch.setattr(
+        "blogspot_automation.services.llm_content_service.post_chat_completion",
+        lambda **kwargs: ({"choices": [{"message": {"content": None}}]}, 1.0),
+    )
+    service = LlmContentService()
+    provider = {
+        "name": "t", "provider_type": "openai_compatible", "base_url": None,
+        "base_url_env": "OPENROUTER_BASE_URL",
+        "default_base_url": "https://openrouter.ai/api/v1",
+        "model": "vendor/m:free", "max_tokens": 100,
+    }
+
+    assert service._call_openai_compatible_provider(provider, "key", "prompt") == ""
