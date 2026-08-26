@@ -236,6 +236,26 @@ EN_MIN_BODY_WORDS = 1500
 EN_TARGET_BODY_WORDS_MIN = 1700
 EN_TARGET_BODY_WORDS_MAX = 2200
 
+# 최후 수단 하한(2026-08-26). 전 provider가 길이 때문에 실패했을 때, 그날 발행을
+# 통째로 버리는 대신 "가장 긴 초안"이 이 값을 넘으면 채택한다.
+#
+# 근거(2026-08-26 GHA 리허설 실측): 후보 4개가 연속으로 1119·1153·1277·1392단어를
+# 냈고 전부 폐기돼 클러스터 슬롯이 하루 밀렸다. 대안은 1500단어 글이 아니라
+# **글 없음**이다. 1300단어는 어떤 기준으로도 thin content가 아니다.
+#
+# 중요: 길이 미달(_WordCountShortfallError)에만 적용한다. 절단·한국어 혼입·FAQ
+# 마크업 파손 같은 다른 검증 실패는 그대로 폐기한다 — 그건 짧은 게 아니라 깨진 것이다.
+EN_ACCEPTABLE_BODY_WORDS = 1300
+
+
+def _acceptable_body_words() -> int:
+    """최후 수단 하한. 발행률을 보며 조절할 값이라 env로 뺀다."""
+    raw = (os.getenv("EN_ACCEPTABLE_BODY_WORDS", "") or "").strip()
+    try:
+        return int(raw) if raw else EN_ACCEPTABLE_BODY_WORDS
+    except ValueError:
+        return EN_ACCEPTABLE_BODY_WORDS
+
 
 def count_body_words(text: str) -> int:
     """영어 본문의 '단어 수'를 센다 (HTML 태그 제거 후 호출할 것).
@@ -1316,6 +1336,19 @@ class LlmContentService:
         max_repairs: 체인 전체에서 허용하는 보강 호출 총 횟수(무한루프 방지 상한).
         """
         repairs_used = 0
+        # 길이만 모자라 폐기된 초안 중 가장 긴 것. 전 provider가 실패했을 때의
+        # 최후 수단이다 — 대안은 1500단어 글이 아니라 '글 없음'이다.
+        best_effort_draft: str | None = None
+        best_effort_words = 0
+
+        def _remember_best_effort(candidate: str | None) -> None:
+            nonlocal best_effort_draft, best_effort_words
+            if not candidate or not is_english_mode():
+                return
+            words = count_body_words(re.sub(r"<[^>]+>", " ", candidate))
+            if words > best_effort_words:
+                best_effort_draft, best_effort_words = candidate, words
+
         for provider in _PROVIDERS:
             api_key = os.getenv(provider["api_key_env"], "").strip()
             if not api_key:
@@ -1371,6 +1404,9 @@ class LlmContentService:
                         try:
                             validator(result)
                         except Exception as ve:
+                            # 길이만 모자란 초안은 보강이 실패해도 최후 수단으로 남긴다.
+                            if isinstance(ve, _WordCountShortfallError):
+                                _remember_best_effort(result)
                             # 1) 고칠 수 있는 결함(예: 길이 미달)이면 초안을 버리지 않고
                             #    같은 provider에 보강을 요청한다 — 전면 재생성은 이미
                             #    통과한 팩트·표·FAQ까지 주사위를 다시 굴리고 2분을 더 쓴다.
@@ -1384,7 +1420,7 @@ class LlmContentService:
                                     )
                                 if repair_prompt:
                                     repairs_used += 1
-                                    repaired = self._attempt_repair(
+                                    repaired, repaired_best_effort = self._attempt_repair(
                                         provider=provider,
                                         api_key=api_key,
                                         repair_prompt=repair_prompt,
@@ -1393,6 +1429,7 @@ class LlmContentService:
                                         validator=validator,
                                         reason=str(ve),
                                     )
+                                    _remember_best_effort(repaired_best_effort)
                                     if repaired:
                                         return _maybe_acceptance_repair(repaired)
                                     # 자기 초안을 손에 쥐고도 못 고친 모델이 백지에서
@@ -1434,6 +1471,21 @@ class LlmContentService:
                         )
                         time.sleep(6.0 if is_capacity_exhausted else 2.5)
 
+        # 전 provider 실패 — 길이만 모자란 초안이 남아 있으면 그걸 쓴다.
+        # 이 경로가 없던 2026-08-26 리허설에서는 1119·1153·1277·1392단어 초안 4개가
+        # 전부 폐기되고 그날 클러스터 슬롯이 통째로 밀렸다.
+        if best_effort_draft and best_effort_words >= _acceptable_body_words():
+            logger.warning(
+                "LlmContentService: 전 provider 실패 — 최선 초안 채택 (%d단어, 하한 %d, 목표 %d). "
+                "길이 외 검증은 모두 통과한 초안이다.",
+                best_effort_words, _acceptable_body_words(), EN_MIN_BODY_WORDS,
+            )
+            return best_effort_draft
+        if best_effort_draft:
+            logger.warning(
+                "LlmContentService: 최선 초안도 하한 미달 (%d < %d) — 채택하지 않는다",
+                best_effort_words, _acceptable_body_words(),
+            )
         return None
 
     def _attempt_acceptance_repair(
@@ -1505,8 +1557,13 @@ class LlmContentService:
         min_chars: int,
         validator: Any,
         reason: str,
-    ) -> str | None:
-        """초안 보강 1회 시도 — 성공하면 보강본, 실패하면 None(호출부가 기존 폴백 진행).
+    ) -> tuple[str | None, str | None]:
+        """초안 보강 1회 시도 — (채택본, 최선노력본)을 돌려준다.
+
+        채택본은 validator를 통과한 보강본이고, 없으면 None이다. 최선노력본은
+        "길이만 모자란" 보강본 — 호출부가 전 provider 실패 시 최후 수단으로 쓸 수
+        있게 버리지 않고 돌려준다(EN_ACCEPTABLE_BODY_WORDS 참고). 다른 사유로
+        깨진 보강본은 최선노력본으로도 돌려주지 않는다.
 
         같은 provider를 쓴다(초안을 쓴 모델이 자기 글을 이어 쓰는 게 가장 자연스럽고,
         폴백 체인의 무료 우선 순서도 흐트러지지 않는다). 여기서 절대 재귀하지 않으므로
@@ -1519,27 +1576,35 @@ class LlmContentService:
             repaired = self._call_provider(provider, api_key, repair_prompt, system_prompt)
         except Exception as exc:  # noqa: BLE001 — 보강 실패는 비치명, 기존 폴백으로 진행
             logger.warning("LlmContentService: %s 보강 호출 실패 — %s", provider["name"], exc)
-            return None
+            return None, None
         if not repaired or len(repaired.strip()) <= min_chars:
             logger.warning(
                 "LlmContentService: %s 보강본이 너무 짧음 (%d자) — 폴백 계속",
                 provider["name"], len(repaired or ""),
             )
-            return None
+            return None, None
         if validator is not None:
             try:
                 validator(repaired)
+            except _WordCountShortfallError as ve:
+                # 길이만 모자란 보강본은 버리지 않는다 — 전 provider가 실패했을 때
+                # "글 없음"보다 낫다. 채택 여부는 호출부가 정한다.
+                logger.warning(
+                    "LlmContentService: %s 보강본도 길이 미달 — %s. 폴백 계속(최선본 보관)",
+                    provider["name"], ve,
+                )
+                return None, repaired
             except Exception as ve:  # noqa: BLE001
                 logger.warning(
                     "LlmContentService: %s 보강본도 검증 실패 — %s. 폴백 계속",
                     provider["name"], ve,
                 )
-                return None
+                return None, None
         logger.info(
             "LlmContentService: %s 보강 성공 (%d자) — 재생성 없이 채택",
             provider["name"], len(repaired),
         )
-        return repaired
+        return repaired, None
 
     def _call_provider(
         self,
