@@ -1,0 +1,37 @@
+{
+  "measured_on": "2026-08-26",
+  "prompt_version": "v1",
+  "prompt": "Explain what an API rate limit is to someone who has never hit one. Use exactly three short paragraphs and no headings, no lists, no bold.",
+  "results": [
+    {
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "label": "openrouter_primary",
+      "ok": true,
+      "seconds": 11.3,
+      "words": 142,
+      "completion_tokens": 333,
+      "followed_format": true,
+      "error": ""
+    },
+    {
+      "model": "google/gemma-4-26b-a4b-it:free",
+      "label": "openrouter_secondary",
+      "ok": false,
+      "seconds": 0.0,
+      "words": 0,
+      "completion_tokens": 0,
+      "followed_format": false,
+      "error": "HTTP 429"
+    },
+    {
+      "model": "openrouter/free",
+      "label": "openrouter_free_router",
+      "ok": true,
+      "seconds": 2.4,
+      "words": 3,
+      "completion_tokens": 173,
+      "followed_format": false,
+      "error": ""
+    }
+  ]
+}
