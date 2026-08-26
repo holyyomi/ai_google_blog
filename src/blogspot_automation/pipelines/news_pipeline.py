@@ -595,6 +595,21 @@ class NewsPipeline:
                         candidates = _live_demand_candidates + candidates
                 except Exception as _live_exc:  # noqa: BLE001
                     logger.warning("live_ai_demand_topic_service failed: %s", _live_exc)
+
+                # 주제 클러스터 (2026-08-26): 32편이 전부 다른 뉴스라 "이 사이트는
+                # 무엇의 전문가인가"가 없다는 GSC 진단의 대응. 클러스터 요일에만
+                # 슬롯 하나를 후보로 얹고, 나머지 요일은 기존 뉴스 경로 그대로다.
+                # 후보가 0개인 경우(기능 꺼짐/클러스터 요일 아님/완주)는 전부 정상.
+                try:
+                    from blogspot_automation.services.cluster_service import ClusterService
+                    _cluster_service = ClusterService()
+                    _cluster_candidates = _cluster_service.collect_candidates(
+                        self.publish_history_service.load()
+                    )
+                    if _cluster_candidates:
+                        candidates = _cluster_candidates + candidates
+                except Exception as _cluster_exc:  # noqa: BLE001
+                    logger.warning("cluster_service failed (무시): %s", _cluster_exc)
             else:
                 try:
                     from blogspot_automation.services.trending_news_service import TrendingNewsService
@@ -671,6 +686,9 @@ class NewsPipeline:
             # Search Console 성과 루프 — 실제 검색 성과(클릭/노출) 쿼리와 겹치는
             # 후보에 가산점 (data/search_performance.json 없으면 no-op)
             scored = self._apply_search_performance_boost(scored)
+            # 클러스터 후보는 그날의 1순위 — 뉴스 부스트(82 + 수요 가산)보다 위로
+            # 올린다. 클러스터 요일에 뉴스가 이겨버리면 클러스터는 영원히 안 채워진다.
+            scored = self._apply_cluster_score_boost(scored)
             # boost 적용된 후 다시 정렬 (scored는 _apply_topic_group_cooldowns가 정렬 반환)
             scored = sorted(scored, key=lambda c: c.total_score, reverse=True)
 
@@ -836,7 +854,15 @@ class NewsPipeline:
                             **hold_result,
                         }
                 else:
-                    publishable = real_news_publishable
+                    # 클러스터 후보는 source_type이 evergreen_fallback이라
+                    # real_news 필터에서 탈락한다. 이 줄이 없으면 그날 뉴스 후보가
+                    # 하나라도 있는 순간 클러스터가 통째로 사라진다 — 2026-08-26
+                    # 드라이런 실측에서 정확히 그랬다(scored=1 publishable=0).
+                    # 여기서 살려두기만 하고, 순위는 _choose_selected_candidate가 정한다.
+                    publishable = self._narrow_publishable_to_real_news(
+                        publishable=publishable,
+                        real_news_publishable=real_news_publishable,
+                    )
                     # 점수 우선 경쟁(2026-07-20): 뉴스 후보가 있어도 전부 수요 신호
                     # (트렌드/커뮤니티) 0이면, 에버그린 후보를 풀에 "합류"시켜
                     # total_score·다양성 기준으로 같이 경쟁시킨다. 과거에는 뉴스가
@@ -893,6 +919,16 @@ class NewsPipeline:
                 ]
                 golden_filtered_count = len(deduped) - len(golden_deduped)
                 deduped = golden_deduped
+            # 클러스터 후보가 어느 단계에서 사라졌는지 로그만 보고 알 수 있게 한다.
+            # (주입은 됐는데 선택은 안 되는 상황을 추정으로 좁히느라 드라이런을
+            #  두 번 더 돌린 적이 있다 — 2026-08-26)
+            if any(self._selected_is_cluster_post(item) for item in scored):
+                logger.info(
+                    "topic_cluster survival: scored=%d publishable=%d deduped=%d",
+                    sum(1 for item in scored if self._selected_is_cluster_post(item)),
+                    sum(1 for item in publishable if self._selected_is_cluster_post(item)),
+                    sum(1 for item in deduped if self._selected_is_cluster_post(item)),
+                )
             top_scored_candidates = self._top_scored_candidates(scored)
 
             if not deduped and fallback_reason not in {
@@ -1024,7 +1060,13 @@ class NewsPipeline:
                     return _trending_result
                 logger.warning("Trending 분기 실패 → 일반 _select_diverse_candidate 흐름으로 fallback")
 
-            selected = self._select_diverse_candidate(deduped, topic_group_history)
+            # ── 클러스터 요일이면 클러스터 슬롯이 그날의 주제다 (2026-08-26) ──
+            # 점수로 경쟁시키지 않는다. 드라이런 실측에서 커뮤니티 뉴스 후보가
+            # 수요 가산으로 100점까지 올라가 96점 클러스터 후보를 이겼다 — 부스트
+            # 숫자를 상한에 맞춰 쫓아가는 방식은 상한이 바뀔 때마다 조용히 깨진다.
+            # 요일이 맞고 후보가 dedup을 통과해 살아 있으면 선택을 확정하고,
+            # 품질 판정은 아래 게이트에 그대로 맡긴다(여기서 뽑혀도 미달이면 탈락).
+            selected = self._choose_selected_candidate(deduped, topic_group_history)
 
             # ── stale 후보 감지 → fresh 대체 탐색 ──────────────────────────
             _replacement_meta: dict[str, Any] = {}
@@ -1150,6 +1192,7 @@ class NewsPipeline:
 
             self._apply_issue_content_profile(selected)
             titles = self.title_service.generate_titles(selected)
+            titles = self._drop_titles_reusing_cluster_phrasing(selected, titles)
             best_title = self.title_service.select_best_title(titles)
             content_angle_summary = self._content_angle_summary(selected)
             final_labels = self.label_service.build(
@@ -1301,12 +1344,23 @@ class NewsPipeline:
             # 해시태그 부착은 반드시 재배치 "이후" — 순서가 반대면 이동된 GEO 블록이
             # 해시태그 뒤로 가서 해시태그가 글 중간에 끼는 결함이 생긴다 (라이브 실측).
             html = reorder_for_reader_first(html)
+            # 우리가 직접 잰 무료 모델 표 — 클러스터 글에만 붙인다(2026-08-26).
+            # AI가 요약한 뉴스는 인용되지 않는다는 진단의 대응이라, 그 진단이
+            # 겨냥한 클러스터 글에만 의미가 있다. 측정 실패면 아무것도 안 붙고
+            # 발행은 그대로 진행된다 — 표가 발행을 막으면 안 된다.
+            if self._selected_is_cluster_post(selected):
+                html = self._append_measured_model_table(html)
             html = append_hashtags_block(html, hashtags=final_hashtags, labels=plan.labels)
             internal_link_suggestions = self._internal_link_suggestions(
                 selected=selected,
                 content_type=str(content_angle_summary.get("content_type") or "general_life"),
             )
             source_flags = self._candidate_source_flags(selected)
+            # 클러스터 글은 폴백이 아니라 계획된 발행이다. 자동발행 게이트가
+            # 이 값으로 evergreen 허용 여부를 판정하므로 반드시 여기서 찍는다
+            # (_is_daily_evergreen_publish_fallback 참고).
+            if self._selected_is_cluster_post(selected):
+                fallback_reason = "topic_cluster_day"
             selected_axis = str(selected.candidate.raw.get("evergreen_axis") or "")
             axis_consecutive_count = 0
             for _ax in recent_evergreen_axes:
@@ -1860,6 +1914,11 @@ class NewsPipeline:
                 "history_recent_topic_groups": recent_topic_groups_hist[:7],
                 "history_recent_content_types": recent_content_types_hist[:7],
                 "fallback_reason": fallback_reason,
+                # 클러스터 진행 상황은 별도 상태파일 없이 이 두 값으로만 판정한다
+                # (cluster_service.done_slot_ids). 원장에도 그대로 실린다.
+                "cluster_key": str(selected.candidate.raw.get("cluster_key") or ""),
+                "cluster_slot": str(selected.candidate.raw.get("cluster_slot") or ""),
+                "cluster_is_pillar": bool(selected.candidate.raw.get("cluster_is_pillar")),
                 "manual_dedup_bypass": manual_dedup_bypass,
                 "target_reader": selected.candidate.raw.get("target_reader", ""),
                 "click_potential_score": click_potential_score,
@@ -2513,6 +2572,10 @@ class NewsPipeline:
             "no_publishable_news_candidate_used_evergreen",
             "no_golden_publish_candidate_used_evergreen",
             "no_publishable_candidate_used_evergreen",
+            # 클러스터 글(2026-08-26)은 source_type=evergreen_fallback을 재사용한다.
+            # 이 줄이 없으면 자동발행 게이트가 source_type_not_auto_publishable로
+            # 막아, 글은 생성됐는데 발행만 안 되는 조용한 0건이 된다.
+            "topic_cluster_day",
         }
 
     NEWS_AUTO_PUBLISH_ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset({
@@ -2893,6 +2956,38 @@ class NewsPipeline:
         "네이버 ai", "하이퍼클로바", "카카오 ai", "갤럭시 ai", "삼성 ai",
         "엔비디아", "nvidia", "라마", "llama", "grok", "그록",
     )
+
+    @classmethod
+    def _apply_cluster_score_boost(
+        cls,
+        scored: list[ScoredNewsCandidate],
+    ) -> list[ScoredNewsCandidate]:
+        """클러스터 후보를 그날의 1순위로 올린다.
+
+        점수만 올리고 게이트는 하나도 면제하지 않는다 — 본문 품질/가독성/사실
+        안전 게이트에 걸리면 클러스터 글도 그냥 탈락하고, 그러면 그날은 평소의
+        뉴스 후보가 발행된다(슬롯은 미발행으로 남아 다음 클러스터 요일에 재시도).
+        """
+        from blogspot_automation.services.cluster_service import is_cluster_candidate
+
+        for item in scored:
+            raw = item.candidate.raw if isinstance(item.candidate.raw, dict) else {}
+            if not is_cluster_candidate(raw):
+                continue
+            raw["cluster_score_boost_from"] = item.total_score
+            item.total_score = max(item.total_score, cls._CLUSTER_BOOST_SCORE)
+            raw["click_potential_score"] = max(int(raw.get("click_potential_score") or 0), 8)
+            logger.info(
+                "topic_cluster boost: slot=%s %d -> %d",
+                raw.get("cluster_slot"), raw["cluster_score_boost_from"], item.total_score,
+            )
+        return scored
+
+    # 발행 임계값(MIN_TOPIC_SCORE, 운영값 75)을 확실히 넘기기 위한 값이다.
+    # "1등을 만들기 위한" 값이 아니다 — 실측에서 뉴스 후보가 100까지 올라가
+    # 점수 경쟁으로는 순위를 보장할 수 없음을 확인했고, 순위는 run_once의
+    # 클러스터 선택 확정 분기가 담당한다.
+    _CLUSTER_BOOST_SCORE = 96
 
     @classmethod
     def _apply_ai_issue_score_boost(
@@ -5361,6 +5456,11 @@ class NewsPipeline:
             "source_type": result.get("source_type", ""),
             "evergreen_axis": result.get("evergreen_axis", ""),
             "fallback_reason": result.get("fallback_reason", ""),
+            # 클러스터 진행 상황(2026-08-26). 이 두 값이 원장에 없으면
+            # cluster_service가 같은 슬롯을 영원히 다시 고른다.
+            "cluster_key": result.get("cluster_key", ""),
+            "cluster_slot": result.get("cluster_slot", ""),
+            "cluster_is_pillar": bool(result.get("cluster_is_pillar", False)),
             "published": published,
             "dry_run": bool(result.get("dry_run", True)),
             "quality_passed": bool(quality_gate.get("passed", False)) if isinstance(quality_gate, dict) else False,
@@ -5793,6 +5893,139 @@ class NewsPipeline:
             "avoid_sections": content_angle.get("avoid_sections", []),
         }
 
+    # 영어 제목 빌더(title_candidate_service)가 붙이는 상투 접미사들.
+    # 키워드 기반이라 'limit'이 든 슬롯은 전부 같은 꼬리를 받는다.
+    _CLUSTER_TITLE_STOCK_SUFFIXES: tuple[str, ...] = (
+        "what actually works",
+        "causes and fixes",
+        "the real numbers",
+        "which one wins",
+        "what it means for you",
+        "a practical guide",
+        "the data",
+        "explained",
+        "compared",
+    )
+
+    def _drop_titles_reusing_cluster_phrasing(
+        self,
+        selected: ScoredNewsCandidate,
+        titles: list[Any],
+    ) -> list[Any]:
+        """같은 클러스터에서 이미 쓴 상투 접미사를 재사용하는 제목 후보를 뺀다.
+
+        실측(2026-08-26): 슬롯 7개 중 4개의 검색어에 'limit'이 들어 있어 제목
+        후보가 전부 ': What Actually Works'를 받았다. 한 클러스터 안에서 제목
+        네 개가 같은 꼬리를 달면 "이 주제의 전문가"가 아니라 양산형으로 읽힌다.
+
+        후보가 전부 걸리면 원본을 그대로 돌려준다 — 다양성을 위해 제목을 0개로
+        만드는 건 그 자체로 더 큰 사고다.
+        """
+        if not titles or not self._selected_is_cluster_post(selected):
+            return titles
+        cluster_key = str(selected.candidate.raw.get("cluster_key") or "")
+        try:
+            records = self.publish_history_service.load()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cluster title dedup: 원장 로드 실패(무시): %s", exc)
+            return titles
+
+        used: set[str] = set()
+        for record in records:
+            if str(record.get("cluster_key") or "") != cluster_key:
+                continue
+            if not PublishHistoryService.is_published_record(record):
+                continue
+            title_text = str(record.get("title") or "").lower()
+            used.update(
+                suffix for suffix in self._CLUSTER_TITLE_STOCK_SUFFIXES if suffix in title_text
+            )
+        if not used:
+            return titles
+
+        kept = [
+            candidate
+            for candidate in titles
+            if not any(suffix in str(candidate.title).lower() for suffix in used)
+        ]
+        if not kept:
+            logger.info("cluster title dedup: 후보가 전부 상투 접미사 재사용 — 원본 유지")
+            return titles
+        if len(kept) != len(titles):
+            logger.info(
+                "cluster title dedup: 제목 후보 %d개 제외 (이미 쓴 접미사=%s)",
+                len(titles) - len(kept), sorted(used),
+            )
+        return kept
+
+    def _narrow_publishable_to_real_news(
+        self,
+        *,
+        publishable: list[ScoredNewsCandidate],
+        real_news_publishable: list[ScoredNewsCandidate],
+    ) -> list[ScoredNewsCandidate]:
+        """실뉴스 후보가 있는 날 후보 풀을 좁히되, 클러스터 후보는 살려둔다.
+
+        클러스터 후보의 source_type은 evergreen_fallback이라 '실뉴스' 판정에서
+        탈락한다. 예외가 없으면 그날 뉴스 후보가 하나라도 있는 순간 클러스터가
+        통째로 사라진다 — 2026-08-26 드라이런에서 실제로 그랬고, 로그상으로는
+        "주입은 됐는데 선택이 안 되는" 조용한 실패로 보였다.
+        """
+        cluster_publishable = [
+            item for item in publishable if self._selected_is_cluster_post(item)
+        ]
+        return cluster_publishable + real_news_publishable
+
+    def _choose_selected_candidate(
+        self,
+        deduped: list[ScoredNewsCandidate],
+        topic_group_history: Any,
+    ) -> ScoredNewsCandidate:
+        """그날 쓸 후보 하나를 고른다 — 클러스터 후보가 있으면 그것으로 확정."""
+        cluster_ready = [item for item in deduped if self._selected_is_cluster_post(item)]
+        if cluster_ready:
+            selected = cluster_ready[0]
+            logger.info(
+                "topic_cluster selected: slot=%s (score=%d, competitors=%d)",
+                selected.candidate.raw.get("cluster_slot"),
+                selected.total_score,
+                len(deduped),
+            )
+            return selected
+        return self._select_diverse_candidate(deduped, topic_group_history)
+
+    @staticmethod
+    def _selected_is_cluster_post(selected: ScoredNewsCandidate) -> bool:
+        from blogspot_automation.services.cluster_service import is_cluster_candidate
+
+        return is_cluster_candidate(
+            selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
+        )
+
+    @staticmethod
+    def _append_measured_model_table(html: str) -> str:
+        """직접 측정한 무료 모델 표를 본문 끝에 붙인다(실패 시 원본 그대로)."""
+        try:
+            from blogspot_automation.services.model_benchmark_service import (
+                ModelBenchmarkService,
+                render_benchmark_table_html,
+            )
+
+            run = ModelBenchmarkService().measure_or_reuse()
+            if run is None:
+                return html
+            block = render_benchmark_table_html(run)
+            if not block:
+                return html
+            logger.info(
+                "measured model table 부착 (측정일=%s, 모델 %d개)",
+                run.measured_on, len(run.results),
+            )
+            return html + block
+        except Exception as exc:  # noqa: BLE001 — 표가 발행을 막아선 안 된다
+            logger.warning("measured model table 부착 실패(무시): %s", exc)
+            return html
+
     def _history_internal_link_targets(
         self,
         *,
@@ -5811,7 +6044,10 @@ class NewsPipeline:
             current_topic=selected.candidate.topic or "",
             current_topic_group=str(raw.get("topic_group") or "general_life"),
             current_content_type=content_type,
-            limit=3,
+            current_cluster_key=str(raw.get("cluster_key") or ""),
+            # 허브(pillar) 글은 클러스터 자식 글 전부를 링크해야 허브 역할을 한다.
+            # 3개로 끊으면 나머지 글은 아무 데서도 링크받지 못한다.
+            limit=6 if raw.get("cluster_is_pillar") else 3,
         )
 
     def _resolve_cover_image_url(

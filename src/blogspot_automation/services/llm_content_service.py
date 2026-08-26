@@ -1673,16 +1673,13 @@ class LlmContentService:
             "Authorization": f"Bearer {api_key}",
             **provider.get("extra_headers", {}),
         }
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            base_url,
-            data=data,
-            headers=headers,
-            method="POST",
-        )
         provider_timeout = int(provider.get("timeout") or _TIMEOUT)
-        with urllib.request.urlopen(req, timeout=provider_timeout) as resp:
-            result = json.loads(resp.read().decode())
+        result, _elapsed = post_chat_completion(
+            endpoint=base_url,
+            headers=headers,
+            payload=payload,
+            timeout=provider_timeout,
+        )
 
         choices = result.get("choices", [])
         if not choices:
@@ -1692,6 +1689,45 @@ class LlmContentService:
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def free_openai_compatible_providers() -> list[dict[str, Any]]:
+    """본문 생성에 실제로 쓰는 무료 OpenAI 호환 provider 목록(사본).
+
+    model_benchmark_service가 "우리가 무엇으로 글을 쓰는가"를 재려면 이 목록이
+    유일한 출처여야 한다. 재는 쪽에 모델을 따로 적어두면 provider를 바꿨을 때
+    발행 글의 표만 옛 모델을 가리키게 된다.
+    """
+    return [
+        dict(provider)
+        for provider in _PROVIDERS
+        if provider.get("provider_type") == "openai_compatible" and provider.get("free")
+    ]
+
+
+def post_chat_completion(
+    *,
+    endpoint: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout: int,
+) -> tuple[dict[str, Any], float]:
+    """OpenAI 호환 chat/completions 1회 호출. (응답 JSON, 소요 초)를 돌려준다.
+
+    본문 생성과 model_benchmark_service가 같은 전송 경로를 쓰게 하려고 뽑아낸
+    함수다. 이 저장소는 같은 일을 하는 클라이언트가 3개까지 늘어난 적이 있고
+    (자동완성 전송 3중복, 2026-08-25 PR #68로 정리), 전송이 갈라지면 헤더 하나가
+    한쪽에만 적용되는 종류의 버그가 조용히 생긴다.
+
+    소요 시간을 함께 돌려주는 이유: 벤치마크 쪽에서 응답 시간이 곧 측정값이라,
+    호출부가 따로 재면 재시도·리다이렉트가 포함되는지 여부가 달라진다.
+    """
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request_obj = urllib.request.Request(endpoint, data=data, headers=headers, method="POST")
+    started = time.monotonic()
+    with urllib.request.urlopen(request_obj, timeout=timeout) as resp:
+        result = json.loads(resp.read().decode())
+    return result, time.monotonic() - started
+
 
 def _clean_llm_output(text: str) -> str:
     """마크다운 코드블록 제거 등 LLM 출력 정리."""

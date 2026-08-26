@@ -1,0 +1,127 @@
+{
+  "_readme": [
+    "주제 클러스터 계획. 흩어진 일일 뉴스 대신 '한 주제 6~7편 + 허브'를 묶어",
+    "'이 사이트는 무엇의 전문가인가'를 만든다(2026-08-26, 색인 0/32 진단 대응).",
+    "",
+    "슬롯의 search_demand_topic은 전부 Google Autocomplete 실측으로 고른 것이다",
+    "(2026-08-26 측정). 감으로 넣지 말 것 — 검색 안 되는 제목이 231편 조회수 10의 원인이었다.",
+    "",
+    "일부러 제외한 실측 검색어: 'free ai api key unlimited', 'free gpt api key generator',",
+    "'free llm api keys github'. 수요는 크지만 유출 키를 찾는 검색이라 우리가 답할 수도,",
+    "답해서도 안 된다.",
+    "",
+    "is_pillar 슬롯은 나머지가 전부 발행된 뒤 마지막에 나온다(허브 글).",
+    "진행 상황은 별도 상태파일 없이 data/publish_history.json의 cluster_slot으로 판정한다."
+  ],
+  "active_cluster": "free_ai_api_reality",
+  "clusters": [
+    {
+      "key": "free_ai_api_reality",
+      "name": "Free AI APIs, actually measured",
+      "why": "이 블로그 자체가 2026년 7월부터 무료 LLM API만으로 매일 자동 발행되고 있다. 무료 티어를 매일 때리면서 겪은 한도·실패·모델 증발은 벤더 문서에도, 뉴스 매체에도 없는 1차 자료다.",
+      "topic_group": "ai_work",
+      "content_type": "ai_work_tip",
+      "slots": [
+        {
+          "slot_id": "openrouter_free_limits",
+          "topic": "OpenRouter free model limits: the daily cap and when it resets",
+          "search_demand_topic": "openrouter free models limit",
+          "questions": [
+            "How many free requests does the OpenRouter free tier allow per day?",
+            "When does the OpenRouter free model limit reset?",
+            "What happens when an AI tool hits the OpenRouter rate limit?"
+          ],
+          "click_reason": "The docs give a number, but nobody says what the limit feels like when a job is running against it every day.",
+          "reader_benefit": "The actual cap, the reset behavior, and what the error looks like when you cross it.",
+          "content_promise": "Explain the free-tier caps and reset timing, then show what hitting them actually returns.",
+          "angle_type": "money_compare"
+        },
+        {
+          "slot_id": "gemini_free_limits",
+          "topic": "Google Gemini free API limits for a small daily workload",
+          "search_demand_topic": "gemini free api limits",
+          "questions": [
+            "What are the Gemini free API limits per day?",
+            "Is the Gemini free tier enough for a small project?",
+            "What are the restrictions on Gemini's free API key?"
+          ],
+          "click_reason": "Free-tier pages list rates per minute, which tells you nothing about whether a daily job fits.",
+          "reader_benefit": "The published limits translated into 'can this run a daily job or not'.",
+          "content_promise": "Lay out the free-tier limits and convert them into a plain per-day workload answer.",
+          "angle_type": "money_compare"
+        },
+        {
+          "slot_id": "nvidia_nim_free_limits",
+          "topic": "NVIDIA NIM free tier limits: what the inference credits actually cover",
+          "search_demand_topic": "nvidia nim free api limits",
+          "questions": [
+            "What are the NVIDIA NIM free tier limits and pricing?",
+            "How many free inference credits does NVIDIA NIM give you?",
+            "Is the NVIDIA NIM free tier rate limited for an AI tool running daily?"
+          ],
+          "click_reason": "NVIDIA hands out credits rather than a clean daily quota, so people cannot tell what they actually get.",
+          "reader_benefit": "What the free allocation covers, how it is metered, and where it runs out.",
+          "content_promise": "Explain how the free allocation is metered and what it covers for a small workload.",
+          "angle_type": "money_compare"
+        },
+        {
+          "slot_id": "free_model_catalog_churn",
+          "topic": "OpenRouter free models list: which AI models disappear, and how to notice",
+          "search_demand_topic": "openrouter free models list",
+          "questions": [
+            "Where do you find the list of free AI models on OpenRouter?",
+            "Do free LLM models get removed from the OpenRouter free tier?",
+            "Why does my free AI model suddenly return a 404?"
+          ],
+          "click_reason": "A free model can leave the catalog with no notice and every call starts failing with a 404 that looks like a code bug.",
+          "reader_benefit": "How to read the free-model list, why entries vanish, and how to fail over to a second provider.",
+          "content_promise": "Show where the list lives, why models leave it, and the fallback pattern that survives the churn.",
+          "angle_type": "how_to"
+        },
+        {
+          "slot_id": "best_free_llm_for_coding",
+          "topic": "Best free LLM API for coding work, judged on limits rather than benchmarks",
+          "search_demand_topic": "best free llm api for coding",
+          "questions": [
+            "What is the best free LLM API for coding?",
+            "Can you code with a free LLM API every day?",
+            "Which free coding model has the highest limits?"
+          ],
+          "click_reason": "Benchmark rankings ignore the thing that stops you: the free tier runs out mid-task.",
+          "reader_benefit": "A pick-this-if table that weighs daily limits and failure behavior, not leaderboard scores.",
+          "content_promise": "Rank the free options for coding by usable daily volume and give pick-this-if conditions.",
+          "angle_type": "money_compare"
+        },
+        {
+          "slot_id": "free_ai_api_limits_compare",
+          "topic": "Free AI API limits and pricing compared across providers",
+          "search_demand_topic": "free ai api limits",
+          "questions": [
+            "Which free AI tool has the highest free tier limits?",
+            "How do free LLM API limits and pricing compare?",
+            "Which free AI model is best for a daily job?"
+          ],
+          "click_reason": "Every provider states its limits in a different unit, so the tiers are impossible to compare side by side.",
+          "reader_benefit": "One table that puts the free tiers in the same units, plus which one fits a daily job.",
+          "content_promise": "Normalize each provider's free tier into one comparable table with as-of dates.",
+          "angle_type": "money_compare"
+        },
+        {
+          "slot_id": "free_llm_api_providers_hub",
+          "topic": "Free LLM API providers: the working list for a daily automated job",
+          "search_demand_topic": "free llm api providers",
+          "questions": [
+            "Which LLM APIs are free to use?",
+            "Are free LLM API providers reliable enough for production?",
+            "What is the best free LLM API provider in 2026?"
+          ],
+          "click_reason": "Most 'free LLM API' lists are copied from pricing pages by people who never ran a job on them.",
+          "reader_benefit": "The providers worth trying, what each free tier really allows, and where each one breaks.",
+          "content_promise": "Give the provider list, what each free tier allows, and link the detailed limit breakdown for each.",
+          "angle_type": "money_compare",
+          "is_pillar": true
+        }
+      ]
+    }
+  ]
+}
