@@ -1,0 +1,17 @@
+# GitHub Pages(Jekyll) 빌드 설정 — 이 폴더는 두 가지 역할을 겸한다:
+#   1) 프로젝트 내부 문서 보관소 (*.md — 사람이 읽는 운영 문서)
+#   2) holyyomi.github.io/ai_google_blog/ 의 웹 루트 (sitemap-full.xml 호스팅용)
+#
+# 2026-08-31 사고: Pages를 /docs 소스로 켠 직후 INDEXABILITY_RUNBOOK.md,
+# CONTENT_STRATEGY_LOCK.md, PRD.md 등 내부 문서 22개가 전부 HTTP 200으로
+# 공개 배포됐다(실측 확인). 저장소가 이미 public이라 새로운 유출은 아니지만,
+# 내부 운영 문서가 구글에 색인될 수 있는 페이지로 바뀌는 건 의도한 바가 아니다.
+#
+# 그래서 빌드 산출물에서 문서를 전부 제외하고, 사이트맵 호스팅에 필요한
+# index.html / sitemap-full.xml 만 남긴다.
+#
+# 주의: GitHub Pages 프로젝트 사이트(/<repo>/ 경로)에서는 robots.txt로 막을 수
+# 없다 — robots.txt는 도메인 루트(holyyomi.github.io/robots.txt)에서만 유효한데
+# 그건 별도 저장소 소유다. 그래서 robots.txt가 아니라 빌드 제외로 처리한다.
+exclude:
+  - "*.md"
