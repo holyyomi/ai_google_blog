@@ -139,6 +139,64 @@ A(404)와 B(meta)를 먼저 해결하고, 색인 요청을 꾸준히 하면서 �
 
 ---
 
+## E. 발견 경로 소실 — 오래된 글은 sitemap/feed/홈에서 통째로 사라진다 (2026-08-31)
+
+### 실측
+GSC "페이지 색인 생성" 리포트(2026-08-31, 로그인 상태에서 직접 확인):
+
+| 사유 | 개수 |
+|------|------|
+| 발견됨 - 현재 색인이 생성되지 않음 | 21 |
+| 크롤링됨 - 현재 색인이 생성되지 않음 | 5 |
+| 리디렉션 오류 | 10 |
+| **색인 생성됨** | **0** |
+
+구글이 아는 URL이 36개뿐인데, 원장의 `published: true`는 51개다. 원인은 삭제가 아니라
+**밀려남**이었다: `sitemap.xml`(37개), Atom 피드, 홈 최근글, 사이드바 Archive 위젯이
+전부 **최근 ~35개만 담는 롤링 윈도우**다. 그 창을 벗어난 글은
+
+- sitemap `in_sitemap=False`
+- 피드 `in_feed=False`
+- 홈 `linked_from_homepage=False`
+- 내부링크도 없음 (내부링크 정책이 최근 글끼리만 연결)
+
+즉 **발견 경로가 0**이 된다. 창 안에 있을 때 크롤되지 못했으면 영영 재발견되지 않는다.
+`tools/indexability_audit.py`가 이 세 필드를 이미 찍어주니 판정은 그걸로 한다.
+
+### 조치 (완료)
+1. `scripts/create_all_articles_page.py` → Blogger Page "All Articles" 생성.
+   살아있는 글 전부를 월별로 잇는 **내부링크 인덱스**. 외부링크 금지 정책과 무관하게
+   안전하다(전부 내부링크). 새 글이 쌓이면 `--publish`로 다시 돌려 갱신한다(같은 제목이면
+   PUT으로 덮어쓴다 — 중복 생성 안 됨).
+2. 이미 상단 메뉴에 있는 **About 페이지에서 "All Articles"로 링크** → 홈에서 2클릭 안에
+   전체 글에 닿는다.
+3. `docs/sitemap-full.xml`(전체 URL) → GitHub Pages로 호스팅하고 Blogger **커스텀
+   robots.txt**에 `Sitemap:` 한 줄로 등록. 교차 도메인 sitemap이라 robots.txt 선언이
+   필수다(GSC 폼은 같은 도메인 파일만 받는다).
+
+### ⚠️ 되풀이하면 안 되는 함정
+- **GitHub Pages 소스를 `/docs`로 켜면 이 폴더의 내부 문서 `*.md`가 전부 공개 배포된다**
+  (2026-08-31 실측: RUNBOOK/PRD/CONTENT_STRATEGY_LOCK 전부 HTTP 200). 프로젝트 페이지
+  (`/<repo>/` 경로)는 **robots.txt로 막을 수 없다** — robots.txt는 도메인 루트에서만
+  유효하고 그건 별도 저장소다. 그래서 `docs/_config.yml`의 `exclude: ["*.md"]`로
+  빌드에서 제외한다. 이 파일을 지우면 내부 문서가 다시 공개된다.
+- sitemap URL은 이미 라이브 robots.txt에 박혀 있다. 경로를 바꾸면 **robots.txt도 같이
+  고쳐야** 한다(Blogger 대시보드 → 설정 → 크롤러 및 색인 생성, 사람 작업).
+
+## F. 발행 후 자동삭제 — 이미 해소됨 (2026-08-31 재확인)
+
+A절의 자멸 루프는 **끝났다**. 원장 실측:
+
+- 2026-07-03~07-18 글: `audit_passed=False` + `og_description_not_post_specific` → **17개 전부 404**
+- 2026-07-20 이후: `audit_passed=True` → 전부 생존
+- 2026-08-30 글: `audit_passed=False`인데 **살아있음** ← 현재 동작의 증거
+
+현재 `_POST_PUBLISH_FATAL_ISSUES`에 `og_description_not_post_specific`가 없어서, 감사
+실패가 더는 삭제로 이어지지 않는다. **죽은 17개는 과거 피해자이고 신규 글은 안전하다.**
+그 17개는 `scripts/create_all_articles_page.py`의 `KNOWN_DEAD`에 박아 인덱스에서 제외했다.
+
+---
+
 ## 체크리스트 요약 (live publish 전/후)
 
 발행 전(자동 파이프라인 검증):
@@ -149,6 +207,11 @@ A(404)와 B(meta)를 먼저 해결하고, 색인 요청을 꾸준히 하면서 �
 사람이 1회 처리:
 - [ ] Blogger "검색 설명 사용" 토글 ON (B)
 - [ ] Search Console 속성 등록 + sitemap 제출 (C)
+- [x] Blogger 커스텀 robots.txt에 `sitemap-full.xml` 등록 (E, 2026-08-31 완료)
+
+주기적으로(월 1회 정도):
+- [ ] `PYTHONPATH=src python scripts/create_all_articles_page.py --publish` — 새 글 반영
+- [ ] `sitemap-full.xml` 재생성 후 푸시 (죽은 URL이 새로 생겼는지 audit으로 먼저 확인)
 
 코드 수정(승인 후):
-- [ ] post-publish 자동삭제를 meta 누락으로 트리거하지 않도록 완화 (A)
+- [x] post-publish 자동삭제를 meta 누락으로 트리거하지 않도록 완화 (A — F절 참고, 해소됨)
