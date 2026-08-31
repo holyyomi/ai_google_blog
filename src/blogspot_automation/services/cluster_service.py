@@ -39,8 +39,21 @@ from blogspot_automation.services.blog_language import is_english_mode
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = Path("config/clusters.json")
-# 월/수/금/일 = 주 4일 클러스터, 나머지 3일은 기존 뉴스 경로.
-_DEFAULT_CLUSTER_WEEKDAYS = "0,2,4,6"
+# 매일 클러스터 (2026-08-31 변경, 이전 기본값은 "0,2,4,6" = 주 4일).
+#
+# 왜 전 요일로 바꿨나: 발행 56편의 source_type을 세어보니 google_news_rss 46%
+# + community_hackernews 19% = 65%가 뉴스 요약이었다. 이 블로그는 권위 0인
+# blogspot 서브도메인이라 "OpenAI NVIDIA 파트너십" 같은 키워드로 로이터·CNBC와
+# 겨루면 색인돼도 순위가 나올 수 없고, 그나마도 며칠이면 가치가 0이 된다.
+# 반대로 클러스터가 노리는 에러·한도 질문은 사람이 검색창에도 치고 LLM에게도
+# 그대로 묻는 것들이고(Stack Overflow 실측: OpenAI 429 한 건 488,097 조회),
+# 상위가 포럼·GitHub 이슈뿐이라 답한 문서가 비어 있으며, 1년 뒤에도 같은
+# 수요가 있다. 즉 뉴스 요일은 구조적으로 조회수를 만들 수 없는 날이었다.
+#
+# 되돌리려면 CLUSTER_WEEKDAYS 환경변수로 요일을 지정하면 된다(월=0 … 일=6).
+# 슬롯이 다 떨어지면 자동으로 뉴스 경로로 돌아가므로, config/clusters.json에
+# 슬롯을 계속 채워두는 것이 이 설정의 전제다(tools/demand_mine.py 참고).
+_DEFAULT_CLUSTER_WEEKDAYS = "0,1,2,3,4,5,6"
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,15 +205,59 @@ class ClusterService:
     # ---------------------------------------------------------------- progress
 
     def progress(self, history_records: list[dict[str, Any]] | None) -> ClusterProgress | None:
-        plan = self.active_plan()
-        if plan is None:
+        """진행 중인 클러스터의 상태. 완주했으면 다음 클러스터로 넘어간다.
+
+        2026-08-31 이전에는 active_cluster 하나만 보고, 그게 완주하면 영원히
+        next_slot=None을 돌려줬다. 호출부는 그걸 정상 종료로 취급해 뉴스 경로로
+        가므로, 클러스터를 다 쓴 다음 날부터 **조용히 100% 뉴스로 되돌아갔다**.
+        로그 한 줄("새 클러스터를 넣을 때다")만 남아서 아무도 모르고 지나간다.
+        발행 56편의 65%가 뉴스였던 이유가 여기에 있다.
+
+        이제 config의 clusters 배열 순서대로 다음 클러스터를 이어서 집는다.
+        단, CLUSTER_KEY로 명시 지정한 경우는 넘기지 않는다 — 콕 집어 지정한 건
+        그것만 하라는 뜻이다.
+        """
+        plans = self._ordered_plans()
+        if not plans:
             return None
-        done = self.done_slot_ids(history_records, cluster_key=plan.key)
-        return ClusterProgress(
-            plan=plan,
-            done_slot_ids=done,
-            next_slot=self._next_slot(plan, done),
-        )
+        last: ClusterProgress | None = None
+        for plan in plans:
+            done = self.done_slot_ids(history_records, cluster_key=plan.key)
+            last = ClusterProgress(
+                plan=plan,
+                done_slot_ids=done,
+                next_slot=self._next_slot(plan, done),
+            )
+            if last.next_slot is not None:
+                return last
+        # 전부 완주 — 마지막 것을 그대로 돌려줘 호출부의 완주 로그가 살아있게 한다.
+        return last
+
+    def _ordered_plans(self) -> list[ClusterPlan]:
+        """active_cluster부터 시작해, 설정 배열 순서로 이어지는 계획들."""
+        active = self.active_plan()
+        if active is None:
+            return []
+        if self._cluster_key_override:
+            return [active]
+        try:
+            payload = json.loads(self.config_path.read_text(encoding="utf-8"))
+            entries = payload.get("clusters") or []
+        except Exception:  # noqa: BLE001 — 설정 오류가 발행을 막으면 안 된다
+            return [active]
+
+        keys = [str(e.get("key") or "").strip() for e in entries if isinstance(e, dict)]
+        if active.key not in keys:
+            return [active]
+        start = keys.index(active.key)
+        plans: list[ClusterPlan] = []
+        for entry in entries[start:]:
+            if not isinstance(entry, dict):
+                continue
+            parsed = self._parse_plan(entry)
+            if parsed is not None and parsed.slots:
+                plans.append(parsed)
+        return plans or [active]
 
     @staticmethod
     def done_slot_ids(

@@ -95,6 +95,79 @@ def test_complete_cluster_yields_no_candidate(tmp_path):
     assert service.collect_candidates(records, ignore_schedule=True) == []
 
 
+def _write_two_cluster_config(tmp_path: Path) -> Path:
+    """active + 뒤따르는 클러스터 하나. 자동 승계 검증용."""
+    payload = {
+        "active_cluster": "first",
+        "clusters": [
+            {
+                "key": "first", "name": "First", "why": "because",
+                "topic_group": "ai_work", "content_type": "ai_work_tip",
+                "slots": [_slot("a"), _slot("hub", pillar=True)],
+            },
+            {
+                "key": "second", "name": "Second", "why": "because",
+                "topic_group": "ai_work", "content_type": "ai_work_tip",
+                "slots": [_slot("x"), _slot("y")],
+            },
+        ],
+    }
+    path = tmp_path / "clusters.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_completed_cluster_advances_to_the_next_one(tmp_path):
+    """완주한 클러스터가 다음 클러스터로 이어져야 한다.
+
+    2026-08-31 이전에는 active_cluster 하나만 보고, 완주하면 next_slot=None을
+    영원히 돌려줬다. 호출부는 그걸 정상으로 보고 뉴스 경로로 가므로 클러스터를
+    다 쓴 다음 날부터 조용히 100% 뉴스로 되돌아갔다 — 로그 한 줄만 남기고.
+    발행 56편의 65%가 뉴스였던 구조적 원인이다.
+    """
+    config = _write_two_cluster_config(tmp_path)
+    service = ClusterService(config_path=config)
+    records = [_published("a", cluster_key="first"), _published("hub", cluster_key="first")]
+
+    progress = service.progress(records)
+    assert progress is not None
+    assert progress.plan.key == "second", "첫 클러스터 완주 후 두 번째로 넘어가야 한다"
+    assert progress.next_slot is not None
+    assert progress.next_slot.slot_id == "x"
+
+    candidates = service.collect_candidates(records, ignore_schedule=True)
+    assert len(candidates) == 1
+    assert candidates[0].raw["cluster_key"] == "second"
+
+
+def test_explicit_cluster_key_does_not_auto_advance(tmp_path):
+    """CLUSTER_KEY로 콕 집어 지정했으면 그것만 한다 — 넘어가지 않는다."""
+    config = _write_two_cluster_config(tmp_path)
+    service = ClusterService(config_path=config, cluster_key="first")
+    records = [_published("a", cluster_key="first"), _published("hub", cluster_key="first")]
+
+    progress = service.progress(records)
+    assert progress is not None
+    assert progress.plan.key == "first"
+    assert progress.complete is True
+    assert service.collect_candidates(records, ignore_schedule=True) == []
+
+
+def test_all_clusters_complete_still_reports_completion(tmp_path):
+    """전부 완주하면 마지막 클러스터 기준으로 완주를 보고하고 뉴스로 간다."""
+    config = _write_two_cluster_config(tmp_path)
+    service = ClusterService(config_path=config)
+    records = [
+        _published("a", cluster_key="first"), _published("hub", cluster_key="first"),
+        _published("x", cluster_key="second"), _published("y", cluster_key="second"),
+    ]
+
+    progress = service.progress(records)
+    assert progress is not None
+    assert progress.complete is True
+    assert service.collect_candidates(records, ignore_schedule=True) == []
+
+
 def test_unpublished_slot_record_does_not_count_as_done(tmp_path):
     """게이트에 막혀 발행 실패한 슬롯은 다음 클러스터 요일에 다시 나와야 한다."""
     config = _write_config(tmp_path, slots=[_slot("a"), _slot("b")])
@@ -180,17 +253,36 @@ def test_every_shipped_slot_matches_a_golden_pattern():
     2026-08-26 실측: 슬롯 7개 중 5개가 confidence 52(기준 80)였고, 드라이런에서
     글은 다 써놓고 `article_candidate_not_generated`로 발행만 안 되는 상태였다.
     파이프라인이 쓰는 것과 같은 방식으로 요약을 조립해 판정한다.
+
+    2026-08-31 확장: 원래 active_cluster만 검사해서, 새로 추가한 클러스터는
+    검증 없이 통과했다. 실제로 ai_api_errors_decoded를 넣자마자 슬롯 2개가
+    confidence 54/79로 기준 미달이었는데 테스트는 초록이었다. 이제 **설정의
+    모든 클러스터**를 검사한다 — 클러스터는 완주 후 다음으로 넘어가므로,
+    지금 비활성인 클러스터도 언젠가는 반드시 발행된다.
     """
+    import json
+
     from blogspot_automation.services.golden_article_preview_service import (
         GoldenArticlePreviewService,
     )
 
-    service = ClusterService(config_path=Path("config/clusters.json"))
-    plan = service.active_plan()
+    config_path = Path("config/clusters.json")
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
     preview = GoldenArticlePreviewService()
 
+    plans = []
+    for entry in payload.get("clusters") or []:
+        key = str(entry.get("key") or "").strip()
+        if not key:
+            continue
+        plan = ClusterService(config_path=config_path, cluster_key=key).active_plan()
+        if plan is not None:
+            plans.append(plan)
+    assert plans, "config/clusters.json에서 읽어들인 클러스터가 없다"
+
     weak = []
-    for slot in plan.slots:
+    for plan in plans:
+      for slot in plan.slots:
         raw = ClusterService.to_candidate(plan, slot).raw
         # news_pipeline.build_preview 호출부와 동일한 요약 조립 순서.
         summary = " ".join(
@@ -213,7 +305,8 @@ def test_every_shipped_slot_matches_a_golden_pattern():
         match = result.get("pattern_match") or {}
         if not (match.get("matched") and result.get("ready_for_review")):
             weak.append(
-                (slot.slot_id, match.get("confidence"), result.get("blocking_issues"))
+                (plan.key, slot.slot_id, match.get("confidence"),
+                 result.get("blocking_issues"))
             )
 
     assert not weak, f"골든 패턴 미매칭/미준비 슬롯: {weak}"

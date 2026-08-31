@@ -13,7 +13,9 @@
     "is_pillar 슬롯은 나머지가 전부 발행된 뒤 마지막에 나온다(허브 글).",
     "진행 상황은 별도 상태파일 없이 data/publish_history.json의 cluster_slot으로 판정한다.",
     "",
-    "2026-08-31 슬롯 4개 교체: 남은 슬롯 4개의 경쟁 품질(③④)을 처음으로 실측한 결과, 전부 free-llm.com / plugsky / costgoat / edenai / apidog 같은 전업 디렉터리 사이트와 OpenRouter 자체 블로그가 2026년 갱신본으로 점유한 헤드 키워드였다. 색인 0건·백링크 0인 신생 도메인이 이길 수 있는 판이 아니다. 반면 실패 모드 롱테일(openrouter 404 no endpoints, openrouter rate limits for free models, gemini api 429 resource_exhausted)은 상위가 GitHub 이슈·포럼 스레드·Discord 아카이브라 제대로 답한 글이 비어 있었고, 자동완성 수요도 각각 6/10/10개로 확인됐다. 이 블로그가 매일 무료 티어를 때리며 쌓은 실패 로그가 1차 자료로 쓰이는 것도 이 각도뿐이다 — 카탈로그 나열은 우리가 가진 게 없다."
+    "2026-08-31 슬롯 4개 교체: 남은 슬롯 4개의 경쟁 품질(③④)을 처음으로 실측한 결과, 전부 free-llm.com / plugsky / costgoat / edenai / apidog 같은 전업 디렉터리 사이트와 OpenRouter 자체 블로그가 2026년 갱신본으로 점유한 헤드 키워드였다. 색인 0건·백링크 0인 신생 도메인이 이길 수 있는 판이 아니다. 반면 실패 모드 롱테일(openrouter 404 no endpoints, openrouter rate limits for free models, gemini api 429 resource_exhausted)은 상위가 GitHub 이슈·포럼 스레드·Discord 아카이브라 제대로 답한 글이 비어 있었고, 자동완성 수요도 각각 6/10/10개로 확인됐다. 이 블로그가 매일 무료 티어를 때리며 쌓은 실패 로그가 1차 자료로 쓰이는 것도 이 각도뿐이다 — 카탈로그 나열은 우리가 가진 게 없다.",
+    "",
+    "2026-08-31 두 번째 클러스터 ai_api_errors_decoded 추가. 방향 전환의 핵심: 발행 56편의 65%가 뉴스 요약(google_news_rss 46% + hackernews 19%)이었는데, 이건 권위 0인 도메인이 로이터·테크크런치와 겨루는 판이라 색인돼도 순위가 안 나오고 며칠이면 가치가 0이 된다. 에러 메시지 질문은 정반대다 — 사람이 검색창에도 치고 LLM에게도 그대로 묻고, 상위가 포럼·GitHub 이슈라 답한 문서가 비어 있고, 1년 뒤에도 같은 수요가 있다. 슬롯 8개는 전부 tools/demand_mine.py의 Stack Overflow 절대 조회수 + Google Autocomplete 제안 수 두 겹으로 검증했다(각 슬롯 demand_evidence 참고). 골든패턴 어휘(free tier/pricing/LLM/models/automation/workflow)는 처음부터 심어뒀다."
   ],
   "active_cluster": "free_ai_api_reality",
   "clusters": [
@@ -120,6 +122,136 @@
           "click_reason": "Provider lists tell you what a free tier promises; nobody documents what it returns at 3am on day 40 when the quota, the catalog, and the policy toggle all disagree.",
           "reader_benefit": "The failure modes per provider, the exact status codes each returns, and which ones are worth retrying versus circuit-breaking.",
           "content_promise": "Collect the failure modes across providers, link the detailed article for each, and give the retry-versus-circuit-break rule for a scheduled job.",
+          "angle_type": "how_to",
+          "is_pillar": true
+        }
+      ]
+    },
+    {
+      "key": "ai_api_errors_decoded",
+      "name": "AI API errors, decoded",
+      "why": "사람이 검색창에도 치고 LLM에게도 그대로 물어보는 질문이 바로 에러 메시지다. Stack Overflow 실측에서 'OpenAI 429 quota' 한 건이 488,097 조회, 'maximum context length' 113,421 조회였다. 상위 결과가 포럼 스레드·GitHub 이슈뿐이라 제대로 답한 문서가 비어 있고, 뉴스와 달리 1년 뒤에도 같은 사람이 같은 걸 검색한다. 이 블로그가 매일 무료 티어를 두들기며 이 에러들을 실제로 맞아온 것도 근거가 된다.",
+      "topic_group": "ai_work",
+      "content_type": "ai_work_tip",
+      "slots": [
+        {
+          "slot_id": "openai_429_quota",
+          "topic": "ChatGPT and OpenAI API 429 exceeded your current quota: a pricing state, not traffic",
+          "search_demand_topic": "openai rate limit error 429",
+          "demand_evidence": "SO 488,097 + 114,054 views; autocomplete 10 suggestions",
+          "questions": [
+            "What does the OpenAI API 429 exceeded your current quota error mean for free tier users?",
+            "Why do I get a 429 rate limit error from the ChatGPT API model with no traffic?",
+            "How do I fix OpenAI 429 errors in an AI automation workflow?"
+          ],
+          "click_reason": "429 reads as too many requests, but the most common cause is an expired trial credit or unset billing, so people throttle their code and the error never goes away.",
+          "reader_benefit": "How to tell a true rate limit from an exhausted free tier quota in one look, and what actually clears each.",
+          "content_promise": "Separate the two causes behind the same 429, show how to identify which one you have, and give the fix for each.",
+          "angle_type": "how_to"
+        },
+        {
+          "slot_id": "context_length_exceeded",
+          "topic": "Maximum context length is N tokens: what the LLM model counts and how to stay under",
+          "search_demand_topic": "this model maximum context length is",
+          "demand_evidence": "SO 113,421 + 54,425 views; autocomplete 10 suggestions",
+          "questions": [
+            "What does this AI model maximum context length is 8192 tokens mean?",
+            "How do I count tokens before sending a ChatGPT or Gemini LLM API request?",
+            "How do you fix a context length exceeded error without losing content?"
+          ],
+          "click_reason": "The limit counts prompt plus completion together, which is why a request that looks well under the cap still fails.",
+          "reader_benefit": "What the token number actually covers, how to measure your own request before sending it, and the two ways to stay under.",
+          "content_promise": "Explain what the token count includes, show how to measure it, and give the trimming patterns that work.",
+          "angle_type": "how_to"
+        },
+        {
+          "slot_id": "chatgpt_token_limit_consumer",
+          "topic": "ChatGPT token and message limits: free tier, Plus and Pro pricing compared",
+          "search_demand_topic": "chatgpt token limit",
+          "demand_evidence": "SO 31,133 views; autocomplete 10 suggestions incl. per day / plus / free / pro",
+          "questions": [
+            "What is the ChatGPT token limit on the free tier?",
+            "How many messages per day does ChatGPT Plus pricing allow?",
+            "How do you check how much of the ChatGPT limit you have used?"
+          ],
+          "click_reason": "Limits differ per plan and change often, and the app never shows you where you stand until it cuts you off.",
+          "reader_benefit": "The current per-plan limits side by side with an as-of date, and how to tell which one you are hitting.",
+          "content_promise": "Put the per-plan limits in one table with sources and dates, and explain which limit bites first.",
+          "angle_type": "money_compare"
+        },
+        {
+          "slot_id": "gemini_503_overloaded",
+          "topic": "Gemini API 503: the AI model is overloaded, and what to do while it is",
+          "search_demand_topic": "gemini 503 error",
+          "demand_evidence": "SO 38,541 views; autocomplete 10 suggestions",
+          "questions": [
+            "What does a 503 error mean on the Gemini API?",
+            "Why does Gemini return 503 model overloaded on the free tier?",
+            "How should an AI automation workflow retry a Gemini 503?"
+          ],
+          "click_reason": "A 503 is not your bug and not your quota, so the usual quota fixes do nothing and people rewrite working code.",
+          "reader_benefit": "How to confirm it is upstream, and the retry and model fallback settings that get the job through anyway.",
+          "content_promise": "Show how to confirm a 503 is upstream, then give the backoff and model fallback pattern for a scheduled job.",
+          "angle_type": "how_to"
+        },
+        {
+          "slot_id": "gemini_region_blocked",
+          "topic": "Gemini user location is not supported: which countries and what free LLM works instead",
+          "search_demand_topic": "gemini api user location is not supported",
+          "demand_evidence": "SO 32,034 views; autocomplete 6 suggestions, all on-topic",
+          "questions": [
+            "Why does Gemini say user location is not supported for the API use?",
+            "Which countries can use the Gemini free tier API?",
+            "What are the legitimate free LLM alternatives if Gemini is unavailable in my country?"
+          ],
+          "click_reason": "The error names no country and no list, so people cannot tell whether they are blocked, misconfigured, or hitting a billing region mismatch.",
+          "reader_benefit": "How to confirm whether it is genuinely a region block, and which supported routes and alternative free tier LLM providers exist.",
+          "content_promise": "Explain what triggers the message, how to verify it, and list legitimate supported options with no circumvention.",
+          "angle_type": "how_to"
+        },
+        {
+          "slot_id": "ollama_404_local",
+          "topic": "Ollama 404 from localhost: the AI model name and the server, not your code",
+          "search_demand_topic": "ollama 404 error",
+          "demand_evidence": "SO 28,271 + 13,333 views; autocomplete 9 suggestions",
+          "questions": [
+            "Why does Ollama return a 404 error on localhost 11434?",
+            "How do I fix an Ollama 404 not found when running a local LLM?",
+            "How do you confirm which AI models a local Ollama server actually has?"
+          ],
+          "click_reason": "Running a free local LLM is the standard advice when a hosted free tier runs out, and this 404 is the wall people hit five minutes in.",
+          "reader_benefit": "The three things that produce this 404 and the one command that tells you which one you have.",
+          "content_promise": "List what causes the 404, give the check command, and show the working request for each case.",
+          "angle_type": "how_to"
+        },
+        {
+          "slot_id": "gemini_free_tier_limit_zero",
+          "topic": "Gemini free tier limit 0: why a free API key returns a quota of zero",
+          "search_demand_topic": "gemini api free tier limit 0",
+          "demand_evidence": "SO 9,664 + 8,353 views; autocomplete 6 suggestions",
+          "questions": [
+            "Why does the Gemini free tier show limit 0 for an AI model?",
+            "Which models are actually available on the Gemini free tier?",
+            "Does a Gemini API key work on the free tier without billing enabled?"
+          ],
+          "click_reason": "A quota of exactly zero looks like a broken key, but it usually means that specific model has no free allocation at all.",
+          "reader_benefit": "How to read the quota response, and which AI models genuinely carry a free tier allocation right now.",
+          "content_promise": "Explain what limit 0 signals, show how to check per-model quota, and name the models with real free allocation.",
+          "angle_type": "money_compare"
+        },
+        {
+          "slot_id": "ai_api_errors_hub",
+          "topic": "AI API error codes decoded: 401, 403, 404, 429 and 503 across free tier LLM models",
+          "search_demand_topic": "ai api error codes",
+          "demand_evidence": "hub page linking the measured slots above; ranks on long-tail combinations",
+          "questions": [
+            "What do the common AI API error codes mean?",
+            "Which LLM API errors should an AI automation workflow retry?",
+            "How do you tell a free tier quota error from a rate limit or an outage?"
+          ],
+          "click_reason": "The same status code means different things per provider, and the retry decision differs for each.",
+          "reader_benefit": "One table mapping each code to its real cause per provider, and whether to retry, wait, or stop.",
+          "content_promise": "Map each status code to cause and correct response per provider, and link the detailed article for each.",
           "angle_type": "how_to",
           "is_pillar": true
         }
