@@ -241,6 +241,20 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
+def _slot_id(title: str) -> str:
+    """후보의 cluster_slot 값. 절대 빈 문자열이면 안 된다.
+
+    is_cluster_candidate()는 topic_cluster 뿐 아니라 cluster_slot이 비어있지
+    않은지도 본다. 여기가 비면 그 후보는 클러스터 후보로 인정받지 못해
+    (a) 뉴스 후보가 있는 날 후보 풀 좁히기에서 통째로 버려지고
+    (b) _choose_selected_candidate의 확정 선택도 못 받는다 —
+    로그상 "주입은 됐는데 선택이 안 되는" 조용한 실패가 된다.
+    제목이 기호뿐이라 정규화 결과가 비는 경우를 대비한 폴백이다.
+    """
+    slug = _normalize(title)[:60].strip().replace(" ", "_")
+    return slug or "live_demand_topic"
+
+
 _STOPWORDS = frozenset({
     "the", "a", "an", "is", "are", "do", "does", "how", "what", "why", "to",
     "for", "of", "on", "in", "it", "my", "your", "and", "or", "with", "get",
@@ -429,7 +443,7 @@ def to_candidate(question: dict[str, Any]) -> NewsCandidate:
             # 원장 진행 판정이 아니라 중복 방지 표식으로만 쓰인다.
             "topic_cluster": True,
             "cluster_key": "question_demand_live",
-            "cluster_slot": _normalize(title)[:60].replace(" ", "_"),
+            "cluster_slot": _slot_id(title),
             "cluster_is_pillar": False,
             "cluster_name": "Live question demand",
             "question_demand_views": question["views"],
@@ -521,7 +535,7 @@ def consumer_to_candidate(question: dict[str, Any]) -> NewsCandidate:
             "is_stale": False,
             "topic_cluster": True,
             "cluster_key": "consumer_demand_live",
-            "cluster_slot": _normalize(title)[:60].replace(" ", "_"),
+            "cluster_slot": _slot_id(title),
             "cluster_is_pillar": False,
             "cluster_name": "Live consumer demand",
             "consumer_demand_saturation": question["saturation"],
