@@ -600,16 +600,36 @@ class NewsPipeline:
                 # 무엇의 전문가인가"가 없다는 GSC 진단의 대응. 클러스터 요일에만
                 # 슬롯 하나를 후보로 얹고, 나머지 요일은 기존 뉴스 경로 그대로다.
                 # 후보가 0개인 경우(기능 꺼짐/클러스터 요일 아님/완주)는 전부 정상.
+                _history_for_topics = self.publish_history_service.load()
+
+                # 매일 실측 발굴 (2026-08-31 요미님 지시: "미리 채워놓으면 더 나쁜
+                # 글이 올라간다"). 발행 시점에 Stack Overflow 조회수로 '지금 사람들이
+                # 실제로 묻는 질문'을 새로 긁어 그날의 주제를 정한다. 아래 클러스터
+                # 슬롯은 이게 전멸했을 때의 폴백으로 내려간다 — CLAUDE.md 주제 선정
+                # 정책의 "고정 주제 후보 금지, 뱅크는 폴백" 그대로다.
+                _demand_candidates: list[Any] = []
                 try:
-                    from blogspot_automation.services.cluster_service import ClusterService
-                    _cluster_service = ClusterService()
-                    _cluster_candidates = _cluster_service.collect_candidates(
-                        self.publish_history_service.load()
+                    from blogspot_automation.services import question_demand_service
+                    _demand_candidates = question_demand_service.collect_candidates(
+                        _history_for_topics
                     )
-                    if _cluster_candidates:
-                        candidates = _cluster_candidates + candidates
-                except Exception as _cluster_exc:  # noqa: BLE001
-                    logger.warning("cluster_service failed (무시): %s", _cluster_exc)
+                    if _demand_candidates:
+                        candidates = _demand_candidates + candidates
+                except Exception as _demand_exc:  # noqa: BLE001
+                    logger.warning("question_demand failed (무시): %s", _demand_exc)
+
+                # 주제 클러스터 — 이제 폴백이다. 매일 발굴이 성공한 날은 건너뛴다.
+                if not _demand_candidates:
+                    try:
+                        from blogspot_automation.services.cluster_service import ClusterService
+                        _cluster_service = ClusterService()
+                        _cluster_candidates = _cluster_service.collect_candidates(
+                            _history_for_topics
+                        )
+                        if _cluster_candidates:
+                            candidates = _cluster_candidates + candidates
+                    except Exception as _cluster_exc:  # noqa: BLE001
+                        logger.warning("cluster_service failed (무시): %s", _cluster_exc)
             else:
                 try:
                     from blogspot_automation.services.trending_news_service import TrendingNewsService
