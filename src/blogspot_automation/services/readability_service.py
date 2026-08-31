@@ -163,11 +163,24 @@ def measure_html(html: str) -> dict[str, object]:
 
 
 def is_below_target(m: dict[str, object]) -> bool:
+    """목표 미달이면 보강(repair)을 한 번 시도한다 — 발행을 막지는 않는다.
+
+    2026-08-31 기본값 상향 (55 -> 60): 요미님이 "기존 글들이 너무 어렵다"고 지적했고,
+    실제 발행 글 첫 문장이 *"CC Switch issue 4627 (June 2026) confirms most NIM
+    models fail in Claude Code."* 였다. 시스템 프롬프트는 이미 8학년 수준을 요구하는데
+    지켜지지 않았다 — 지시문만으로는 안 지켜지고 기계로 재야 움직인다.
+
+    FRE 55는 "약간 어려움"(고교 상급)이고, 프롬프트가 목표로 적어둔 8학년 수준은
+    60~70 구간이다. 즉 기존 목표치가 프롬프트의 요구와 어긋나 있었다.
+
+    차단선(is_below_floor)은 40 그대로 둔다 — 그쪽을 올리면 발행이 통째로 멈출 수
+    있어서, 먼저 보강 목표만 올려 실제 점수 분포를 보고 판단한다.
+    """
     if int(m.get("words") or 0) <= 0 or int(m.get("sentences") or 0) <= 0:
         return False
     return (
-        float(m.get("flesch_reading_ease") or 0.0) < _env_float("READABILITY_TARGET_FRE", 55.0)
-        or float(m.get("avg_sentence_words") or 0.0) > _env_float("READABILITY_TARGET_ASL", 18.0)
+        float(m.get("flesch_reading_ease") or 0.0) < _env_float("READABILITY_TARGET_FRE", 60.0)
+        or float(m.get("avg_sentence_words") or 0.0) > _env_float("READABILITY_TARGET_ASL", 17.0)
     )
 
 

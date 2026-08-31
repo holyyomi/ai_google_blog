@@ -157,3 +157,114 @@ def test_golden_pattern_reject_is_skipped_not_published(monkeypatch):
     picked = qd.collect_candidates([], max_candidates=1)
     assert len(picked) == 1
     assert "second" in picked[0].topic
+
+
+# ------------------------------------------------------- 일반 독자(consumer) 소스
+
+def _patch_autocomplete(monkeypatch, mapping: dict[str, list[str]]):
+    monkeypatch.setattr(qd, "_autocomplete", lambda seed: mapping.get(seed, []))
+
+
+def test_consumer_source_is_tried_before_the_developer_source(monkeypatch):
+    """일반 독자 질문이 1순위. 순서가 뒤집히면 글이 다시 어려워진다.
+
+    2026-08-31 실측: 개발자 소스만 쓰던 시절 발행 글 첫 문장이
+    "CC Switch issue 4627 (June 2026) confirms most NIM models fail in Claude Code"였다.
+    """
+    monkeypatch.setenv("CONSUMER_DEMAND_TOOLS", "chatgpt")
+    _patch_autocomplete(monkeypatch, {
+        "is chatgpt free": ["is chatgpt free", "is chatgpt free to use",
+                            "is chatgpt free for students", "is chatgpt free and safe",
+                            "is chatgpt free on iphone"],
+    })
+    # 개발자 소스가 응답해도 쓰이면 안 된다.
+    _patch_requests(monkeypatch, [_item("OpenAI API 429 quota exceeded", 500_000)])
+    monkeypatch.setattr(qd, "_passes_golden_pattern", lambda c: True)
+
+    picked = qd.collect_candidates([], max_candidates=1)
+    assert len(picked) == 1
+    assert picked[0].raw["source"] == "consumer_demand"
+    assert picked[0].raw["audience_level"] == "general"
+
+
+def test_developer_source_is_the_fallback(monkeypatch):
+    """일반 독자 후보가 전멸하면 개발자 질문으로 내려간다."""
+    monkeypatch.setenv("CONSUMER_DEMAND_TOOLS", "chatgpt")
+    _patch_autocomplete(monkeypatch, {})  # 자동완성 전멸
+    _patch_requests(monkeypatch, [_item("OpenAI API 429 quota exceeded", 500_000)])
+    monkeypatch.setattr(qd, "_passes_golden_pattern", lambda c: True)
+
+    picked = qd.collect_candidates([], max_candidates=1)
+    assert len(picked) == 1
+    assert picked[0].raw["source"] == "question_demand"
+
+
+def test_reddit_suffixed_suggestions_are_a_signal_not_a_target(monkeypatch):
+    """'... reddit' 제안은 가산점 신호로만 쓰고 제목으로 삼지 않는다.
+
+    2026-08-31 첫 실행에서 상위 8개가 전부 reddit 접미사로 채워졌다. 레딧 스레드를
+    이길 수도 없고 글 제목으로도 이상하다.
+    """
+    monkeypatch.setenv("CONSUMER_DEMAND_TOOLS", "chatgpt")
+    _patch_autocomplete(monkeypatch, {
+        "is chatgpt free": ["is chatgpt free", "is chatgpt free reddit",
+                            "is chatgpt free to use", "is chatgpt free for students",
+                            "is chatgpt free and safe"],
+    })
+    found = qd.fetch_consumer_demand([])
+    assert found, "후보가 있어야 한다"
+    assert all("reddit" not in row["title"].lower() for row in found)
+    # 형제 제안에 reddit이 있었으므로 신호는 켜져야 한다.
+    assert found[0]["human_answer_wanted"] is True
+
+
+def test_near_duplicate_consumer_topics_are_collapsed(monkeypatch):
+    """'chatgpt free limits'와 'chatgpt free limits per day'는 같은 글이다."""
+    monkeypatch.setenv("CONSUMER_DEMAND_TOOLS", "chatgpt")
+    _patch_autocomplete(monkeypatch, {
+        "chatgpt free limit": ["chatgpt free limits", "chatgpt free limits per day",
+                               "chatgpt free limit", "chatgpt free limits today",
+                               "chatgpt free limits explained"],
+    })
+    found = qd.fetch_consumer_demand([])
+    assert len(found) == 1, f"근접 중복이 남았다: {[r['title'] for r in found]}"
+
+
+def test_consumer_topic_already_covered_is_skipped(monkeypatch):
+    monkeypatch.setenv("CONSUMER_DEMAND_TOOLS", "chatgpt")
+    _patch_autocomplete(monkeypatch, {
+        "is chatgpt free": ["is chatgpt free", "is chatgpt free to use",
+                            "is chatgpt free for students", "is chatgpt free and safe",
+                            "is chatgpt free on iphone"],
+    })
+    history = [{"title": "Is ChatGPT free to use", "published": True, "status": "published"}]
+    found = qd.fetch_consumer_demand(history)
+    assert all(not qd._is_near_duplicate(r["title"], "Is ChatGPT free to use") for r in found)
+
+
+def test_one_tool_cannot_monopolize_the_shortlist(monkeypatch):
+    """한 도구가 상위를 독식하면 매일 같은 도구 글만 나온다."""
+    monkeypatch.setenv("CONSUMER_DEMAND_TOOLS", "chatgpt,gemini")
+    five = lambda base: [f"{base} {i}" for i in range(5)]
+    _patch_autocomplete(monkeypatch, {
+        "is chatgpt free": five("is chatgpt free option"),
+        "chatgpt free limit": five("chatgpt free limit variant"),
+        "is gemini free": five("is gemini free option"),
+    })
+    found = qd.fetch_consumer_demand([])
+    from collections import Counter
+    counts = Counter(r["tool"] for r in found)
+    assert all(v <= 2 for v in counts.values()), counts
+
+
+def test_consumer_candidate_marks_a_non_technical_reader(monkeypatch):
+    candidate = qd.consumer_to_candidate({
+        "title": "chatgpt free limits per day", "saturation": 10,
+        "human_answer_wanted": True, "seed": "chatgpt free limit", "tool": "chatgpt",
+    })
+    raw = candidate.raw
+    assert raw["source_type"] == "evergreen_fallback"
+    assert raw["publish_allowed"] is True
+    assert raw["audience_level"] == "general"
+    assert "not programmers" in raw["target_reader"] or "프로그래머가 아닌" in raw["target_reader"]
+    assert raw["consumer_demand_saturation"] == 10

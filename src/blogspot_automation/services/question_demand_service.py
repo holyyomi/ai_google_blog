@@ -10,14 +10,32 @@ CLAUDE.md 주제 선정 정책과도 원래 같은 말이다: **"고정 주제 �
 
 그래서 여기서는 **발행 시점에** 실측 수요를 다시 긁어 그날의 주제를 고른다.
 
-수요 신호 (tools/demand_mine.py에서 검증한 것과 같은 소스)
------------------------------------------------------------
-Stack Exchange API가 유일하게 **질문당 절대 조회수**를 준다. Google Autocomplete는
-"이 말이 검색되긴 하는가"만 알려줄 뿐 크기를 모르고, 긴 질문형에는 아예 빈 배열을
-돌려준다(실측). 그래서 크기 판정은 Stack Overflow 조회수로 한다.
+일반 독자 질문이 1순위다 (2026-08-31 요미님 지시: "기존 글들이 너무 어렵다")
+---------------------------------------------------------------------------
+실측한 발행 글의 첫 문장이 이랬다: *"CC Switch issue 4627 (June 2026) confirms most
+NIM models fail in Claude Code."* 깃허브 이슈 번호로 글을 시작하니 프로그래머가
+아니면 둘째 줄에서 이탈한다. 원인은 글쓰기가 아니라 **주제 선택**이었다 — Stack
+Overflow는 개발자 사이트라 거기서만 뽑으면 계속 개발자 글이 나온다. 아무리 쉽게
+써도 "CC Switch 이슈"를 일반 독자에게 쉽게 만들 수는 없다.
 
-에러 메시지를 노리는 이유: 사람이 검색창에 치는 문장이자 LLM에게 그대로 복붙해
-묻는 문장이고, 상위 결과가 포럼 스레드·GitHub 이슈뿐이라 제대로 답한 문서가 비어
+같은 날 실측한 수요 차이가 결정적이다. 일반 독자 질문(is chatgpt free / chatgpt vs
+gemini / why is chatgpt not working / chatgpt plus worth it / how to cancel chatgpt
+…)은 **10개 전부 자동완성 만점(10/10)** 이었다. 개발자 에러 질문은 1~10개로 들쭉날쭉했다.
+게다가 제안어에 `reddit`이 계속 붙는다 — 사람들이 벤더 홍보가 아니라 진짜 답을 찾는다는
+신호다. 애드센스 관점에서도 개발자 트래픽은 광고 차단률이 높아 불리하다.
+
+그래서 **CONSUMER(일반 독자) 소스를 1순위, 개발자 소스를 2순위**로 둔다.
+
+수요 신호 두 가지 (tools/demand_mine.py에서 검증한 것과 같은 소스)
+------------------------------------------------------------------
+1. **Google Autocomplete (일반 독자)**: 제안 개수가 곧 그 질문의 포화도다. 10개면
+   구글이 그 표현으로 검색이 충분히 많다고 보는 것. 절대 크기는 못 주지만 일반 대중이
+   실제로 치는 말인지를 가장 잘 반영한다. 키 불필요.
+2. **Stack Exchange (개발자)**: 유일하게 **질문당 절대 조회수**를 준다. 1순위가
+   전멸했을 때만 쓴다 — 수요는 크지만 독자층이 좁고 글이 어려워진다.
+
+에러 메시지·요금 질문을 노리는 공통 이유: 사람이 검색창에 치는 문장이자 LLM에게 그대로
+복붙해 묻는 문장이고, 상위 결과가 포럼 스레드·GitHub 이슈뿐이라 제대로 답한 문서가 비어
 있으며, 뉴스와 달리 1년 뒤에도 같은 수요가 있다.
 
 안전 설계
@@ -74,6 +92,136 @@ _EXCLUDE_RE = re.compile(
 _MIN_VIEWS = 3000
 _MAX_TITLE = 140
 
+# ---------------------------------------------------------------- consumer 소스
+_AUTOCOMPLETE = "https://suggestqueries.google.com/complete/search"
+
+# 일반 독자가 실제로 쓰는 도구들. 새 도구가 뜨면 여기에 추가한다.
+_CONSUMER_TOOLS = ("chatgpt", "gemini", "claude ai", "copilot", "perplexity")
+
+# 일반 독자가 실제로 치는 질문 틀. 전부 2026-08-31 자동완성 실측으로 고른 것이고,
+# 개발자 전용 표현(API/SDK/엔드포인트)은 일부러 하나도 넣지 않았다.
+_CONSUMER_PATTERNS = (
+    "is {tool} free",
+    "{tool} free limit",
+    "why is {tool} not working",
+    "is {tool} worth it",
+    "how to cancel {tool}",
+    "{tool} vs",
+    "how to use {tool} for free",
+    "{tool} limit reached",
+)
+
+# 자동완성이 엉뚱한 데로 새는 것을 막는다. 실측에서 'free tier limit 0 gemini'가
+# 체이스 신용카드 한도 제안을 끌고 온 적이 있다.
+_CONSUMER_EXCLUDE_RE = re.compile(
+    r"\b(credit limit|chase|loan|mortgage|insurance|casino|porn|nsfw|"
+    r"janitor|crypto|stock|betting)\b",
+    re.I,
+)
+
+# 형제 제안에 이 말이 섞여 있으면 "사람들이 벤더 홍보 말고 진짜 답을 찾는 주제"라는
+# 신호다 — 그 씨앗에서 나온 다른 후보들에 가산점을 준다.
+#
+# 단, 이 말이 붙은 제안 자체를 후보로 삼지는 않는다. "chatgpt free limits reddit"으로는
+# 레딧 스레드를 이길 수 없고 글 제목으로도 이상하다. 2026-08-31 첫 실행에서 상위 8개가
+# 전부 reddit 접미사로 채워져서 발견한 문제다 — 신호와 타깃을 구분해야 한다.
+_HUMAN_ANSWER_SIGNAL_RE = re.compile(r"\b(reddit|quora|forum)\b", re.I)
+# 후보 제목에서 아예 배제할 접미사·군더더기.
+_TITLE_REJECT_RE = re.compile(r"\b(reddit|quora|forum|youtube|tiktok)\b", re.I)
+
+
+def _autocomplete(query: str) -> list[str]:
+    """구글 자동완성 제안. 실패하면 빈 리스트(비치명)."""
+    try:
+        response = requests.get(
+            _AUTOCOMPLETE,
+            params={"client": "firefox", "hl": "en", "gl": "us", "q": query},
+            headers=_UA, timeout=_TIMEOUT,
+        )
+        if response.status_code != 200:
+            return []
+        payload = response.json()
+        return [str(s) for s in (payload[1] if len(payload) > 1 else [])]
+    except Exception:  # noqa: BLE001 — 수요 발굴 실패가 발행을 막으면 안 된다
+        return []
+
+
+def _consumer_tools() -> tuple[str, ...]:
+    raw = (os.getenv("CONSUMER_DEMAND_TOOLS", "") or "").strip()
+    if not raw:
+        return _CONSUMER_TOOLS
+    parts = tuple(p.strip() for p in raw.split(",") if p.strip())
+    return parts or _CONSUMER_TOOLS
+
+
+def fetch_consumer_demand(
+    history_records: list[dict[str, Any]] | None = None,
+    *,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """일반 독자가 실제로 검색하는 질문. 자동완성 포화도로 순위를 매긴다.
+
+    개발자 소스와 달리 절대 조회수는 없다. 대신 제안 개수(0~10)가 포화도이고,
+    10이면 구글이 그 표현으로 검색이 충분히 많다고 보는 것이다. 실측에서 일반
+    독자 질문 10개가 전부 10/10이었다.
+    """
+    if not _enabled():
+        return []
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for tool in _consumer_tools():
+        for pattern in _CONSUMER_PATTERNS:
+            seed = pattern.format(tool=tool)
+            suggestions = _autocomplete(seed)
+            if len(suggestions) < 5:
+                # 포화도가 낮으면 그 표현은 대중이 잘 안 친다는 뜻.
+                continue
+            # 형제 제안에 reddit/quora가 섞여 있으면 "진짜 답을 찾는 주제"라는 신호.
+            wants_human = any(_HUMAN_ANSWER_SIGNAL_RE.search(s) for s in suggestions)
+            for suggestion in suggestions:
+                title = suggestion.strip()
+                if not title or len(title) > _MAX_TITLE:
+                    continue
+                if _CONSUMER_EXCLUDE_RE.search(title) or _TITLE_REJECT_RE.search(title):
+                    continue
+                # 도구 이름이 빠진 제안은 주제가 흐려진다.
+                if tool.split()[0] not in title.lower():
+                    continue
+                norm = _normalize(title)
+                if norm in seen:
+                    continue
+                if _already_covered(title, history_records):
+                    continue
+                seen.add(norm)
+                found.append({
+                    "title": title,
+                    "saturation": len(suggestions),
+                    "human_answer_wanted": wants_human,
+                    "seed": seed,
+                    "tool": tool,
+                })
+
+    # 포화도 우선, '진짜 사람 답을 찾는' 주제에 가산점.
+    found.sort(
+        key=lambda r: r["saturation"] * (1.2 if r["human_answer_wanted"] else 1.0),
+        reverse=True,
+    )
+    # 한 도구가 상위를 독식하면 매일 ChatGPT 글만 나온다. 도구당 2개로 제한해
+    # 순환시킨다(2026-08-31 첫 실행에서 상위 8개가 전부 chatgpt였다).
+    per_tool: dict[str, int] = {}
+    diversified: list[dict[str, Any]] = []
+    for row in found:
+        used = per_tool.get(row["tool"], 0)
+        if used >= 2:
+            continue
+        # 같은 실행 안에서도 사실상 같은 글이 두 번 뽑히지 않게 한다.
+        if any(_is_near_duplicate(row["title"], kept["title"]) for kept in diversified):
+            continue
+        per_tool[row["tool"]] = used + 1
+        diversified.append(row)
+    return diversified[:limit]
+
 
 def _enabled() -> bool:
     return str(os.getenv("ENABLE_QUESTION_DEMAND", "true")).strip().lower() not in {
@@ -93,6 +241,47 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
+_STOPWORDS = frozenset({
+    "the", "a", "an", "is", "are", "do", "does", "how", "what", "why", "to",
+    "for", "of", "on", "in", "it", "my", "your", "and", "or", "with", "get",
+})
+
+
+def _significant_tokens(text: str) -> frozenset[str]:
+    """의미 단어만. 복수형은 단수로 눕혀서 'limits'와 'limit'을 같게 본다.
+
+    이 어간 처리가 없으면 'chatgpt free limits'와 'chatgpt free limit'이 서로
+    다른 주제로 통과해 사실상 같은 글이 두 번 나간다(테스트가 실제로 잡아냈다).
+    """
+    tokens = set()
+    for raw in _normalize(text).split():
+        if len(raw) <= 1 or raw in _STOPWORDS:
+            continue
+        if len(raw) > 3 and raw.endswith("es") and not raw.endswith("ses"):
+            raw = raw[:-2]
+        elif len(raw) > 3 and raw.endswith("s") and not raw.endswith("ss"):
+            raw = raw[:-1]
+        tokens.add(raw)
+    return frozenset(tokens)
+
+
+def _is_near_duplicate(title: str, other: str) -> bool:
+    """두 제목이 사실상 같은 글인지.
+
+    'chatgpt free limits'와 'chatgpt free limits per day'는 자동완성에서는 다른
+    제안이지만 같은 글이 된다. 한쪽의 핵심 단어가 다른 쪽에 전부 들어있으면
+    같은 것으로 본다 (2026-08-31 실측: 첫 실행 후보 8개가 도구별 free limits /
+    free limit per day 쌍이었다).
+    """
+    a, b = _significant_tokens(title), _significant_tokens(other)
+    if not a or not b:
+        return False
+    smaller, larger = (a, b) if len(a) <= len(b) else (b, a)
+    if len(smaller) < 2:
+        return False
+    return len(smaller & larger) / len(smaller) >= 0.85
+
+
 def _already_covered(title: str, history_records: list[dict[str, Any]] | None) -> bool:
     """원장에 이미 다룬 주제인지. 에러 코드 + 벤더 조합으로 대조한다."""
     if not history_records:
@@ -105,16 +294,20 @@ def _already_covered(title: str, history_records: list[dict[str, Any]] | None) -
         "openai", "chatgpt", "gpt", "gemini", "google", "claude", "anthropic",
         "openrouter", "ollama", "huggingface", "mistral", "llama", "groq",
     }
-    if not codes and not vendors:
-        return False
     for record in history_records:
-        text = " ".join(str(record.get(k) or "") for k in
-                        ("title", "selected_title", "selected_topic", "topic", "search_demand_topic"))
-        hist = set(_normalize(text).split())
-        if not hist:
+        fields = [str(record.get(k) or "") for k in
+                  ("title", "selected_title", "selected_topic", "topic", "search_demand_topic")]
+        text = " ".join(f for f in fields if f)
+        if not text.strip():
             continue
+        # 1) 같은 벤더 + 같은 에러 코드 = 같은 글 (개발자 주제).
+        hist = set(_normalize(text).split())
         if codes and vendors and (codes & hist) and (vendors & hist):
             return True
+        # 2) 핵심 단어가 거의 겹치면 같은 글 (일반 독자 주제).
+        for field in fields:
+            if field and _is_near_duplicate(title, field):
+                return True
     return False
 
 
@@ -263,6 +456,99 @@ def to_candidate(question: dict[str, Any]) -> NewsCandidate:
     )
 
 
+def consumer_to_candidate(question: dict[str, Any]) -> NewsCandidate:
+    """일반 독자 질문 하나를 발행 후보로.
+
+    개발자 후보와 문안 자체가 다르다 — 여기서는 독자가 프로그래머가 아니라고
+    가정하고, 글이 답해야 할 질문도 평범한 말로 적는다. 이 문안이 그대로 글의
+    각도가 되므로, 여기서 어려운 말을 쓰면 어려운 글이 나온다.
+    """
+    title = question["title"].strip()
+    display = title[0].upper() + title[1:] if title else title
+    questions = [
+        f"{display}?",
+        "What do you actually get on the free plan, and what needs paying?",
+        "Which option is the better pick for everyday use?",
+    ]
+    descriptive = (
+        f"{display} - a plain-English answer with current pricing, free tier limits, "
+        f"and what most people should pick"
+    )
+    search_angle: dict[str, Any] = {
+        "original_topic": display,
+        "search_demand_topic": title,
+        "reader_search_questions": questions,
+        "click_reason": (
+            "Search results for this are vendor marketing pages and outdated posts, "
+            "so people add 'reddit' to the query just to find a straight answer."
+        ),
+        "reader_benefit": "A straight answer with the current numbers and a clear recommendation.",
+        "urgency_reason": "AI tool pricing and free limits change often; a current answer wins the click.",
+        "content_promise": "Answer the question directly, show the current numbers, and say who should pick what.",
+        "angle_type": "money_compare",
+        "should_transform_title": True,
+        "commercial_support_signal": False,
+        "generic_support_keyword": "",
+        "public_benefit_keyword": "",
+        "public_benefit_confidence": "none",
+        "public_benefit_promotion_blocked": False,
+    }
+    content_angle = {
+        "content_type": "ai_work_tip",
+        "reader_question": questions[0],
+        "reader_loss": search_angle["click_reason"],
+        "practical_value": search_angle["reader_benefit"],
+        "example_needed": True,
+    }
+    return NewsCandidate(
+        topic=title,
+        category="tech",
+        summary=f"{descriptive}. Measured demand: {question['saturation']}/10 autocomplete saturation.",
+        source_hint="evergreen_fallback",
+        published_at=None,
+        url=None,
+        raw={
+            "source": "consumer_demand",
+            "source_type": "evergreen_fallback",
+            "is_test_candidate": False,
+            "publish_allowed": True,
+            "evergreen_axis": "ai_automation",
+            "evergreen_reason": (
+                f"Live-measured consumer search demand "
+                f"({question['saturation']}/10 autocomplete saturation)."
+            ),
+            "evergreen_fallback": True,
+            "is_stale": False,
+            "topic_cluster": True,
+            "cluster_key": "consumer_demand_live",
+            "cluster_slot": _normalize(title)[:60].replace(" ", "_"),
+            "cluster_is_pillar": False,
+            "cluster_name": "Live consumer demand",
+            "consumer_demand_saturation": question["saturation"],
+            "consumer_demand_seed": question["seed"],
+            # 이 후보는 일반 독자용이다. 글쓰기 쪽이 이 표시를 보고 눈높이를 맞춘다.
+            "audience_level": "general",
+            "target_reader": (
+                "everyday AI tool users who are not programmers (US/UK/CA/IN)"
+                if is_english_mode()
+                else "프로그래머가 아닌 일반 AI 도구 사용자"
+            ),
+            "query_group": "ai_automation",
+            "topic_group": "ai_work",
+            "content_angle": content_angle,
+            "search_angle": search_angle,
+            "search_demand_topic": title,
+            "sample_titles": [descriptive],
+            "reader_search_questions": questions,
+            "click_reason": search_angle["click_reason"],
+            "reader_benefit": search_angle["reader_benefit"],
+            "urgency_reason": search_angle["urgency_reason"],
+            "content_promise": search_angle["content_promise"],
+            "angle_type": "money_compare",
+        },
+    )
+
+
 def _passes_golden_pattern(candidate: NewsCandidate) -> bool:
     """이 후보가 골든 패턴 게이트를 통과하는지 미리 확인한다.
 
@@ -307,34 +593,43 @@ def collect_candidates(
     *,
     max_candidates: int = 1,
 ) -> list[NewsCandidate]:
-    """오늘의 질문 후보. 실패·전멸 시 빈 리스트를 돌려주고 기존 경로가 돈다."""
-    try:
-        questions = fetch_question_demand(history_records)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("question_demand failed (무시): %s", exc)
-        return []
-    if not questions:
-        logger.info("question_demand: 오늘 새로 발굴된 질문 없음 — 기존 경로로 간다")
-        return []
+    """오늘의 질문 후보. 실패·전멸 시 빈 리스트를 돌려주고 기존 경로가 돈다.
 
+    일반 독자(consumer) 질문을 먼저 시도하고, 없을 때만 개발자(Stack Overflow)
+    질문으로 내려간다. 순서를 바꾸면 글이 다시 어려워진다 — 2026-08-31에 실제로
+    그랬다(발행 글 첫 줄이 깃허브 이슈 번호였다).
+    """
     accepted: list[NewsCandidate] = []
     skipped = 0
-    for question in questions:
-        if len(accepted) >= max_candidates:
-            break
-        candidate = to_candidate(question)
-        if not _passes_golden_pattern(candidate):
-            skipped += 1
-            logger.info(
-                "question_demand: 골든패턴 미달로 건너뜀 — '%s'", question["title"][:70]
-            )
-            continue
-        logger.info(
-            "question_demand: '%s' (views=%s, answered=%s, tag=%s)",
-            question["title"][:70], question["views"], question["answered"], question["tag"],
-        )
-        accepted.append(candidate)
 
+    def _take(questions: list[dict[str, Any]], builder, label: str) -> None:
+        nonlocal skipped
+        for question in questions:
+            if len(accepted) >= max_candidates:
+                return
+            candidate = builder(question)
+            if not _passes_golden_pattern(candidate):
+                skipped += 1
+                logger.info("%s: 골든패턴 미달로 건너뜀 — '%s'", label, question["title"][:70])
+                continue
+            logger.info("%s: '%s' 선택", label, question["title"][:70])
+            accepted.append(candidate)
+
+    # 1순위 — 일반 독자.
+    try:
+        _take(fetch_consumer_demand(history_records), consumer_to_candidate, "consumer_demand")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("consumer_demand failed (무시): %s", exc)
+
+    # 2순위 — 개발자. 1순위가 전멸했을 때만.
+    if not accepted:
+        try:
+            _take(fetch_question_demand(history_records), to_candidate, "question_demand")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("question_demand failed (무시): %s", exc)
+
+    if not accepted:
+        logger.info("question_demand: 오늘 새로 발굴된 질문 없음 — 기존 경로로 간다")
     if skipped:
         logger.info("question_demand: %d개는 골든패턴 미달로 제외됨", skipped)
     return accepted
