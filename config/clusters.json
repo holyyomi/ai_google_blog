@@ -11,7 +11,9 @@
     "답해서도 안 된다.",
     "",
     "is_pillar 슬롯은 나머지가 전부 발행된 뒤 마지막에 나온다(허브 글).",
-    "진행 상황은 별도 상태파일 없이 data/publish_history.json의 cluster_slot으로 판정한다."
+    "진행 상황은 별도 상태파일 없이 data/publish_history.json의 cluster_slot으로 판정한다.",
+    "",
+    "2026-08-31 슬롯 4개 교체: 남은 슬롯 4개의 경쟁 품질(③④)을 처음으로 실측한 결과, 전부 free-llm.com / plugsky / costgoat / edenai / apidog 같은 전업 디렉터리 사이트와 OpenRouter 자체 블로그가 2026년 갱신본으로 점유한 헤드 키워드였다. 색인 0건·백링크 0인 신생 도메인이 이길 수 있는 판이 아니다. 반면 실패 모드 롱테일(openrouter 404 no endpoints, openrouter rate limits for free models, gemini api 429 resource_exhausted)은 상위가 GitHub 이슈·포럼 스레드·Discord 아카이브라 제대로 답한 글이 비어 있었고, 자동완성 수요도 각각 6/10/10개로 확인됐다. 이 블로그가 매일 무료 티어를 때리며 쌓은 실패 로그가 1차 자료로 쓰이는 것도 이 각도뿐이다 — 카탈로그 나열은 우리가 가진 게 없다."
   ],
   "active_cluster": "free_ai_api_reality",
   "clusters": [
@@ -66,59 +68,59 @@
         },
         {
           "slot_id": "free_model_catalog_churn",
-          "topic": "OpenRouter free models list: which AI models disappear, and how to notice",
-          "search_demand_topic": "openrouter free models list",
+          "topic": "OpenRouter 404 'No endpoints found': why a working free tier LLM model dies overnight",
+          "search_demand_topic": "openrouter 404 no endpoints",
           "questions": [
-            "Where do you find the list of free AI models on OpenRouter?",
-            "Do free LLM models get removed from the OpenRouter free tier?",
-            "Why does my free AI model suddenly return a 404?"
+            "Why does OpenRouter return 404 No endpoints found for free tier LLM models?",
+            "Why did my free AI model suddenly stop working in an automation workflow?",
+            "How do you fail over when free models are removed from the OpenRouter catalog?"
           ],
-          "click_reason": "A free model can leave the catalog with no notice and every call starts failing with a 404 that looks like a code bug.",
-          "reader_benefit": "How to read the free-model list, why entries vanish, and how to fail over to a second provider.",
-          "content_promise": "Show where the list lives, why models leave it, and the fallback pattern that survives the churn.",
+          "click_reason": "The 404 reads like a code bug, so people debug their own request for hours before learning the model left the catalog or a privacy toggle filtered every endpoint out.",
+          "reader_benefit": "The three distinct causes behind the same 404, how to tell them apart in one request, and a fallback pattern that survives catalog churn.",
+          "content_promise": "Separate the causes of the 404, show how to identify which one you hit, and give the fallback chain that keeps a daily job running.",
           "angle_type": "how_to"
         },
         {
           "slot_id": "best_free_llm_for_coding",
-          "topic": "Best free LLM API for coding work, judged on limits rather than benchmarks",
-          "search_demand_topic": "best free llm api for coding",
+          "topic": "OpenRouter free tier rate limits: the caps that stop an AI coding workflow",
+          "search_demand_topic": "openrouter rate limits for free models",
           "questions": [
-            "What is the best free LLM API for coding?",
-            "Can you code with a free LLM API every day?",
-            "Which free coding model has the highest limits?"
+            "What are the OpenRouter free tier rate limits for free LLM models?",
+            "Why does OpenRouter say rate limit exceeded during AI coding automation?",
+            "How many free requests per day does the OpenRouter free tier allow a developer?"
           ],
-          "click_reason": "Benchmark rankings ignore the thing that stops you: the free tier runs out mid-task.",
-          "reader_benefit": "A pick-this-if table that weighs daily limits and failure behavior, not leaderboard scores.",
-          "content_promise": "Rank the free options for coding by usable daily volume and give pick-this-if conditions.",
+          "click_reason": "The docs state a number, but the limit that stops a real job is the interaction of the per-minute cap, the per-day cap, and whether the account was ever funded.",
+          "reader_benefit": "Which cap you are actually hitting, how to read the response headers to confirm it, and what changes once an account is funded.",
+          "content_promise": "Lay out each cap, show how to confirm which one fired from the response, and translate them into a safe daily request budget.",
           "angle_type": "money_compare"
         },
         {
           "slot_id": "free_ai_api_limits_compare",
-          "topic": "Free AI API limits and pricing compared across providers",
-          "search_demand_topic": "free ai api limits",
+          "topic": "Gemini free tier 429 RESOURCE_EXHAUSTED: which LLM quota you hit and what to do",
+          "search_demand_topic": "gemini api 429 resource_exhausted",
           "questions": [
-            "Which free AI tool has the highest free tier limits?",
-            "How do free LLM API limits and pricing compare?",
-            "Which free AI model is best for a daily job?"
+            "What does 429 RESOURCE_EXHAUSTED mean on the Gemini free tier?",
+            "Why do I get Gemini 429 errors when an AI automation workflow runs daily?",
+            "How do you stop Gemini free tier 429 errors in an agent pipeline?"
           ],
-          "click_reason": "Every provider states its limits in a different unit, so the tiers are impossible to compare side by side.",
-          "reader_benefit": "One table that puts the free tiers in the same units, plus which one fits a daily job.",
-          "content_promise": "Normalize each provider's free tier into one comparable table with as-of dates.",
-          "angle_type": "money_compare"
+          "click_reason": "One error code covers three different quotas (per-minute requests, per-minute tokens, per-day requests), and the message never says which one you crossed.",
+          "reader_benefit": "How to identify the specific quota behind your 429, and the retry pattern that keeps a scheduled job alive instead of failing the run.",
+          "content_promise": "Map the 429 to each underlying quota, show how to tell them apart, and give the backoff pattern for a daily job.",
+          "angle_type": "how_to"
         },
         {
           "slot_id": "free_llm_api_providers_hub",
-          "topic": "Free LLM API providers: the working list for a daily automated job",
+          "topic": "Free tier LLM failure modes: every error a daily AI automation workflow hits",
           "search_demand_topic": "free llm api providers",
           "questions": [
-            "Which LLM APIs are free to use?",
-            "Are free LLM API providers reliable enough for production?",
-            "What is the best free LLM API provider in 2026?"
+            "What errors do free tier LLM models return when you hit a limit?",
+            "Are free AI tools reliable enough to run a daily automation workflow?",
+            "How do you build a fallback chain across free LLM models and providers?"
           ],
-          "click_reason": "Most 'free LLM API' lists are copied from pricing pages by people who never ran a job on them.",
-          "reader_benefit": "The providers worth trying, what each free tier really allows, and where each one breaks.",
-          "content_promise": "Give the provider list, what each free tier allows, and link the detailed limit breakdown for each.",
-          "angle_type": "money_compare",
+          "click_reason": "Provider lists tell you what a free tier promises; nobody documents what it returns at 3am on day 40 when the quota, the catalog, and the policy toggle all disagree.",
+          "reader_benefit": "The failure modes per provider, the exact status codes each returns, and which ones are worth retrying versus circuit-breaking.",
+          "content_promise": "Collect the failure modes across providers, link the detailed article for each, and give the retry-versus-circuit-break rule for a scheduled job.",
+          "angle_type": "how_to",
           "is_pillar": true
         }
       ]
