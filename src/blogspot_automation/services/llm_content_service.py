@@ -845,7 +845,9 @@ class LlmContentService:
         # 두 지시가 충돌해 결국 긴 쪽으로 부풀어난다.
         if is_english_mode():
             _m, _tmin, _tmax = _length_targets_for_facts(facts or "")
-            content_html = self._run_fallback_chain(prompt, target_min=_tmin, target_max=_tmax)
+            content_html = self._run_fallback_chain(
+                prompt, min_words=_m, target_min=_tmin, target_max=_tmax
+            )
         else:
             content_html = self._run_fallback_chain(prompt)
         if not content_html:
@@ -1329,6 +1331,7 @@ class LlmContentService:
         self,
         user_prompt: str,
         *,
+        min_words: int = EN_MIN_BODY_WORDS,
         target_min: int = EN_TARGET_BODY_WORDS_MIN,
         target_max: int = EN_TARGET_BODY_WORDS_MAX,
     ) -> str | None:
@@ -1353,7 +1356,7 @@ class LlmContentService:
                 # 얇은 응답 조기 컷. 목표 분량에 비례시킨다 — 고정 4000자로 두면
                 # 짧은 포맷(800~1200단어)의 정상 초안이 컷되어 폴백 체인이 헛돈다.
                 min_chars=4000 if target_min >= EN_TARGET_BODY_WORDS_MIN else 2200,
-                validator=_validate_generated_content,
+                validator=_make_content_validator(min_words),
                 repair_builder=_build_length_repair_prompt,
                 acceptance_repair_builder=_build_readability_repair_prompt,
             )
@@ -1890,14 +1893,21 @@ def _build_length_repair_prompt(draft: str, error: Exception) -> str | None:
     """
     if not isinstance(error, _WordCountShortfallError):
         return None
+    # 보강 목표는 그 초안에 실제로 적용된 하한을 따라간다. 상수를 쓰면 짧은
+    # 포맷 글에 긴 포맷의 목표(1,700~2,200)를 들이대 다시 부풀리게 된다
+    # (2026-09-01: 지시와 검사가 서로 다른 숫자를 보던 사고와 같은 뿌리).
+    if error.min_words <= EN_SHORT_MIN_BODY_WORDS:
+        target_min, target_max = EN_SHORT_TARGET_MIN, EN_SHORT_TARGET_MAX
+    else:
+        target_min, target_max = EN_TARGET_BODY_WORDS_MIN, EN_TARGET_BODY_WORDS_MAX
     # 하한에 딱 맞추려다 또 미달하는 것을 막기 위해 목표 하단까지 요구한다.
-    needed = max(150, EN_TARGET_BODY_WORDS_MIN - error.word_count)
+    needed = max(150, target_min - error.word_count)
     head = _REPAIR_LENGTH_INSTRUCTIONS_EN.format(
         word_count=error.word_count,
         min_words=error.min_words,
         needed_words=needed,
-        target_min=EN_TARGET_BODY_WORDS_MIN,
-        target_max=EN_TARGET_BODY_WORDS_MAX,
+        target_min=target_min,
+        target_max=target_max,
     )
     return f"{head}\n[PREVIOUS DRAFT — expand this exact HTML]\n{draft}"
 
@@ -2070,7 +2080,22 @@ _OVERCLAIM_SOFTENERS_EN: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-def _validate_generated_content(html: str) -> None:
+def _make_content_validator(min_words: int):
+    """길이 하한을 지정한 검증기를 만든다.
+
+    2026-09-01 실측 사고: 팩트가 얇아 프롬프트가 "800~1200단어"를 요구했는데
+    검증기는 여전히 상수 1500을 봤다. 모델이 규격대로 832단어를 내놓자 검증기가
+    "단어 수 부족"으로 거부해 보강을 시도했고, 폴백 체인이 헛돌다 429까지 맞았다.
+    지시와 검사가 같은 숫자를 봐야 한다.
+    """
+
+    def _validator(html: str) -> None:
+        _validate_generated_content(html, min_words=min_words)
+
+    return _validator
+
+
+def _validate_generated_content(html: str, *, min_words: int = EN_MIN_BODY_WORDS) -> None:
     """무료 모델이 흔히 내는 치명 결함을 검출한다(하나라도 걸리면 예외 → 다음 provider).
 
     2026-07-08 라이브 사고(제미나이 3.5 글)에서 실제로 관측된 결함들을 겨냥한다:
@@ -2112,9 +2137,9 @@ def _validate_generated_content(html: str) -> None:
         if re.search(r"[가-힣]", text):
             raise _ContentValidationError("영어 모드에 한국어 혼입")
         word_count = count_body_words(text)
-        if word_count < EN_MIN_BODY_WORDS:
+        if word_count < min_words:
             # 길이만 모자란 경우는 전용 예외 — 호출부가 재생성 대신 보강을 시도한다.
-            raise _WordCountShortfallError(word_count, EN_MIN_BODY_WORDS)
+            raise _WordCountShortfallError(word_count, min_words)
     elif re.search(r"[A-Za-z]{2,}(?:[ ,]+[A-Za-z]{2,}){5,}", text):
         raise _ContentValidationError("영어 문장 혼입 의심")
 
