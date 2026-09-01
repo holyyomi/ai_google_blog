@@ -1137,6 +1137,22 @@ class NewsQualityGate:
                 f"={hedge_ratio:.0%}"
             )
 
+        # --- 도입부가 제목의 질문에 답하지 않으면 차단 (2026-09-01) ---
+        # 헤지 포화도는 글 전체 비율이라 회피가 도입부에만 몰리면 통과한다. 실측:
+        # 9/1 글은 헤지 비율이 임계 미만이라 통과했지만, 제목이 "ChatGPT Free
+        # Version Limits"인데 도입부는 한도를 한 마디도 안 하고 "무료다"를 두 번
+        # 반복했다. 검사 구간은 AI 검색이 실제로 인용해가는 블록이라, 여기가
+        # 회피면 인용도 순위도 불가능하다.
+        try:
+            answer_ok, answer_reason = self._answer_block_answers_the_title(html, title)
+            if not answer_ok:
+                if publish_mode_active:
+                    blocking_issues.append(answer_reason)
+                else:
+                    warnings.append(answer_reason)
+        except Exception as _ans_exc:  # noqa: BLE001 — 감지 실패는 비치명
+            logger.warning("answer block check failed (skipped): %s", _ans_exc)
+
         # --- 팩트 공급 부족 차단 (2026-07-25) ---
         # 7/24 발행글 근본 원인: Exa 상한 소진 후 재시도 6번째가 Google News RSS
         # **헤드라인만**으로 작성됐고, 그 결과 실제로 공개돼 있던 커넥터 목록·언어
@@ -1343,6 +1359,71 @@ class NewsQualityGate:
             if len(shared) >= 2:
                 return {"overlap": True, "shared_tools": sorted(shared), "matched_title": record_title}
         return {"overlap": False, "shared_tools": [], "matched_title": ""}
+
+    # 도입부가 제목의 질문에 실제로 답하는지 — 회피/공허 차단 (2026-09-01)
+    #
+    # 왜 헤지 포화도 게이트로는 부족한가: 그건 글 전체의 헤지 '비율'을 본다. 9/1
+    # 발행 글은 회피가 도입부에 집중돼 비율이 20% 미만이라 그대로 통과했다. 그런데
+    # 제목은 "ChatGPT Free Version Limits"인데 도입부는 한도 얘기를 한 마디도 하지
+    # 않고 "무료다"를 두 번 반복했다. 구글 유용한 콘텐츠 자가진단이 직접 묻는
+    # "독자가 읽고 나서 다시 검색해야 하는가"에 정확히 걸리는 형태다.
+    #
+    # 검사 대상은 AI_OVERVIEW_TARGET_ANSWER 블록 — AI 검색이 실제로 인용해가는
+    # 바로 그 구간이라, 여기가 회피면 인용될 수도 순위가 나올 수도 없다.
+    _ANSWER_BLOCK_RE = re.compile(
+        r'<section[^>]*id=["\']AI_OVERVIEW_TARGET_ANSWER["\'][^>]*>(.*?)</section>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    # 도입부에 있으면 안 되는 회피 표현. 본문 뒷부분에서는 허용된다 —
+    # 문제는 "첫 답변이 다른 데를 가리키는 것"이지 신중한 서술 자체가 아니다.
+    _ANSWER_DEFERRAL_RE = re.compile(
+        r"(not\s+(?:publicly\s+)?disclosed|not\s+published|undisclosed|"
+        r"check\s+the\s+official|refer\s+to\s+the\s+official|consult\s+the\s+official|"
+        r"does\s+not\s+publish|no\s+fixed\s+\w+\s+(?:quota|limit)|"
+        r"cannot\s+be\s+(?:verified|confirmed)|not\s+confirmed)",
+        re.IGNORECASE,
+    )
+    _ANSWER_STOPWORDS = frozenset({
+        "the", "a", "an", "and", "or", "for", "with", "your", "you", "what",
+        "how", "why", "does", "are", "is", "in", "on", "of", "to", "it",
+        "this", "that", "when", "which", "who", "can", "do", "guide", "explained",
+    })
+
+    @classmethod
+    def _answer_block_answers_the_title(
+        cls, html: str, title: str
+    ) -> tuple[bool, str]:
+        """도입부가 제목의 질문에 답하는가. (통과여부, 사유)"""
+        match = cls._ANSWER_BLOCK_RE.search(html or "")
+        if not match:
+            # 블록이 없으면 이 게이트는 판단하지 않는다(다른 게이트가 본다).
+            return True, ""
+        text = re.sub(r"<[^>]+>", " ", match.group(1))
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) < 40:
+            return True, ""
+
+        deferral = cls._ANSWER_DEFERRAL_RE.search(text)
+        if deferral:
+            return False, f"answer_defers:{deferral.group(1).strip()[:40]}"
+
+        # 제목의 내용어가 도입부에 얼마나 들어있는가 — 질문에 답했는지의 근사치.
+        def _words(s: str) -> set[str]:
+            return {
+                w for w in re.findall(r"[a-z0-9]+", (s or "").lower())
+                if len(w) > 3 and w not in cls._ANSWER_STOPWORDS
+                and not re.fullmatch(r"(19|20)\d\d", w)
+            }
+
+        title_words = _words(title)
+        if len(title_words) < 2:
+            return True, ""
+        covered = title_words & _words(text)
+        ratio = len(covered) / len(title_words)
+        if ratio < 0.4:
+            missing = sorted(title_words - covered)[:4]
+            return False, f"answer_off_topic:{ratio:.0%}_missing:{','.join(missing)}"
+        return True, ""
 
     @staticmethod
     def _hedge_saturation(html: str) -> dict[str, object]:
