@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from html import escape, unescape
 from typing import Any
@@ -1388,9 +1389,15 @@ def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any
         "description": topic or title,
         "datePublished": today,
         "dateModified": today,
+        # 저자는 사람 이름이어야 한다 (2026-09-01).
+        # 구글 AI 콘텐츠 가이드가 직접 권고한다 — "AI에 저자 바이라인을 주는 것은
+        # 콘텐츠 제작에 AI가 관여했음을 독자에게 알리는 좋은 방법이 아니다."
+        # 게다가 Blogger 템플릿은 실제 계정명 "Yomi"로 BlogPosting을 하나 더 내보내서,
+        # 우리가 "holyyomi AI"를 쓰면 한 페이지에 저자가 둘로 충돌한다(라이브 실측).
+        # BLOG_AUTHOR_NAME으로 덮어쓸 수 있다.
         "author": {
             "@type": "Person",
-            "name": "holyyomi AI",
+            "name": os.getenv("BLOG_AUTHOR_NAME", "").strip() or "Yomi",
             "url": _ABOUT_PAGE_URL,
             "description": author_description,
         },

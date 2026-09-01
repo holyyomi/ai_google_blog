@@ -11,7 +11,7 @@ from blogspot_automation.models.news_models import SelectedNewsPlan
 from blogspot_automation.services.news_taxonomy import is_delivery_money_text, is_policy_benefit_text, is_tax_refund_text
 from blogspot_automation.services.seo_policy import BLOGSPOT_HOME_URL
 
-_BLOG_AUTHOR_NAME = os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI")
+_BLOG_AUTHOR_NAME = os.getenv("BLOG_AUTHOR_NAME", "Yomi")
 _BLOG_BRAND_NAME = os.getenv("BLOG_BRAND_NAME", "holyyomi AI")
 
 # summary에 이 문자열이 포함되면 본문에 절대 사용하지 않음

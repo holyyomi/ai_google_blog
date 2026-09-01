@@ -269,7 +269,7 @@ def _build_json_ld(
         "dateModified": date_iso,
         "author": {
             "@type": "Person",
-            "name": os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI"),
+            "name": os.getenv("BLOG_AUTHOR_NAME", "Yomi"),
             "url": BLOGSPOT_HOME_URL,
         },
         "publisher": {

@@ -1111,7 +1111,7 @@ class GoldenArticlePreviewService:
                     "description": candidate_meta_description,
                     "datePublished": today_str,
                     "dateModified": today_str,
-                    "author": {"@type": "Person", "name": os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI")},
+                    "author": {"@type": "Person", "name": os.getenv("BLOG_AUTHOR_NAME", "Yomi")},
                     "publisher": {
                         "@type": "Organization",
                         "name": os.getenv("BLOG_BRAND_NAME", "holyyomi AI"),
@@ -1272,7 +1272,7 @@ class GoldenArticlePreviewService:
                     },
                     "author": {
                         "@type": "Person",
-                        "name": os.getenv("BLOG_AUTHOR_NAME", "holyyomi AI"),
+                        "name": os.getenv("BLOG_AUTHOR_NAME", "Yomi"),
                     },
                     "reviewBody": str(_verdict.get("결론") or candidate_meta_description),
                     "datePublished": today_str,
