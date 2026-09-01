@@ -236,6 +236,33 @@ EN_MIN_BODY_WORDS = 1500
 EN_TARGET_BODY_WORDS_MIN = 1700
 EN_TARGET_BODY_WORDS_MAX = 2200
 
+# 팩트 양에 따라 분량을 정한다 (2026-09-01).
+#
+# 실측: 최근 20편의 본문이 2,480~3,038단어에 몰려 있었다(중앙값 2,651). 주제가
+# 무엇이든 같은 분량이 나온다는 뜻이고, 자기 목표(1,700~2,200)마저 25~40% 넘겼다.
+# "claude status 99.35% uptime" 같은 두 문단짜리 소재를 2,600단어로 부풀리는 이
+# 패턴이 구글이 말하는 "가치를 더하지 않고 페이지를 대량 생성"의 외형 그 자체다.
+#
+# 그래서 확보한 팩트가 얇으면 짧게 쓰게 한다. 짧고 정확한 글은 thin content가
+# 아니다 — thin content는 할 말이 없는데 길게 쓴 글이다.
+EN_SHORT_MIN_BODY_WORDS = 700
+EN_SHORT_TARGET_MIN = 800
+EN_SHORT_TARGET_MAX = 1200
+# 이 글자 수 미만의 팩트만 모였으면 짧은 포맷으로 간다. 실측 기준: 정상적으로
+# 팩트가 모인 실행은 수천 자, 헤드라인만 긁힌 실행은 수백 자였다.
+EN_THIN_FACTS_CHARS = 1800
+
+
+def _length_targets_for_facts(facts: str) -> tuple[int, int, int]:
+    """확보한 팩트 분량에 맞는 (최소, 목표하한, 목표상한) 단어 수.
+
+    할 말이 있으면 길게, 없으면 짧게. 분량을 고정하면 둘 중 하나가 된다 —
+    얇은 주제를 부풀리거나, 두꺼운 주제를 자르거나.
+    """
+    if len((facts or "").strip()) < EN_THIN_FACTS_CHARS:
+        return EN_SHORT_MIN_BODY_WORDS, EN_SHORT_TARGET_MIN, EN_SHORT_TARGET_MAX
+    return EN_MIN_BODY_WORDS, EN_TARGET_BODY_WORDS_MIN, EN_TARGET_BODY_WORDS_MAX
+
 # 최후 수단 하한(2026-08-26). 전 provider가 길이 때문에 실패했을 때, 그날 발행을
 # 통째로 버리는 대신 "가장 긴 초안"이 이 값을 넘으면 채택한다.
 #
@@ -765,6 +792,12 @@ class LlmContentService:
             asset_directive = _asset_rich_directive(title, topic, category, raw)
             if asset_directive:
                 asset_directive = _ASSET_RICH_DIRECTIVE_EN.format(month_year=month_year)
+            _min_w, _tgt_min, _tgt_max = _length_targets_for_facts(facts or "")
+            if _min_w != EN_MIN_BODY_WORDS:
+                logger.info(
+                    "LlmContentService: 팩트가 얇아 짧은 포맷으로 (%d자) -> 목표 %d~%d단어",
+                    len((facts or "").strip()), _tgt_min, _tgt_max,
+                )
             prompt = _USER_PROMPT_TMPL_EN.format(
                 title=title,
                 topic=topic,
@@ -774,9 +807,9 @@ class LlmContentService:
                 questions=questions_str,
                 asset_directive=asset_directive,
                 month_year=month_year,
-                min_words=EN_MIN_BODY_WORDS,
-                target_min=EN_TARGET_BODY_WORDS_MIN,
-                target_max=EN_TARGET_BODY_WORDS_MAX,
+                min_words=_min_w,
+                target_min=_tgt_min,
+                target_max=_tgt_max,
             )
         else:
             content_angle = raw.get("content_angle") if isinstance(raw.get("content_angle"), dict) else {}
@@ -807,7 +840,14 @@ class LlmContentService:
             )
 
         # 3. LLM 폴백 체인
-        content_html = self._run_fallback_chain(prompt)
+        # 영어 모드에서는 팩트 양에 맞춘 길이 목표를 시스템 프롬프트에도 함께 넘긴다 —
+        # 사용자 프롬프트만 짧은 목표를 주고 시스템 프롬프트가 1,700~2,200을 요구하면
+        # 두 지시가 충돌해 결국 긴 쪽으로 부풀어난다.
+        if is_english_mode():
+            _m, _tmin, _tmax = _length_targets_for_facts(facts or "")
+            content_html = self._run_fallback_chain(prompt, target_min=_tmin, target_max=_tmax)
+        else:
+            content_html = self._run_fallback_chain(prompt)
         if not content_html:
             logger.warning("LlmContentService: 모든 provider 실패")
             return None
@@ -1285,7 +1325,13 @@ class LlmContentService:
             logger.warning("LlmContentService: Custom Search 실패 — %s", exc)
             return ""
 
-    def _run_fallback_chain(self, user_prompt: str) -> str | None:
+    def _run_fallback_chain(
+        self,
+        user_prompt: str,
+        *,
+        target_min: int = EN_TARGET_BODY_WORDS_MIN,
+        target_max: int = EN_TARGET_BODY_WORDS_MAX,
+    ) -> str | None:
         """Provider 폴백 체인으로 LLM 호출 (cli_news 전용 system_prompt 사용).
 
         본문 생성은 무료 모델이 흔히 내는 치명 결함(중간 절단·반복 루프·영어 혼입·
@@ -1301,11 +1347,12 @@ class LlmContentService:
                 user_prompt,
                 system_prompt=_SYSTEM_PROMPT_EN.format(
                     month_year=_month_year_en(),
-                    target_min=EN_TARGET_BODY_WORDS_MIN,
-                    target_max=EN_TARGET_BODY_WORDS_MAX,
+                    target_min=target_min,
+                    target_max=target_max,
                 ),
-                # 하한 단어수의 영어 본문은 태그 포함 8,000자를 훌쩍 넘는다 — 얇은 응답 조기 컷.
-                min_chars=4000,
+                # 얇은 응답 조기 컷. 목표 분량에 비례시킨다 — 고정 4000자로 두면
+                # 짧은 포맷(800~1200단어)의 정상 초안이 컷되어 폴백 체인이 헛돈다.
+                min_chars=4000 if target_min >= EN_TARGET_BODY_WORDS_MIN else 2200,
                 validator=_validate_generated_content,
                 repair_builder=_build_length_repair_prompt,
                 acceptance_repair_builder=_build_readability_repair_prompt,
