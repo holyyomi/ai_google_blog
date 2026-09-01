@@ -258,6 +258,35 @@ Tavily 전 호출 HTTP 432, Firecrawl 전 호출 HTTP 402, Reddit 6개 서브레
 보게 뒀더니, 규격대로 나온 832단어 초안을 "부족"으로 거부하고 폴백이 헛돌다 429까지
 맞아 발행이 실패했다.
 
+## 출처 대조 검사 (2026-09-02, **관찰 모드**)
+
+**기존 게이트 24종은 전부 글 안에서만 판정한다** — 헤지 밀도, 빈 표 셀, 제목·본문
+정합. 그래서 "출처와 반대로 쓴 글"은 하나도 못 잡는다. 자기 자신과는 완벽하게
+일관되기 때문이다.
+
+2026-09-01 글이 그랬다. OpenAI Free Tier FAQ를 근거로 걸어놓고 "daily limits that
+are not disclosed"라고 썼는데, 그 FAQ는 "Free users have unlimited everyday text
+chats"라고 말한다. 아무도 숫자를 준 적이 없으니 모델이 "비공개인 모양"이라고
+추론해 사실처럼 적었고, 게이트 24종이 전부 통과시켰다.
+
+`services/source_grounding_service.py`가 **본문과 수집 팩트를 대조하는 유일한
+지점**이다. `llm_content_service.generate_html()` 안에서 돈다 — facts가 살아 있는
+곳이 거기뿐이다.
+
+- **부재 주장**: "not disclosed", "does not publish", "no fixed quota" 같은 단정은
+  팩트 쪽에 근거 표현이 있어야 한다. 벤더가 무엇을 공개하지 *않는지*는 출처 없이
+  알 수 없다.
+- **숫자**: 가격·한도·용량이 팩트에 있어야 한다. 표기 차이(500MB/500 MB,
+  $1,500/1500)는 정규화하고 연도는 면제한다.
+- 팩트가 비면 검사하지 않는다 — 그 경우는 `facts_headline_only_no_source_body`가 담당.
+
+**경고만 낸다.** 승격 조건은 도입부 답변 게이트와 같다: 실제 발행 몇 회에서 오탐률을
+재고 나서 `SOURCE_GROUNDING_GATE=block`. 결과는 run_meta의 `fact_supply.source_grounding`에
+실린다.
+
+실측: 2026-09-01 원문에 거짓 주장 4건을 전부 잡았고, **사람이 손으로 고친 뒤에도
+남아 있던 5번째**(같은 거짓 전제로 쓰인 문단 하나)를 추가로 잡았다.
+
 ## 도입부 답변 게이트 (2026-09-01, **관찰 모드**)
 
 `AI_OVERVIEW_TARGET_ANSWER` 블록(=AI 검색이 인용해가는 구간)이 제목의 질문에
