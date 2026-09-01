@@ -28,7 +28,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_COVER_IMAGE_MODEL = "gemini-2.5-flash-image"
-CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
+# 모델을 코드 수정 없이 바꿀 수 있게 env로 뺀다(기본은 기존과 동일).
+# flux-1-schnell은 4~8스텝 증류 모델이라 빠르고 무료지만 디테일이 약하다 —
+# 더 좋은 모델을 쓰려면 CLOUDFLARE_IMAGE_MODEL로 교체해 보고 판단한다.
+CLOUDFLARE_IMAGE_MODEL = (
+    os.getenv("CLOUDFLARE_IMAGE_MODEL", "").strip()
+    or "@cf/black-forest-labs/flux-1-schnell"
+)
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 _CLOUDFLARE_BASE = "https://api.cloudflare.com/client/v4/accounts"
 _IMGBB_ENDPOINT = "https://api.imgbb.com/1/upload"
@@ -37,10 +43,23 @@ _IMGBB_ENDPOINT = "https://api.imgbb.com/1/upload"
 # flux-schnell은 "no text"를 자주 무시하고 깨진 글자를 그린다(실사례: "BALSING").
 # 부정 지시만으론 부족 → 글자가 그려질 소재(간판/라벨/문서) 자체를 배제하고
 # "wordless/textless"를 긍정 서술로 반복한다.
-_STYLE_SUFFIX = (
-    "Minimal abstract flat vector illustration, modern soft color palette, "
-    "clean simple geometric shapes only, subtle gradient background, 16:9 wide composition, "
-    "generous empty margins, nothing important near the bottom edge. "
+#
+# 2026-09-01 스타일 변경 (요미님 지적: "저런 이미지 말고 고급스러운 고퀄리티"):
+# 기존 지시가 "minimal abstract flat vector / clean simple geometric shapes ONLY"라
+# 모델에게 사실상 클립아트를 그리라고 못박고 있었다. 무료 클립아트처럼 보이는 게
+# 모델 한계가 아니라 우리 프롬프트 탓이었다.
+# 이제 소재를 기하도형으로 제한하지 않고, 재질·조명·심도 같은 '고급스러움을 만드는
+# 실제 요소'를 지시한다. 글자 금지 규칙은 그대로 둔다 — 그건 실사례로 검증된 방어다.
+# 스타일은 COVER_IMAGE_STYLE env로 바꿔볼 수 있게 열어뒀다.
+_DEFAULT_STYLE = (
+    "Premium editorial illustration with a refined three-dimensional feel: "
+    "soft studio lighting, gentle shadows and depth, matte tactile materials, "
+    "sophisticated muted color palette with a single accent color, "
+    "shallow depth of field, elegant minimal composition with generous negative space, "
+    "16:9 wide composition, nothing important near the bottom edge, "
+    "crisp high-resolution detail, magazine cover quality. "
+)
+_NO_TEXT_RULES = (
     "Completely wordless and textless artwork: no text, no letters, no numbers, "
     "no signs, no labels, no captions, no typography, no writing of any kind, "
     "no watermark, no logos. "
@@ -51,6 +70,9 @@ _STYLE_SUFFIX = (
     "never readable text, charts must have no axis labels. "
     "No realistic human faces, no real person likeness."
 )
+_STYLE_SUFFIX = (
+    os.getenv("COVER_IMAGE_STYLE", "").strip() or _DEFAULT_STYLE
+) + _NO_TEXT_RULES
 
 
 class CoverImageService:
@@ -132,9 +154,12 @@ class CoverImageService:
         if slug:
             subject_en = " ".join(t for t in slug.split("-") if t and not t.isdigit())
         subject_kr = " ".join((topic or title or "").split())[:80]
-        subject = " / ".join(p for p in (subject_en, subject_kr) if p) or "korean daily news issue"
+        # 2026-09-01: 이 블로그는 영어권 대상인데 폴백 프롬프트에 "Korean news blog"와
+        # "korean daily news issue"가 남아 있었다(영어 전환 이전의 잔재). 이미지 모델에
+        # 엉뚱한 문화적 맥락을 주입하는 값이라 주제와 무관한 그림이 나올 수 있다.
+        subject = " / ".join(p for p in (subject_en, subject_kr) if p) or "everyday AI tool usage"
         return (
-            f"Editorial cover illustration for a Korean news blog article. "
+            f"Editorial cover illustration for an article about AI tools. "
             f"Article topic: {subject}. "
             f"Depict the topic's core subject matter symbolically and recognizably "
             f"(objects, scenery, metaphor related to the topic). "

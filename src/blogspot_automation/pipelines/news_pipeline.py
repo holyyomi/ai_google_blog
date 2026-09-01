@@ -1368,7 +1368,12 @@ class NewsPipeline:
             # AI가 요약한 뉴스는 인용되지 않는다는 진단의 대응이라, 그 진단이
             # 겨냥한 클러스터 글에만 의미가 있다. 측정 실패면 아무것도 안 붙고
             # 발행은 그대로 진행된다 — 표가 발행을 막으면 안 된다.
-            if self._selected_is_cluster_post(selected):
+            # 일반 독자(audience_level=general) 글에는 붙이지 않는다 — 2026-09-01
+            # 실측: "ChatGPT 무료 한도" 글 끝에 `nvidia/nemotron-3-ultra-550b-a55b:free`,
+            # `HTTP 429` 같은 개발자 표가 붙어, 정작 "글이 어렵다"는 지적을 고치는
+            # 중에 같은 문제를 뒷문으로 다시 들여왔다. 이 표는 무료 API를 직접
+            # 돌리는 독자에게만 의미가 있다.
+            if self._selected_is_cluster_post(selected) and not self._is_general_audience(selected):
                 html = self._append_measured_model_table(html)
             html = append_hashtags_block(html, hashtags=final_hashtags, labels=plan.labels)
             internal_link_suggestions = self._internal_link_suggestions(
@@ -6036,8 +6041,24 @@ class NewsPipeline:
         )
 
     @staticmethod
+    def _is_general_audience(selected: ScoredNewsCandidate) -> bool:
+        """일반 독자용 글인지 — 개발자 전용 블록을 붙일지 판정한다."""
+        raw = selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
+        return str(raw.get("audience_level") or "").strip().lower() == "general"
+
+    @staticmethod
     def _append_measured_model_table(html: str) -> str:
-        """직접 측정한 무료 모델 표를 본문 끝에 붙인다(실패 시 원본 그대로)."""
+        """직접 측정한 무료 모델 표를 본문 안 끝에 붙인다(실패 시 원본 그대로).
+
+        반드시 마지막 </article> **앞**에 넣는다. 2026-09-01 라이브 실측 사고:
+        예전에는 `html + block`으로 article 바깥에 이어붙였는데,
+        `append_hashtags_block`이 "마지막 </article> 앞"에 해시태그를 넣기 때문에
+        표가 밖에 있으면 그 </article>이 표보다 앞에 놓여 해시태그가 표 위로
+        올라간다. 결과적으로 글이 해시태그로 끝나지 않고 표로 끝났다
+        (요미님 지적: "항상 마지막은 해시태그로 끝나야 한다").
+
+        표를 안쪽에 넣으면 순서가 본문 → 표 → 해시태그가 되어 계약이 지켜진다.
+        """
         try:
             from blogspot_automation.services.model_benchmark_service import (
                 ModelBenchmarkService,
@@ -6054,6 +6075,10 @@ class NewsPipeline:
                 "measured model table 부착 (측정일=%s, 모델 %d개)",
                 run.measured_on, len(run.results),
             )
+            closes = list(re.finditer(r"</article>", html, flags=re.IGNORECASE))
+            if closes:
+                last = closes[-1]
+                return f"{html[:last.start()]}{block}\n{html[last.start():]}"
             return html + block
         except Exception as exc:  # noqa: BLE001 — 표가 발행을 막아선 안 된다
             logger.warning("measured model table 부착 실패(무시): %s", exc)

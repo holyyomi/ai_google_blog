@@ -552,3 +552,47 @@ def test_strip_hashtag_sections_covers_li_div_and_inline_wrapped() -> None:
     assert strip_hashtag_sections("<p>정리 끝. <strong>#태그1 #태그2 #태그3</strong></p>") == "<p>정리 끝.</p>"
     keep = "<p>C#은 언어다. F#도 있다.</p>"
     assert strip_hashtag_sections(keep) == keep
+
+
+def test_measured_table_goes_inside_the_article_so_hashtags_stay_last():
+    """글은 항상 해시태그로 끝나야 한다 (2026-09-01 라이브 실측 사고).
+
+    실측 사고: 측정 표를 `html + block`으로 article **바깥**에 이어붙였는데,
+    append_hashtags_block은 "마지막 </article> 앞"에 해시태그를 넣는다. 그래서
+    해시태그가 표보다 위로 올라가 글이 표로 끝났다. 라이브에서 해시태그
+    "#AI #Fixes #AITools #ChatGPT" 뒤에 "What these free models did..." 표와
+    "How this was measured..." 문단이 그대로 노출됐다.
+
+    표는 article 안쪽(마지막 </article> 앞)에 넣어야 순서가
+    본문 -> 표 -> 해시태그가 된다.
+    """
+    import re
+
+    from blogspot_automation.pipelines.news_pipeline import NewsPipeline
+    from blogspot_automation.services.seo_policy import append_hashtags_block
+
+    html = '<article class="yomi-clean-post"><p>body text</p></article>'
+    table = '<section class="measured-models">TABLE CONTENT</section>'
+
+    # _append_measured_model_table의 삽입 규칙과 동일해야 한다.
+    closes = list(re.finditer(r"</article>", html, flags=re.IGNORECASE))
+    last = closes[-1]
+    with_table = f"{html[:last.start()]}{table}\n{html[last.start():]}"
+
+    final = append_hashtags_block(with_table, hashtags=["AI", "ChatGPT"])
+
+    block = re.search(r"<section[^>]*yomi-hashtags.*?</section>", final, re.S)
+    assert block is not None, "해시태그 블록이 있어야 한다"
+
+    trailing = re.sub(r"<[^>]+>", "", final[block.end():]).strip()
+    assert trailing == "", f"해시태그 뒤에 내용이 남았다: {trailing[:120]!r}"
+    assert final.find("TABLE CONTENT") < block.start(), "표는 해시태그보다 앞이어야 한다"
+
+    # 실제 구현이 같은 규칙을 쓰는지 — 소스에 article 안쪽 삽입이 남아있는지 확인.
+    import inspect
+
+    source = inspect.getsource(NewsPipeline._append_measured_model_table)
+    assert "</article>" in source, (
+        "_append_measured_model_table이 article 안쪽 삽입을 하지 않는다 — "
+        "html + block으로 되돌아가면 해시태그가 다시 표 위로 올라간다"
+    )
