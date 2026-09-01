@@ -32,6 +32,9 @@ class _FakeResponse:
 def _env(monkeypatch):
     monkeypatch.setenv("ENABLE_QUESTION_DEMAND", "true")
     monkeypatch.setenv("QUESTION_DEMAND_TAGS", "openai-api")
+    # 자료 조달 확인은 실제 웹을 호출한다. 단위 테스트에서는 통과로 고정하고,
+    # 그 동작 자체는 test_fact_availability_* 에서 따로 검증한다.
+    monkeypatch.setattr(qd, "_has_enough_facts", lambda topic: True)
 
 
 def _patch_requests(monkeypatch, items: list[dict], *, status: int = 200):
@@ -268,3 +271,36 @@ def test_consumer_candidate_marks_a_non_technical_reader(monkeypatch):
     assert raw["audience_level"] == "general"
     assert "not programmers" in raw["target_reader"] or "프로그래머가 아닌" in raw["target_reader"]
     assert raw["consumer_demand_saturation"] == 10
+
+
+# ------------------------------------------------- 자료 조달 가능성 확인
+
+def test_topic_without_sourceable_facts_is_skipped(monkeypatch):
+    """검색 수요가 커도 쓸 자료가 없으면 주제를 바꿔야 한다.
+
+    2026-09-01 실측: 'chatgpt free limit for chats with attachments'는 자동완성
+    10/10으로 뽑혔지만 수집된 팩트가 737자(헤드라인 수준)뿐이었다. 모델이 헤지로
+    채웠고 헤지 포화 검증기가 두 번 거부해 그날 글이 통째로 안 나왔다.
+    """
+    monkeypatch.setattr(qd, "_gather_facts_for_probe", None, raising=False)
+    monkeypatch.setenv("CONSUMER_DEMAND_TOOLS", "chatgpt")
+    _patch_autocomplete(monkeypatch, {
+        "is chatgpt free": ["is chatgpt free", "is chatgpt free to use",
+                            "is chatgpt free for students", "is chatgpt free and safe",
+                            "is chatgpt free on iphone"],
+    })
+    monkeypatch.setattr(qd, "_passes_golden_pattern", lambda c: True)
+    monkeypatch.setattr(qd, "_has_enough_facts", lambda topic: False)
+    assert qd.collect_candidates([], max_candidates=1) == []
+
+
+def test_fact_probe_failure_does_not_block_publishing(monkeypatch):
+    """조달 확인이 실패했다고 발행을 막으면 고치려던 문제보다 큰 문제가 된다."""
+    import blogspot_automation.services.llm_content_service as llm
+
+    class _Boom:
+        def _gather_facts(self, topic):
+            raise RuntimeError("network down")
+
+    monkeypatch.setattr(llm, "LlmContentService", _Boom)
+    assert qd._has_enough_facts("anything") is True

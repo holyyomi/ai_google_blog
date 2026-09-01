@@ -56,3 +56,23 @@ def test_repair_prompt_keeps_the_full_target_for_full_articles():
         "<p>draft</p>", L._WordCountShortfallError(600, L.EN_MIN_BODY_WORDS)
     )
     assert str(L.EN_TARGET_BODY_WORDS_MAX) in prompt
+
+
+def test_exa_body_budget_is_not_thrown_away():
+    """Exa 본문을 받아놓고 다시 잘라버리면 수집을 늘린 의미가 없다.
+
+    2026-09-01 실측: numResults=3 / maxCharacters=400에 더해 코드에서 [:300]으로
+    한 번 더 잘라, 같은 검색 1회로 7,500자를 받을 수 있는데 1,200자만 쓰고 있었다.
+    Exa는 검색 건당 과금이라 본문을 더 받는 비용은 사실상 0이다. 그 1,200자로
+    2,600단어를 요구한 것이 헤지 포화의 직접 원인이었다.
+    """
+    import inspect
+
+    from blogspot_automation.services.llm_content_service import LlmContentService
+
+    source = inspect.getsource(LlmContentService._exa_facts_and_citations)
+    assert '"maxCharacters": 400' not in source, "본문 수집이 400자로 되돌아갔다"
+    assert '[:300]' not in source, "받은 본문을 300자로 다시 자르고 있다"
+
+    sig = inspect.signature(LlmContentService._exa_facts_and_citations)
+    assert sig.parameters["num_results"].default >= 5, "검색 결과 수가 줄었다"

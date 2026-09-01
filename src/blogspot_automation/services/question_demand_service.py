@@ -563,6 +563,43 @@ def consumer_to_candidate(question: dict[str, Any]) -> NewsCandidate:
     )
 
 
+# 이 글자 수 미만의 팩트만 모이는 주제는 쓸 자료가 없다는 뜻이다.
+# 기준선 근거(2026-09-01 실측): Exa 본문 수집을 정상화한 뒤 멀쩡한 주제는
+# 6,000자 이상을 가져온다. 헤드라인만 잡히는 주제는 700~750자에 머문다.
+# 그 사이인 1,500자를 경계로 둔다 — 헤드라인만 있는 주제는 확실히 걸러내되,
+# 자료가 적당한 주제까지 버리지는 않는다.
+_MIN_SOURCEABLE_FACT_CHARS = 1500
+
+
+def _has_enough_facts(topic: str) -> bool:
+    """이 주제로 실제 자료를 구할 수 있는지 미리 확인한다.
+
+    2026-09-01 드라이런 실측: 'chatgpt free limit for chats with attachments'는
+    자동완성 포화도 10/10으로 뽑혔지만 실제 수집된 팩트가 737자(Exa 2건)뿐이었다.
+    모델은 쓸 게 없으니 헤지로 채웠고, 헤지 포화 검증기가 두 번 연속 거부해
+    결국 그날 글이 통째로 안 나왔다.
+
+    검색 수요가 크다고 답할 거리가 있는 건 아니다 — 세부 주제일수록 검색은
+    되는데 공개된 자료는 없다. 그래서 수요와 별개로 '조달 가능성'을 따로 잰다.
+    실패(네트워크·쿼터)는 통과로 처리한다. 자료 조회가 안 된다는 이유로 발행을
+    막으면, 고치려던 문제보다 큰 문제를 만든다.
+    """
+    try:
+        from blogspot_automation.services.llm_content_service import LlmContentService
+
+        facts = LlmContentService()._gather_facts(topic) or ""
+        enough = len(facts.strip()) >= _MIN_SOURCEABLE_FACT_CHARS
+        if not enough:
+            logger.info(
+                "question_demand: 자료 부족으로 후보 제외 — '%s' (팩트 %d자)",
+                topic[:60], len(facts.strip()),
+            )
+        return enough
+    except Exception as exc:  # noqa: BLE001 — 조달 확인 실패는 비치명
+        logger.info("question_demand: 자료 확인 실패 (통과로 간주) — %s", exc)
+        return True
+
+
 def _passes_golden_pattern(candidate: NewsCandidate) -> bool:
     """이 후보가 골든 패턴 게이트를 통과하는지 미리 확인한다.
 
@@ -625,6 +662,11 @@ def collect_candidates(
             if not _passes_golden_pattern(candidate):
                 skipped += 1
                 logger.info("%s: 골든패턴 미달로 건너뜀 — '%s'", label, question["title"][:70])
+                continue
+            # 자료 조달 확인은 골든패턴 뒤에 둔다 — 이쪽이 네트워크를 쓰므로
+            # 어차피 탈락할 후보에 API 호출을 낭비하지 않는다.
+            if not _has_enough_facts(question["title"]):
+                skipped += 1
                 continue
             logger.info("%s: '%s' 선택", label, question["title"][:70])
             accepted.append(candidate)

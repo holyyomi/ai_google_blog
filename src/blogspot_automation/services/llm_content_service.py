@@ -1186,7 +1186,7 @@ class LlmContentService:
         topic: str,
         *,
         include_domains: list[str] | None = None,
-        num_results: int = 3,
+        num_results: int = 5,
         section_label: str = "",
     ) -> tuple[str, list[dict[str, str]]]:
         """Exa 검색 응답에서 본문 발췌 텍스트와 실제 결과 URL을 함께 뽑는다.
@@ -1202,7 +1202,12 @@ class LlmContentService:
                 "query": topic,
                 "type": "auto",
                 "numResults": num_results,
-                "contents": {"text": {"maxCharacters": 400}},
+                # 2026-09-01: 400자 -> 1500자. Exa는 **검색 1회당** 과금이라
+                # 본문을 더 받아도 비용이 사실상 같은데, 400자로 잘라 받아서
+                # 실측상 확보 가능한 7,500자 중 1,200자만 쓰고 있었다. 그 1,200자로
+                # 2,600단어를 쓰라니 모델이 헤지로 채울 수밖에 없었고, 실제로
+                # 헤지 포화 검증기가 두 번 연속 거부해 그날 글이 안 나갔다.
+                "contents": {"text": {"maxCharacters": 1500}},
             }
             if include_domains:
                 request_body["includeDomains"] = include_domains
@@ -1222,7 +1227,9 @@ class LlmContentService:
             citations: list[dict[str, str]] = []
             for item in body.get("results") or []:
                 title = " ".join(str(item.get("title") or "").split())
-                text = " ".join(str(item.get("text") or "").split())[:300]
+                # API에서 받은 본문을 여기서 또 자르면 위의 maxCharacters를 올린 의미가 없다.
+                # 2026-09-01: 300 -> 1200자.
+                text = " ".join(str(item.get("text") or "").split())[:1200]
                 pub = str(item.get("publishedDate") or "")[:10]
                 result_url = str(item.get("url") or "").strip()
                 if not (title or text):
