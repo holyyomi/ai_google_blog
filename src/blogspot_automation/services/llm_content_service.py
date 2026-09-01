@@ -38,6 +38,7 @@ from blogspot_automation.services.readability_service import (
     measure_html as _measure_readability_html,
 )
 from blogspot_automation.services.reader_interest_brief_service import ReaderInterestBriefService
+from blogspot_automation.services.source_grounding_service import audit_grounding
 from blogspot_automation.templates.blog_post_template import render_full_post
 
 logger = logging.getLogger(__name__)
@@ -743,6 +744,8 @@ class LlmContentService:
         # Exa 결과 URL). generate_html은 문자열만 반환하므로, 호출부(news_pipeline)가
         # SOURCE_TRUST_BLOCK에 실제 <a href> 근거를 걸려면 이 속성을 함께 읽는다.
         self.last_source_citations: list[dict[str, str]] = []
+        # 본문 주장과 수집 팩트를 대조한 결과 (관찰 모드 — 발행을 막지 않는다).
+        self.last_grounding_report: dict | None = None
 
     # ─── Public API ───────────────────────────────────────────────────────────
 
@@ -879,6 +882,13 @@ class LlmContentService:
             content_html = _close_faq_section_wrapper(content_html)
             # 빈 표 셀은 empty_table_cells 게이트가 차단한다 — "n/a"로 결정적 채움.
             content_html = re.sub(r"(<t[dh]\b[^>]*>)\s*(</t[dh]>)", r"\1n/a\2", content_html)
+
+        # 3-3. 출처 대조 (2026-09-02, 관찰 모드). 다른 게이트는 전부 글 안에서만
+        # 판정해서, 출처와 반대로 쓴 글은 자기 일관성만 지키면 전부 통과한다
+        # (2026-09-01 사고). 여기가 본문과 수집 팩트를 대조하는 유일한 지점이라
+        # facts가 아직 살아 있는 이 함수 안에서 돌려야 한다.
+        grounding = audit_grounding(content_html, facts or "")
+        self.last_grounding_report = grounding.as_dict()
 
         # 4. FAQ 추출 (JSON-LD용)
         schema_faq = _extract_faq(content_html)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
 
@@ -9,6 +9,18 @@ import pytest
 from blogspot_automation.models.news_models import NewsCandidate, ScoredNewsCandidate
 from blogspot_automation.services.cluster_service import ClusterService, is_cluster_candidate
 from blogspot_automation.services.seo_policy import build_internal_links_from_history
+
+
+def _days_ago(days: int) -> tuple[str, str]:
+    """N일 전의 (run_at, date)를 만든다.
+
+    원장 레코드를 `2026-08-26`처럼 고정 날짜로 적으면, 그날엔 통과하지만
+    며칠 뒤 엔티티 쿨다운(3일)·dedup 창(7일) 밖으로 빠져나가 테스트가 조용히
+    무의미해진다. 실제로 test_cluster_candidate_survives_entity_cooldown이
+    2026-09-01에 이렇게 깨졌다 — 코드가 아니라 테스트가 썩은 것이다.
+    """
+    moment = datetime.now(timezone.utc) - timedelta(days=days)
+    return moment.isoformat(), moment.date().isoformat()
 
 
 def _write_config(tmp_path: Path, *, slots: list[dict]) -> Path:
@@ -343,10 +355,11 @@ def test_cluster_candidate_survives_entity_cooldown(monkeypatch):
     monkeypatch.setenv("AI_BLOG_MODE", "true")
     monkeypatch.setenv("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", "true")
     service = TopicDedupService()
+    run_at, day = _days_ago(1)
     history = [
         {
-            "run_at": "2026-08-26T00:00:00+00:00",
-            "date": "2026-08-26",
+            "run_at": run_at,
+            "date": day,
             "title": "Google Gemini agentic updates",
             "selected_topic": "Google Gemini agentic updates",
             "published": True,
@@ -378,10 +391,11 @@ def test_cluster_candidate_still_blocked_on_exact_topic_repeat(monkeypatch):
 
     monkeypatch.setenv("AI_BLOG_MODE", "true")
     service = TopicDedupService()
+    run_at, day = _days_ago(1)
     history = [
         {
-            "run_at": "2026-08-26T00:00:00+00:00",
-            "date": "2026-08-26",
+            "run_at": run_at,
+            "date": day,
             "title": "openrouter free models limit",
             "selected_topic": "openrouter free models limit",
             "published": True,
@@ -445,7 +459,7 @@ def test_cluster_titles_do_not_reuse_a_stock_suffix_twice(tmp_path):
     ledger.write_text(
         json.dumps([
             {
-                "run_at": "2026-08-26T00:00:00+00:00", "date": "2026-08-26",
+                "run_at": _days_ago(1)[0], "date": _days_ago(1)[1],
                 # 발행 제목은 후보 선정 "이후" 다시 쓰인다 — 2026-08-26 GHA 리허설에서
                 # 후보 "…: What Actually Works (2026)"가 "…: What Works 2026"으로 나갔다.
                 # 문자열 일치로 보면 같은 꼬리를 못 알아본다.

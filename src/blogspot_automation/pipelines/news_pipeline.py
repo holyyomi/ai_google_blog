@@ -1293,6 +1293,21 @@ class NewsPipeline:
                         _llm_fact_supply = dict(
                             getattr(self.llm_content_service, "last_fact_supply", None) or {}
                         )
+                        # 출처 대조 결과를 fact_supply에 얹어 run_meta까지 태운다
+                        # (2026-09-02, 관찰 모드). 별도 인자를 새로 만들면 run_meta
+                        # 조립 지점 5곳을 전부 고쳐야 하고, 하나만 빠뜨리면 그 경로에서만
+                        # 조용히 사라진다.
+                        _grounding = getattr(
+                            self.llm_content_service, "last_grounding_report", None
+                        )
+                        if _grounding:
+                            _llm_fact_supply["source_grounding"] = _grounding
+                            if not _grounding.get("clean", True):
+                                logger.warning(
+                                    "NewsPipeline: 출처 대조 경고(관찰) — 부재주장 %d건 / 숫자 %d건",
+                                    len(_grounding.get("ungrounded_absence_claims") or []),
+                                    len(_grounding.get("ungrounded_numbers") or []),
+                                )
                         logger.info(
                             "NewsPipeline: LLM 콘텐츠 생성 성공 (%d자, 팩트소스=%s)",
                             len(html),
