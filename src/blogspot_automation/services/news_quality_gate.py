@@ -1143,13 +1143,28 @@ class NewsQualityGate:
         # Version Limits"인데 도입부는 한도를 한 마디도 안 하고 "무료다"를 두 번
         # 반복했다. 검사 구간은 AI 검색이 실제로 인용해가는 블록이라, 여기가
         # 회피면 인용도 순위도 불가능하다.
+        #
+        # 2026-09-01 관찰 모드로 강등: 도입 당일 드라이런에서 이 검사가
+        # `answer_off_topic:20%_missing:attachment,chatgpt,limits,version`을 냈는데,
+        # 정작 최종 후보의 도입부는 "Free ChatGPT ... 500 MB Library limit"으로
+        # 제목에 제대로 답하고 있었다. 재시도 중 버려진 초안을 본 것으로 보이나
+        # 확증하지 못했다. 검증되지 않은 새 차단 게이트가 발행을 멈추는 위험이
+        # 이 게이트가 막으려는 문제보다 크다(원칙: Manual -> Semi-auto -> Full-auto).
+        #
+        # 승격 조건: 실제 발행 몇 회 동안 이 경고가 (a) 나쁜 글에만 뜨고
+        # (b) 정상 글에는 안 뜨는 것을 확인한 뒤 ANSWER_BLOCK_GATE=block로 켠다.
         try:
             answer_ok, answer_reason = self._answer_block_answers_the_title(html, title)
             if not answer_ok:
-                if publish_mode_active:
+                enforce = os.getenv("ANSWER_BLOCK_GATE", "warn").strip().lower() == "block"
+                if publish_mode_active and enforce:
                     blocking_issues.append(answer_reason)
                 else:
                     warnings.append(answer_reason)
+                    logger.warning(
+                        "answer block check (관찰 모드, 차단 안 함): %s | title=%s",
+                        answer_reason, title[:70],
+                    )
         except Exception as _ans_exc:  # noqa: BLE001 — 감지 실패는 비치명
             logger.warning("answer block check failed (skipped): %s", _ans_exc)
 

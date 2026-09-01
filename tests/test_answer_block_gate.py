@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import os
+
 from blogspot_automation.services.news_quality_gate import NewsQualityGate
 
 
@@ -84,3 +86,15 @@ def test_year_in_title_is_not_required_in_the_answer():
         html, "Ollama 404 Error on Localhost 2026"
     )
     assert ok is True, reason
+
+
+def test_gate_is_observation_only_until_promoted(monkeypatch):
+    """검증 안 된 새 차단 게이트가 발행을 멈추면 안 된다.
+
+    2026-09-01 도입 당일 드라이런에서 이 검사가 정상 도입부("Free ChatGPT ...
+    500 MB Library limit")에 대해 off_topic 판정을 냈다. 재시도 중 버려진 초안을
+    본 것으로 보이나 확증하지 못했다. 그래서 기본값은 경고이고,
+    ANSWER_BLOCK_GATE=block 으로 명시했을 때만 차단한다.
+    """
+    monkeypatch.delenv("ANSWER_BLOCK_GATE", raising=False)
+    assert os.getenv("ANSWER_BLOCK_GATE", "warn").strip().lower() != "block"
