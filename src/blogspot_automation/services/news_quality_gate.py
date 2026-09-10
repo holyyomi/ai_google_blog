@@ -31,12 +31,91 @@ logger = logging.getLogger(__name__)
 
 
 def _content_rehash_block_ratio() -> float:
-    """재탕 차단 임계값 (후보 본문 문장 중 과거 발행 글과 겹치는 비율)."""
+    """재탕 차단 임계값 (후보 본문 문장 중 과거 발행 글과 겹치는 비율).
+
+    2026-09-10: 0.6 → 0.15. 0.6은 "직전 글과 문장의 60%가 그대로 겹쳐도 통과"라
+    사실상 게이트가 아니었다 — 47편 색인 0인데 이 게이트는 한 번도 안 걸렸다.
+    실측(data/publish_history.json 최근 발행 60편, 순서쌍 3,540개): 평균 0.042,
+    최대 0.250. 0.6/0.3에서는 단 한 쌍도 걸리지 않고, 0.15에서 91쌍(2.6%),
+    후보 기준으로는 60편 중 11편이 걸린다.
+    """
     try:
-        value = float(os.getenv("NEWS_CONTENT_REHASH_BLOCK_RATIO", "0.6"))
+        value = float(os.getenv("NEWS_CONTENT_REHASH_BLOCK_RATIO", "0.15"))
+    except ValueError:
+        return 0.15
+    # 하한을 0.1에서 0.01로 내린다 — 실측 분포(평균 0.042)를 보고 더 조이려면
+    # env로 내려갈 수 있어야 한다. 기본값은 0.1보다 높으므로 완화가 아니다.
+    return min(1.0, max(0.01, value))
+
+
+def _max_ngram_jaccard() -> float:
+    """6-gram Jaccard 차단 임계값 (본문 6어절 시퀀스 겹침).
+
+    문장 md5 완전일치(위 게이트)는 "명사·조사만 바꾼 재사용"을 원리상 못 잡는다.
+    자매 repo(anti_google_blog)는 실측 분포를 근거로 0.08을 쓰지만, 이 블로그는
+    아직 라이브 실측 분포가 얇아서 보수적으로 0.15에서 시작한다.
+    참고 실측(2026-09-10, runs/*/article.html 14편·91쌍): 평균 0.036,
+    0.15 이상은 사실상 동일 본문 3쌍뿐 — 정상 글이 걸릴 여지는 낮다.
+    """
+    try:
+        value = float(os.getenv("NEWS_MAX_NGRAM_JACCARD", "0.15"))
+    except ValueError:
+        return 0.15
+    return min(1.0, max(0.01, value))
+
+
+def _max_shared_sentences() -> int:
+    """과거 발행 글과 그대로 겹치는 문장의 **절대 개수** 상한.
+
+    비율 게이트만으로는 글이 길수록 같은 문장 수를 공유해도 비율이 희석돼
+    통과한다. 자매 repo는 이 값을 2로 쓴다.
+
+    이 repo의 기본값은 자매 repo의 2가 아니라 12다. 이유는 측정 대상이 다르다.
+
+    1차 측정(정형 블록 포함)에서 후보별 최대 공유 문장 수는 중앙값 12·최대 15였고,
+    그 문장들의 정체는 재탕이 아니라 사이트 공통 면책·출처 문구였다. 그 상태로 2를
+    쓰면 전량 차단(발행 0건)이라 20으로 시작했다.
+
+    이후 `sentence_fingerprints(drop_boilerplate=True)`로 정형 블록을 지문에서
+    빼고 발행분 47편을 다시 측정한 결과 중앙값 6·최대 9로 내려갔고, 같은 데이터에서
+    비율 게이트 0.15의 오탐도 6편 → 0편이 됐다. 그래서 관측 최대치(9) 위 여유를 둔
+    12로 조인다.
+
+    2까지 내리지 않는 이유: 정형 블록을 제외해도 출처 귀속·변동 경고·사람 검수
+    안내처럼 매 글 1회씩 반드시 나가는 사이트 공통 문장이 남는다(표현은 글마다
+    변주되지만 일부는 같은 문장으로 떨어진다). 진짜 재탕은 수십 문장을 공유하므로
+    12로도 잡힌다.
+    """
+    try:
+        value = int(os.getenv("NEWS_MAX_SHARED_SENTENCES", "12"))
+    except ValueError:
+        return 20
+    return max(1, value)
+
+
+def _max_title_similarity() -> float:
+    """최근 발행 제목과의 키워드 자카드 차단 임계값.
+
+    실사고: 9/1~9/5에 "ChatGPT free version limits" 계열 제목이 5일 연속
+    발행됐다(클러스터 경로). 실측(최근 발행 60편, 1,770쌍, topic_selection_service
+    와 동일한 토크나이저): 평균 0.064. 0.6 이상은 4쌍뿐이고 그 4쌍이 전부 이
+    5연타다(0.833/0.833/0.714/0.625). 바로 아래 값은 0.556(NVIDIA NIM vs
+    ChatGPT 무료 한도 — 실제로 다른 글)이라 0.6이 둘을 정확히 가른다.
+    """
+    try:
+        value = float(os.getenv("NEWS_MAX_TITLE_SIMILARITY", "0.6"))
     except ValueError:
         return 0.6
-    return min(1.0, max(0.1, value))
+    return min(1.0, max(0.05, value))
+
+
+def _title_similarity_history_limit() -> int:
+    """제목 유사도 비교에 쓸 최근 발행 이력 건수."""
+    try:
+        value = int(os.getenv("NEWS_TITLE_SIMILARITY_HISTORY_LIMIT", "30"))
+    except ValueError:
+        return 30
+    return max(1, value)
 
 
 _BANNED_DEFAULT_PHRASES: tuple[str, ...] = (
@@ -1035,16 +1114,82 @@ class NewsQualityGate:
         # 발행되는 것을 차단한다. 지문 없는 과거 레코드(기능 도입 전)는 비교에서
         # 제외되므로 기존 이력과의 오탐은 없다.
         content_fingerprint = self._sentence_fingerprints(html)
-        content_rehash = {"ratio": 0.0, "matched_title": "", "compared_records": 0}
+        content_rehash = {
+            "ratio": 0.0,
+            "matched_title": "",
+            "compared_records": 0,
+            "shared_sentences": 0,
+            "shared_sentences_title": "",
+        }
         try:
             content_rehash = self._max_history_overlap(content_fingerprint)
         except Exception as _sim_exc:  # noqa: BLE001 — 감지 실패는 비치명(게이트 완화 아님)
             logger.warning("content rehash check failed (skipped): %s", _sim_exc)
         _rehash_block_ratio = _content_rehash_block_ratio()
+        _shared_sentence_cap = _max_shared_sentences()
         if publish_mode_active and content_rehash["ratio"] >= _rehash_block_ratio:
             blocking_issues.append(
                 f"content_near_duplicate_of_recent_post:{content_rehash['ratio']:.2f}"
             )
+        # 절대 공유 문장 수 상한 — 비율은 글이 길수록 희석되므로 개수도 따로 본다.
+        _shared_sentences = int(content_rehash.get("shared_sentences") or 0)
+        if publish_mode_active and _shared_sentences > _shared_sentence_cap:
+            blocking_issues.append(
+                f"content_shared_sentences_with_recent_post:{_shared_sentences}"
+            )
+        # 🔴 "비교 대상 0건인데 통과"를 통과로 읽지 않게 사실 자체를 남긴다.
+        # 47편 색인 0의 진짜 원인은 임계값보다 이쪽이었다 — 지문 없는 이력만
+        # 있으면 이 게이트는 조용히 무력해지고 결과는 '깨끗함'과 구분되지 않는다.
+        if not int(content_rehash.get("compared_records") or 0):
+            warnings.append("content_rehash_history_unavailable")
+
+        # --- 6-gram Jaccard 본문 재탕 감지 (2026-09-10) ---
+        # 문장 완전일치는 명사·조사만 바꾼 재사용을 원리상 못 잡는다. 정형 블록
+        # (면책·출처·해시태그)을 걷어낸 본문의 6어절 시퀀스 Jaccard를 따로 본다.
+        content_ngram_fingerprint = self._ngram_fingerprints(html)
+        content_ngram = {
+            "jaccard": 0.0,
+            "matched_title": "",
+            "compared_records": 0,
+            "candidate_sample_size": len(content_ngram_fingerprint),
+            "sample_too_small": False,
+        }
+        try:
+            content_ngram = self._max_history_ngram_jaccard(content_ngram_fingerprint)
+        except Exception as _ngram_exc:  # noqa: BLE001 — 감지 실패는 비치명(게이트 완화 아님)
+            logger.warning("ngram jaccard check failed (skipped): %s", _ngram_exc)
+        _ngram_block_jaccard = _max_ngram_jaccard()
+        if publish_mode_active and float(content_ngram.get("jaccard") or 0.0) >= _ngram_block_jaccard:
+            blocking_issues.append(
+                "content_ngram_near_duplicate_of_recent_post:"
+                f"{float(content_ngram['jaccard']):.3f}"
+            )
+        if bool(content_ngram.get("sample_too_small")):
+            warnings.append("content_ngram_sample_too_small")
+        elif not int(content_ngram.get("compared_records") or 0):
+            warnings.append("content_ngram_history_unavailable")
+
+        # --- 제목 재탕 감지 (2026-09-10) ---
+        # 실사고: 9/1~9/5 "ChatGPT free version limits" 계열 제목 5연타(자카드
+        # 0.67~0.80). topic_selection_service에 같은 판정이 있었지만 호출자가
+        # topic_pipeline/ui 뿐이라 **실제 발행 경로에서는 한 번도 안 돌았다**.
+        # 여기(모든 발행 경로가 지나는 최종 게이트)에서 같은 토크나이저·같은
+        # 자카드로 다시 잰다. 🔴 클러스터 후보라고 면제하지 않는다 —
+        # 5연타가 정확히 클러스터 경로(topic_dedup 면제)에서 나왔다.
+        title_similarity = {"similarity": 0.0, "matched_title": "", "compared_records": 0}
+        try:
+            title_similarity = self._max_history_title_similarity(title)
+        except Exception as _title_sim_exc:  # noqa: BLE001 — 감지 실패는 비치명
+            logger.warning("title similarity check failed (skipped): %s", _title_sim_exc)
+        _title_similarity_threshold = _max_title_similarity()
+        if publish_mode_active and float(title_similarity.get("similarity") or 0.0) >= _title_similarity_threshold:
+            blocking_issues.append(
+                "title_near_duplicate_of_recent_post:"
+                f"{float(title_similarity['similarity']):.2f}:"
+                f"{str(title_similarity.get('matched_title') or '')[:40]}"
+            )
+        if not int(title_similarity.get("compared_records") or 0):
+            warnings.append("title_similarity_history_unavailable")
 
         # --- 가격/비교 축 근접 중복 감지 (2026-07-21) ---
         # 문장 지문(위 재탕 감지)은 "같은 문장을 다시 썼는가"만 잡는다. 서로 다른
@@ -1209,6 +1354,23 @@ class NewsQualityGate:
             "content_rehash_ratio": content_rehash["ratio"],
             "content_rehash_matched_title": content_rehash["matched_title"],
             "content_rehash_compared_records": content_rehash["compared_records"],
+            "content_rehash_block_ratio": _rehash_block_ratio,
+            "content_rehash_shared_sentences": _shared_sentences,
+            "content_rehash_shared_sentences_cap": _shared_sentence_cap,
+            # 6-gram Jaccard 진단 필드 (2026-09-10)
+            "content_ngram_fingerprint": content_ngram_fingerprint,
+            "content_ngram_jaccard": content_ngram["jaccard"],
+            "content_ngram_jaccard_threshold": _ngram_block_jaccard,
+            "content_ngram_matched_title": content_ngram["matched_title"],
+            # compared_records=0은 "깨끗함"이 아니라 "안 봄"이다. 반드시 함께 읽을 것.
+            "content_ngram_compared_records": content_ngram["compared_records"],
+            "content_ngram_sample_size": content_ngram.get("candidate_sample_size", 0),
+            "content_ngram_sample_too_small": bool(content_ngram.get("sample_too_small")),
+            # 제목 재탕 진단 필드 (2026-09-10)
+            "title_similarity_max": title_similarity["similarity"],
+            "title_similarity_threshold": _title_similarity_threshold,
+            "title_similarity_matched_title": title_similarity["matched_title"],
+            "title_similarity_compared_records": title_similarity["compared_records"],
             "pricing_comparison_axis_overlap": pricing_axis_overlap["overlap"],
             "pricing_comparison_axis_shared_tools": pricing_axis_overlap["shared_tools"],
             "pricing_comparison_axis_matched_title": pricing_axis_overlap["matched_title"],
@@ -1327,6 +1489,71 @@ class NewsQualityGate:
         from blogspot_automation.services.publish_history_service import PublishHistoryService
         records = PublishHistoryService().recent_records(limit=60, published_only=True)
         return max_overlap_ratio(candidate_fingerprints, records)
+
+    @staticmethod
+    def _ngram_fingerprints(html: str) -> list[str]:
+        from blogspot_automation.services.content_similarity_service import ngram_fingerprints
+        return ngram_fingerprints(html)
+
+    @staticmethod
+    def _max_history_ngram_jaccard(candidate_fingerprints: list[str]) -> dict[str, object]:
+        """최근 발행 이력과의 최대 6-gram Jaccard."""
+        from blogspot_automation.services.content_similarity_service import max_ngram_jaccard
+        from blogspot_automation.services.publish_history_service import PublishHistoryService
+        records = PublishHistoryService().recent_records(limit=60, published_only=True)
+        return max_ngram_jaccard(candidate_fingerprints, records)
+
+    @staticmethod
+    def _max_history_title_similarity(title: str) -> dict[str, object]:
+        """최근 발행 제목들과의 최대 키워드 자카드.
+
+        토크나이저·유사도 함수는 topic_selection_service의 것을 그대로 쓴다 —
+        거기 이미 있는 제목 차단 규칙(`_evaluate_duplicate_topic`)과 판정 기준을
+        일치시키기 위함이다. 그 함수 자체는 재사용할 수 없다: BlogWorkItem의
+        pillar·source_articles·source_domains를 요구하는데 뉴스 발행 이력에는
+        그 정보가 없다(그래서 semantic/angle/source_overlap 축이 성립하지 않는다).
+        따라서 축 하나(title jaccard)만 떼어내 같은 계산으로 잰다.
+        """
+        from blogspot_automation.services.publish_history_service import PublishHistoryService
+        from blogspot_automation.services.topic_selection_service import (
+            _jaccard_similarity,
+            _normalized_token_set,
+        )
+
+        current = _normalized_token_set(title or "")
+        result: dict[str, object] = {
+            "similarity": 0.0,
+            "matched_title": "",
+            "compared_records": 0,
+        }
+        if not current:
+            return result
+
+        records = PublishHistoryService().recent_records(
+            limit=_title_similarity_history_limit(), published_only=True
+        )
+        best = 0.0
+        best_title = ""
+        compared = 0
+        for record in records or []:
+            if not isinstance(record, dict):
+                continue
+            past_title = str(record.get("title") or record.get("selected_topic") or "").strip()
+            if not past_title:
+                continue
+            past_tokens = _normalized_token_set(past_title)
+            if not past_tokens:
+                continue
+            compared += 1
+            score = _jaccard_similarity(current, past_tokens)
+            if score > best:
+                best = score
+                best_title = past_title
+
+        result["similarity"] = round(best, 4)
+        result["matched_title"] = best_title
+        result["compared_records"] = compared
+        return result
 
     @staticmethod
     def _pricing_comparison_axis_overlap(

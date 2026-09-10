@@ -1759,10 +1759,15 @@ class NewsPipeline:
                             # 에버그린 전멸 사슬).
                             try:
                                 from blogspot_automation.services.content_similarity_service import (
+                                    ngram_fingerprints as _ngram_fps,
                                     sentence_fingerprints as _sentence_fps,
                                 )
                                 publish_quality_gate = dict(publish_quality_gate)
                                 publish_quality_gate["content_fingerprint"] = _sentence_fps(html)
+                                # 6-gram 지문도 같은 이유로 발행본 기준으로 다시 잡는다 —
+                                # 템플릿 지문이 published 레코드에 남으면 이후 모든
+                                # 템플릿 렌더가 그 레코드와 충돌하는 원장 오염이 된다.
+                                publish_quality_gate["content_ngram_fingerprint"] = _ngram_fps(html)
                             except Exception as _fp_exc:  # noqa: BLE001
                                 logger.warning("fingerprint recompute failed: %s", _fp_exc)
                     # _en_narrative_publish면 publish_quality_gate는 이미 발행본(영어
@@ -5426,6 +5431,7 @@ class NewsPipeline:
         }
 
     @staticmethod
+
     def _build_history_record(*, status: str, result: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         content_angle = result.get("content_angle") or {}
@@ -5544,6 +5550,14 @@ class NewsPipeline:
             # 본문 문장 지문 — 이후 발행 후보의 재탕(near-duplicate) 감지에 사용.
             "content_fingerprint": (
                 list(quality_gate.get("content_fingerprint") or [])
+                if isinstance(quality_gate, dict)
+                else []
+            ),
+            # 본문 6-gram 지문(샘플링 1/8) — 명사 치환형 재사용 감지용.
+            # 문장 지문과 병행 저장한다. 이게 비어 있으면 n-gram 게이트는
+            # 그 레코드를 비교 대상에서 제외한다(= 조용히 무력해진다).
+            "content_ngram_fingerprint": (
+                list(quality_gate.get("content_ngram_fingerprint") or [])
                 if isinstance(quality_gate, dict)
                 else []
             ),

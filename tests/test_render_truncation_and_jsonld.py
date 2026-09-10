@@ -120,11 +120,20 @@ def test_generic_intent_pool_is_topic_conditional() -> None:
     incident = _en_generic_intent_pool(
         "Grok Build open sourced after repo exfiltration", "ai_work_tip"
     )
-    assert incident[0]["Q"] == "What actually happened?"
+    # 2026-09-10: 첫 질문 문구는 seed로 변주되므로 문자열을 고정하지 않는다.
+    # 사고 갈래로 라우팅됐는지(= 무슨 일이 있었나 / 누가 영향받나)만 확인한다.
+    assert any(
+        token in incident[0]["Q"].lower()
+        for token in ("happened", "confirmed", "set this off", "sequence", "actually know")
+    ), incident[0]["Q"]
     assert all("worth paying" not in qa["Q"].lower() for qa in incident)
 
     pricing = _en_generic_intent_pool("hidden costs of AI subscriptions", "ai_work_tip")
-    assert any("worth paying" in qa["Q"].lower() for qa in pricing)
+    assert any(
+        token in qa["Q"].lower()
+        for qa in pricing
+        for token in ("worth paying", "paid tier", "upgrade", "free plan", "free and paid")
+    ), [qa["Q"] for qa in pricing]
 
     neutral = _en_generic_intent_pool("NotebookLM study workflow", "ai_work_tip")
     assert all("worth paying" not in qa["Q"].lower() for qa in neutral)

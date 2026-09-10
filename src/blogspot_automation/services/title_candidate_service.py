@@ -118,6 +118,68 @@ def _en_title_case(text: str) -> str:
     return " ".join(out)
 
 
+# 영문 제목에서 통째로 대문자여야 하는 약어. Title Case가 "Api"로 떨어뜨리는 것을 되돌린다.
+_EN_TITLE_ACRONYMS = frozenset({
+    "ai", "api", "cli", "cpu", "faq", "gpu", "id", "ios", "llm", "ocr",
+    "pdf", "ram", "sdk", "seo", "sql", "ssd", "ui", "url", "usb", "vpn",
+})
+
+# 브랜드 고유 표기. Title Case가 "Chatgpt"/"Openrouter"로 떨어뜨리면 오히려 더
+# 자동생성 티가 난다. 소문자로 쓰는 것이 정식인 이름(llama.cpp, ggml)도 여기서 되돌린다.
+_EN_TITLE_BRANDS: dict[str, str] = {
+    "chatgpt": "ChatGPT", "openai": "OpenAI", "openrouter": "OpenRouter",
+    "github": "GitHub", "gitlab": "GitLab", "huggingface": "Hugging Face",
+    "youtube": "YouTube", "deepseek": "DeepSeek", "nvidia": "NVIDIA",
+    "gpt": "GPT", "llm": "LLM", "llms": "LLMs", "javascript": "JavaScript",
+    "typescript": "TypeScript", "nodejs": "Node.js", "postgresql": "PostgreSQL",
+    "mysql": "MySQL", "ios": "iOS", "macos": "macOS", "iphone": "iPhone",
+    "ipad": "iPad", "chatbot": "chatbot", "ggml": "ggml", "cpp": "cpp",
+    "arxiv": "arXiv", "stackoverflow": "Stack Overflow", "vscode": "VS Code",
+    "midjourney": "Midjourney", "runwayml": "RunwayML", "elevenlabs": "ElevenLabs",
+    "perplexity": "Perplexity", "copilot": "Copilot", "gemini": "Gemini",
+    "claude": "Claude", "anthropic": "Anthropic", "grok": "Grok", "ollama": "Ollama",
+    "mistral": "Mistral", "groq": "Groq", "cursor": "Cursor",
+}
+
+_HANGUL_RE = re.compile(r"[가-힣]")
+
+
+def normalize_english_title(title: str) -> str:
+    """영문 제목의 최종 표기 통일 (2026-09-10 신설).
+
+    제목 후보 생성 경로가 여러 개라(_build_english_titles / LLM 생성 /
+    search_demand_topic 직결) 검색어를 그대로 실은 제목이 소문자로 발행됐다.
+    실측: 'chatgpt free version attachment limits 2026',
+    'grok pricing api 2026: what the new rates mean for you',
+    'llama cpp how to use after ggml joins Hugging Face 2026'.
+    자동생성 티가 나는 표면 신호라 마지막 선택 지점에서 한 번 통일한다.
+
+    한국어 제목은 손대지 않는다(이 repo는 영문 블로그 전용이지만 골든 패턴
+    템플릿에 한국어 제목이 남아 있다).
+    """
+    text = " ".join(str(title or "").split())
+    if not text or _HANGUL_RE.search(text) or not re.search(r"[A-Za-z]", text):
+        return text
+
+    def _cased(chunk: str) -> str:
+        cased = _en_title_case(chunk)
+        words = cased.split()
+        for i, w in enumerate(words):
+            core = w.strip(".,:;!?()[]\"'")
+            low = core.lower()
+            if low in _EN_TITLE_BRANDS:
+                words[i] = w.replace(core, _EN_TITLE_BRANDS[low], 1)
+            elif low in _EN_TITLE_ACRONYMS and not any(c.isupper() for c in core[1:]):
+                words[i] = w.replace(core, core.upper(), 1)
+        return " ".join(words)
+
+    if ":" in text:
+        parts = [p.strip() for p in text.split(":")]
+        if all(parts):
+            return ": ".join(_cased(p) for p in parts)
+    return _cased(text)
+
+
 def _build_english_titles(*, topic: str, raw: dict) -> list[tuple[str, str]]:
     """영어 제목 후보 목록 — (title, title_type) 튜플."""
     base = str(raw.get("search_demand_topic") or topic or "").strip().rstrip(".!?")
@@ -775,7 +837,7 @@ class TitleCandidateService:
             title_lower = c.get("title", "").lower()
             c["specificity_score"] = sum(1 for k in kws if k in title_lower)
             c["selected_title_keyword_coverage"] = c["specificity_score"]
-        return sorted(
+        best = sorted(
             allowed,
             key=lambda c: (
                 -c.get("specificity_score", 0),   # 구체적 키워드 포함 우선
@@ -784,6 +846,13 @@ class TitleCandidateService:
                 -c.get("promise_match_score", 0),
             ),
         )[0]
+        # 표기 통일은 선택이 끝난 뒤 한 번만 — 점수 계산에는 영향을 주지 않는다.
+        normalized = normalize_english_title(best.get("title", ""))
+        if normalized and normalized != best.get("title"):
+            best = dict(best)
+            best["title"] = normalized
+            best["title_case_normalized"] = True
+        return best
 
     def validate_title(
         self, title: str, content_type: str = ""
