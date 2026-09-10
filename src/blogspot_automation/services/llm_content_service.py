@@ -420,6 +420,7 @@ LENGTH CONTRACT (one number, no ambiguity): the body must be AT LEAST {min_words
    - The answer must be the very next tag: <h3 class="faq-q">Question?</h3><p class="faq-a">Answer.</p>. Put NOTHING between them — no <div>, no <br>, no "A:" prefix, no <strong>Answer</strong> label, no comment, no extra wrapper around the <p>.
    - Answer length: 25-50 words (roughly 150-300 characters). The automatic check measures CHARACTERS and rejects anything under 20, so aim at the word range and you are never close to the floor. One-line fragments read as filler and get cut.
    - Each of the 3 items is its own <article class="faq-item"> inside the single <section class="faq-section">.
+   - The markup above is a SHAPE, not wording to copy. Never ship a question that would fit any other article — no "Where can you verify the current details?", no "What should you check before relying on it?", no "How can you try it safely?". Every question must name something specific to THIS topic (a plan name, a limit, a number, a step, a competitor) so that a reader searching that exact phrase would land here and nowhere else. Same for the answers: they must contain a fact from the source material, not a generic instruction to check the official page.
 5) Closing: no summary rehash. Give the who-should-use-this judgment as a scannable two-column block, not a paragraph — concrete conditions on each side, 2-4 short bullets per side, no restating facts already given above:
 <div class="who-for"><div class="who-for-cols">
   <div class="who-for-rec"><h3>Use this if</h3><ul><li>concrete condition</li></ul></div>
@@ -744,6 +745,16 @@ class LlmContentService:
         # Exa 결과 URL). generate_html은 문자열만 반환하므로, 호출부(news_pipeline)가
         # SOURCE_TRUST_BLOCK에 실제 <a href> 근거를 걸려면 이 속성을 함께 읽는다.
         self.last_source_citations: list[dict[str, str]] = []
+        # 본문을 쓴 LLM이 만든 그 글 고유의 FAQ (진단·재사용용 노출).
+        #
+        # 2026-09-10: 이것을 발행 경로에서 ensure_answer_engine_optimized_html 의
+        # faq_items 로 넘겨 봤으나 **철회했다**. 넘기면 독자 의도 블록이 같은 Q/A 를
+        # 흡수해 FAQ 블록과 답변이 그대로 겹치고, 품질 게이트가
+        # repeated_faq_or_intent_answers:3 으로 차단한다(통합 테스트에서 재현).
+        # 애초에 넘길 실익도 없었다 — 발행된 47편을 파싱해 보니 FAQPage 구조화
+        # 데이터의 질문 104개가 이미 전부 고유했다. 템플릿이 문제였던 곳은 FAQ가
+        # 아니라 독자 의도 블록이었고, 그쪽은 변형 풀로 따로 해결했다.
+        self.last_faq_items: list[dict[str, str]] = []
         # 본문 주장과 수집 팩트를 대조한 결과 (관찰 모드 — 발행을 막지 않는다).
         self.last_grounding_report: dict | None = None
 
@@ -890,8 +901,9 @@ class LlmContentService:
         grounding = audit_grounding(content_html, facts or "")
         self.last_grounding_report = grounding.as_dict()
 
-        # 4. FAQ 추출 (JSON-LD용)
+        # 4. FAQ 추출 (JSON-LD용 + 답변엔진 블록용)
         schema_faq = _extract_faq(content_html)
+        self.last_faq_items = list(schema_faq)
 
         # 5. meta description 추출
         meta_desc = _extract_meta_description(content_html, title)
@@ -2248,10 +2260,17 @@ def _clean_entity_artifacts(html: str) -> str:
 
 
 def _extract_faq(html: str) -> list[dict[str, str]]:
-    """HTML에서 FAQ Q&A 쌍을 추출한다 (JSON-LD 생성용)."""
+    """HTML에서 FAQ Q&A 쌍을 추출한다 (JSON-LD 생성용).
+
+    2026-09-10 버그 수정: 닫는 태그를 `</div>` 로만 찾고 있었다. 그런데 영어 모드
+    프롬프트는 FAQ를 `<h3 class="faq-q">…</h3><p class="faq-a">…</p>` 로 내라고
+    지시한다 — 그래서 실제 발행 글의 FAQ가 이 추출기에 하나도 안 잡혔고,
+    FAQPage JSON-LD가 그 글의 진짜 질문 대신 비어 나갔다. 닫는 태그를 태그 종류와
+    무관하게 받도록 고친다(div/h3/p/dt/dd 모두).
+    """
     faqs: list[dict[str, str]] = []
-    q_matches = re.findall(r'class="faq-q"[^>]*>(.*?)</div>', html, re.DOTALL)
-    a_matches = re.findall(r'class="faq-a"[^>]*>(.*?)</div>', html, re.DOTALL)
+    q_matches = re.findall(r'class="faq-q"[^>]*>(.*?)</(?:div|h[1-6]|p|dt|dd|span)>', html, re.DOTALL)
+    a_matches = re.findall(r'class="faq-a"[^>]*>(.*?)</(?:div|h[1-6]|p|dt|dd|span)>', html, re.DOTALL)
     for q, a in zip(q_matches, a_matches):
         q_clean = re.sub(r'<[^>]+>', '', q).strip()
         a_clean = re.sub(r'<[^>]+>', '', a).strip()

@@ -6,39 +6,95 @@ from html import escape
 import re
 from typing import Any
 
+from itertools import product as _product
+
 from blogspot_automation.services.blog_language import is_english_mode
+from blogspot_automation.services.phrase_variation import compose as _compose
+from blogspot_automation.services.phrase_variation import pick as _pick
 from blogspot_automation.utils.text_clip import clip_at_word_boundary as _clip_wb
 
 logger = logging.getLogger(__name__)
 
 
-# _confirmed_vs_check_needed_en의 "ai_" 콘텐츠 타입용 확정 사실 3문장 변주 풀.
-# 셋 다 같은 의미(공식 발표 기반·요금 최신성·AI 출력은 검수 필요)를 다른 문장으로
-# 표현한다 — 주제별 실제 사실 추출이 아니라 "매 글 토씨 하나 안 틀리고 재사용"만
-# 막는 최소 조치다 (2026-07-23).
-_AI_CONFIRMED_VARIANTS_EN: tuple[tuple[str, str, str], ...] = (
-    # 2026-07-25 문구 수정: 예전 문안은 출처 종류와 무관하게 "official announcements
-    # and product pages"라고 단언했다. 7/24 발행글은 본문에서 "not from an Anthropic
-    # changelog page"라고 명시했는데 이 블록이 "sourced from official vendor
-    # announcements"라고 주장해 한 글 안에서 자기모순이 됐다. 실제 인용이 공식 문서든
-    # 매체 보도든 **항상 참인 문구**로 바꾼다 — 티어를 이 블록까지 배관하지 않고도
-    # 거짓 주장을 없앨 수 있다. (출처 실체는 아래 Sources 목록이 그대로 보여준다.)
-    (
-        "Every claim here is tied to the sources named at the end of this article",
-        "Prices and plan limits are as published at the time of writing",
-        "AI output still needs human review before you use it for real work",
-    ),
-    (
-        "What's stated here traces back to the sources listed below, named inline as well",
-        "Pricing and tier limits reflect what was publicly listed at the time of writing",
-        "Treat AI-generated output as a draft — give it a human review pass before relying on it",
-    ),
-    (
-        "The claims below are attributed inline to the specific sources they came from",
-        "Plan limits and pricing match what was publicly listed as of this writing",
-        "AI output isn't final — review it yourself before you put it into real work",
-    ),
+# _confirmed_vs_check_needed_en의 "ai_" 콘텐츠 타입용 확정 사실 3문장 **폴백**.
+#
+# 2026-07-25 문구 수정: 예전 문안은 출처 종류와 무관하게 "official announcements
+# and product pages"라고 단언했다. 7/24 발행글은 본문에서 "not from an Anthropic
+# changelog page"라고 명시했는데 이 블록이 "sourced from official vendor
+# announcements"라고 주장해 한 글 안에서 자기모순이 됐다. 실제 인용이 공식 문서든
+# 매체 보도든 **항상 참인 문구**로 바꾼다. (출처 실체는 아래 Sources 목록이 보여준다.)
+#
+# 2026-09-10 확장: 원래 이 풀은 3개짜리 튜플이었고, 47편 실측에서 한 문장이
+# 16~20편에 그대로 반복됐다(3개 풀 → 47/3 ≈ 16). 자리별 독립 풀로 쪼개고 각각
+# 다른 salt 로 골라 조립한다 — 8×8×8 = 512 조합, 한 조각 기준으로도 47/8 ≈ 6편.
+# 그리고 이보다 먼저, 호출부(answer_engine_policy)가 **본문 CONFIRMED 블록의
+# 실제 사실**을 넘겨주면 이 템플릿은 아예 쓰이지 않는다 — 그쪽이 진짜 해결책이고
+# 여기는 본문에 블록이 없을 때만 도는 안전망이다.
+_AI_CONFIRMED_ATTRIBUTION_EN: tuple[str, ...] = (
+    "Every claim here is tied to the sources named at the end of this article",
+    "What's stated here traces back to the sources listed below, named inline as well",
+    "The claims below are attributed inline to the specific sources they came from",
+    "Each statement above points back to a named source in the list at the end",
+    "Nothing here is asserted without a source you can open and read yourself",
+    "The sourcing is on the page: every factual line maps to an entry in the list below",
+    "Where a number or a limit appears, the source it came from is named next to it",
+    "You can trace each claim in this piece back to a specific listed source",
 )
+_AI_CONFIRMED_PRICING_EN: tuple[str, ...] = (
+    "Prices and plan limits are as published at the time of writing",
+    "Pricing and tier limits reflect what was publicly listed at the time of writing",
+    "Plan limits and pricing match what was publicly listed as of this writing",
+    "Every price and quota quoted here was the publicly listed figure when this went out",
+    "The plan figures here are the ones the provider had posted publicly at press time",
+    "Quotas and prices are stated as they stood on the day this article was written",
+    "Any cost or cap named here is the published figure from the time of writing",
+    "Pricing shown is the public list price as of the date on this article",
+)
+_AI_CONFIRMED_REVIEW_EN: tuple[str, ...] = (
+    "AI output still needs human review before you use it for real work",
+    "Treat AI-generated output as a draft — give it a human review pass before relying on it",
+    "AI output isn't final — review it yourself before you put it into real work",
+    "Whatever the model returns is a first draft, not a finished deliverable",
+    "Read the model's output before it leaves your desk; it is not self-checking",
+    "A human still has to sign off on anything the model produces for real work",
+    "Check the output against the source yourself before it goes anywhere that matters",
+    "Model output earns trust after your review, not before it",
+)
+
+# 위 세 풀의 전체 조합. 호출부가 "이건 템플릿 문구다"를 판별할 때(예: lede 앞자리
+# 배제) 실제로 나올 수 있는 문장을 전부 알아야 하므로 열거해 둔다.
+_AI_CONFIRMED_VARIANTS_EN: tuple[tuple[str, str, str], ...] = tuple(
+    combo
+    for combo in _product(
+        _AI_CONFIRMED_ATTRIBUTION_EN,
+        _AI_CONFIRMED_PRICING_EN,
+        _AI_CONFIRMED_REVIEW_EN,
+    )
+)
+
+
+# AI_OVERVIEW_TARGET_ANSWER 끝에 ai_* 콘텐츠타입마다 붙는 면책 문장.
+# 2026-09-10 이전에는 문장이 딱 하나여서 모든 AI 글의 TL;DR 이 같은 문장으로
+# 끝났다. 이 문구는 품질·정확성상 유지해야 하므로 없애지 않고 변주만 준다.
+# (answer_engine_policy 가 lede 정리 때 이 풀 전체를 상투어로 걷어낸다.)
+_AI_OVERVIEW_CAVEAT_EN: tuple[str, ...] = (
+    "Availability, pricing, and rollout can vary by account and region — check the official page for the latest details.",
+    "What you actually get depends on your plan and country, so confirm it on the official page.",
+    "Access, price, and rollout differ account to account; the provider's page is the one that counts.",
+    "Region and plan tier both change the answer here — check yours before acting on it.",
+    "Rollouts land unevenly, so treat your own account settings as the real answer.",
+    "Whether this is live for you depends on tier and territory; the official page will say.",
+    "Pricing and availability move by region, so read the source page for your own market.",
+)
+
+
+def _ai_confirmed_facts_en(seed: str) -> list[str]:
+    """seed(주제)로 결정적으로 조립한 확정사실 3문장 폴백."""
+    return [
+        _pick(_AI_CONFIRMED_ATTRIBUTION_EN, seed, "ai_confirmed_attribution"),
+        _pick(_AI_CONFIRMED_PRICING_EN, seed, "ai_confirmed_pricing"),
+        _pick(_AI_CONFIRMED_REVIEW_EN, seed, "ai_confirmed_review"),
+    ]
 
 
 def _josa(word: str, with_batchim: str, without_batchim: str) -> str:
@@ -301,13 +357,57 @@ class GeoIntentService:
         # 최소 3개 보장
         if len(qa_pairs) < 3:
             if is_english_mode():
+                # 2026-09-10: 고정 3문항이던 자리. 질문·답변 모두 seed 로 변주해
+                # 서로 다른 글이 같은 Q&A 세트를 받지 않게 한다.
                 generics = [
-                    {"Q": f"What should you check first about {topic}?",
-                     "A": "Start with the official announcement and confirm which plans and regions it applies to."},
-                    {"Q": "How do I know if this affects me?",
-                     "A": "Compare your plan, account settings, and region against the official eligibility notes."},
-                    {"Q": "Could the details change?",
-                     "A": "Yes — pricing and rollout details change often, so check the official page for the latest."},
+                    {"Q": _pick(
+                        (
+                            f"What should you check first about {topic}?",
+                            f"What's the first thing to confirm about {topic}?",
+                            f"Where should you start with {topic}?",
+                            f"What matters most in {topic}?",
+                            f"What's worth verifying about {topic} before anything else?",
+                        ), topic, "generic_q_first"),
+                     "A": _pick(
+                        (
+                            "Start with the official announcement and confirm which plans and regions it applies to.",
+                            "Begin at the source notice and check the scope — which tiers, which regions, from when.",
+                            "Read the official post first and note the two constraints that decide whether it reaches you.",
+                            "Take the announcement as the starting point and pin down the applicable plan and territory.",
+                            "Confirm the scope before the detail: plan tier first, then region, then timing.",
+                        ), topic, "generic_a_first")},
+                    {"Q": _pick(
+                        (
+                            "How do I know if this affects me?",
+                            "Does this actually reach my account?",
+                            "How can you tell whether you're in scope?",
+                            "Is this live for you yet?",
+                            "How do you check whether it applies to your setup?",
+                        ), topic, "generic_q_affect"),
+                     "A": _pick(
+                        (
+                            "Compare your plan, account settings, and region against the official eligibility notes.",
+                            "Hold your own plan tier and region against the published conditions — that settles it.",
+                            "Open your account's plan page; what it shows outranks any general description.",
+                            "Check the tier you are billed on and the country on the account, then read the criteria.",
+                            "The reliable test is your own console, not the announcement date.",
+                        ), topic, "generic_a_affect")},
+                    {"Q": _pick(
+                        (
+                            "Could the details change?",
+                            "How long will this stay accurate?",
+                            "Is any of this likely to move?",
+                            "Should you expect these numbers to hold?",
+                            "How stable are these details?",
+                        ), topic, "generic_q_change"),
+                     "A": _pick(
+                        (
+                            "Yes — pricing and rollout details change often, so check the official page for the latest.",
+                            "Expect them to. Prices and rollout schedules move, and summaries lag them.",
+                            "Assume the figures age. Re-read the source page on the day you decide.",
+                            "Quotas and tiers get revised quietly, so treat any number here as dated.",
+                            "They move on the provider's timetable — confirm at source before you act.",
+                        ), topic, "generic_a_change")},
                 ]
             else:
                 generics = [
@@ -804,40 +904,85 @@ class GeoIntentService:
     # English mode (BLOG_LANGUAGE=en) — 문자열 생산만 분기, 구조는 동일     #
     # ------------------------------------------------------------------ #
 
+    # 질문 자리별 변형 풀. 자리마다 다른 salt 로 뽑아 조합 수를 곱으로 늘린다
+    # (2026-09-10: 이 함수가 content_type 당 고정 6문항이라 ai_ 계열 글 전부가
+    # "How much does it cost, and is there a free plan?" 를 그대로 실었다 —
+    # 렌더 18편 중 18편 100% 반복).
+    _EN_INTENT_POOLS_AI: tuple[tuple[str, ...], ...] = (
+        ("What is {kw} actually good for?", "Where does {kw} genuinely help?",
+         "What can you realistically do with {kw}?", "What is {kw} best at right now?"),
+        ("How much does it cost, and is there a free plan?", "What does {kw} cost once the free tier runs out?",
+         "Is there a free tier, and where does it stop?", "What do you pay for {kw}, and for what exactly?"),
+        ("Is it worth paying for?", "Does the paid tier earn its price here?",
+         "When does upgrading actually pay off?", "Who should stay on the free tier?"),
+        ("What are the common mistakes to avoid?", "Where do people usually get this wrong?",
+         "What trips people up first?", "Which mistakes cost the most time here?"),
+        ("How should you review AI output before using it?", "What review does the output still need?",
+         "How do you check the result before shipping it?", "What has to be verified by hand?"),
+        ("What should you check before relying on it at work?", "What has to hold before this goes into real work?",
+         "Which limits matter for production use?", "What would you confirm before depending on it?"),
+    )
+    _EN_INTENT_POOLS_ISSUE: tuple[tuple[str, ...], ...] = (
+        ("What changed with {kw}?", "What actually changed here?", "What is different about {kw} now?"),
+        ("Why is this news today?", "Why did this surface now?", "What made this current?"),
+        ("What's confirmed, and what's still unclear?", "Which parts are confirmed so far?",
+         "What is settled and what is still open?"),
+        ("Does this affect regular users?", "Who feels this first?", "Does this reach everyday users?"),
+        ("What happens next?", "What follows from here?", "What is the next checkpoint?"),
+        ("How can you tell facts from speculation?", "How do you separate reporting from rumour?",
+         "Which claims still need a source?"),
+    )
+    _EN_INTENT_POOLS_GENERIC: tuple[tuple[str, ...], ...] = (
+        ("What's the key takeaway on {kw}?", "What is the short answer on {kw}?", "What matters most about {kw}?"),
+        ("What changed?", "What is different now?", "What moved recently?"),
+        ("How much does it cost?", "What is the price today?", "What does this run you?"),
+        ("Is it worth paying for?", "Does it justify the spend?", "When is it worth the money?"),
+        ("Where can you verify the official details?", "Which official page settles this?",
+         "Where is the authoritative version?"),
+        ("What should you watch out for?", "What is the catch?", "Which caveat bites first?"),
+    )
+
     def _reader_intent_questions_en(self, *, topic: str, content_type: str, slots: dict) -> list[str]:
+        """독자 의도 질문. 본문 LLM 이 만든 FAQ 를 **앞자리부터** 쓴다.
+
+        LLM FAQ 는 그 글에만 있는 고유명사·수치를 담고 있어 검색 의도와 직결된다.
+        템플릿은 모자란 자리만 채우고, 그 템플릿도 주제 seed 로 변형을 고른다.
+        """
+        from blogspot_automation.services.phrase_variation import pick
+
         kw = topic.strip()[:40] if topic.strip() else "this topic"
+        seed = f"{topic}|{content_type}"
+
+        # FAQ 블록이 이미 다루는 질문은 여기서 쓰지 않는다. 같은 질문을 두 블록에
+        # 실으면 답변까지 같아져 게이트(repeated_faq_or_intent_answers)에 걸리고,
+        # 독자에게도 같은 문답이 두 번 보인다. FAQ 는 본문 LLM 이 만든 고유 질문을
+        # 그대로 쓰고(파이프라인이 faq_items 로 넘긴다), 이 블록은 다른 각도를 맡는다.
+        faq_questions = {
+            " ".join(str(item.get("Q", "")).split()).strip().lower()
+            for item in (slots.get("faq") or [])
+            if isinstance(item, dict)
+        }
+        questions: list[str] = []
+
+        # 변형 풀에서 채우되 FAQ 와 겹치는 문구는 건너뛴다
         if content_type.startswith("ai_"):
-            questions = [
-                f"What is {kw} actually good for?",
-                "How much does it cost, and is there a free plan?",
-                "Is it worth paying for?",
-                "What are the common mistakes to avoid?",
-                "How should you review AI output before using it?",
-                "What should you check before relying on it at work?",
-            ]
+            pools = self._EN_INTENT_POOLS_AI
         elif content_type == "today_issue_explainer":
-            questions = [
-                f"What changed with {kw}?",
-                "Why is this news today?",
-                "What's confirmed, and what's still unclear?",
-                "Does this affect regular users?",
-                "What happens next?",
-                "How can you tell facts from speculation?",
-            ]
+            pools = self._EN_INTENT_POOLS_ISSUE
         else:
-            questions = [
-                f"What's the key takeaway on {kw}?",
-                "What changed?",
-                "How much does it cost?",
-                "Is it worth paying for?",
-                "Where can you verify the official details?",
-                "What should you watch out for?",
-            ]
-        for item in slots.get("faq") or []:
-            if isinstance(item, dict):
-                q = str(item.get("Q", "")).strip()
-                if q and q not in questions and len(questions) < 8:
-                    questions.append(q)
+            pools = self._EN_INTENT_POOLS_GENERIC
+
+        for i, pool in enumerate(pools):
+            if len(questions) >= 8:
+                break
+            candidate = ""
+            for attempt in range(len(pool)):
+                option = pick(pool, seed, f"intent_q#{i}#{attempt}").format(kw=kw)
+                if option and option not in questions and option.lower() not in faq_questions:
+                    candidate = option
+                    break
+            if candidate:
+                questions.append(candidate)
         return questions[:8]
 
     def _issue_context_en(self, *, topic: str, content_type: str, hook: str) -> str:
@@ -885,10 +1030,7 @@ class GeoIntentService:
                 parts.append(sentence)
 
         if content_type.startswith("ai_"):
-            parts.append(
-                "Availability, pricing, and rollout can vary by account and region — "
-                "check the official page for the latest details."
-            )
+            parts.append(_pick(_AI_OVERVIEW_CAVEAT_EN, topic or content_type, "ai_overview_caveat"))
         result = " ".join(s.strip() for s in parts[:5] if s.strip())
         if len(result) < 35:
             result = (
@@ -928,29 +1070,169 @@ class GeoIntentService:
             # AI_CITATION_SUMMARY 본문으로도 그대로 흘러들어가 두 글의 인용 요약이
             # 사실상 동일해졌다. _varied_label과 같은 결정적 seed-hash로 주제별
             # 변주를 준다 (원문 topic 문자열은 삽입하지 않음 — raw_topic_repeated 회귀 방지).
-            digest = hashlib.md5((topic or content_type or "seed").encode("utf-8")).hexdigest()
-            confirmed = list(_AI_CONFIRMED_VARIANTS_EN[int(digest, 16) % len(_AI_CONFIRMED_VARIANTS_EN)])
+            _seed = topic or content_type or "seed"
+            confirmed = _ai_confirmed_facts_en(_seed)
             check_needed = [
-                "Current pricing and plan limits on the official page (they change often)",
-                "Whether the rollout has reached your account and region",
+                _compose(
+                    _seed,
+                    "ai_check_pricing",
+                    (
+                        "Current pricing and plan limits on the official page",
+                        "Today's posted prices and quota caps at the source",
+                        "The live price sheet and per-plan limits",
+                        "What the pricing page says right now",
+                        "The provider's current plan table",
+                        "Whatever numbers the official pricing page shows today",
+                        "The published tier limits as they stand this week",
+                    ),
+                    (
+                        "(they change often)",
+                        "— these move without an announcement",
+                        "— they shift on the provider's schedule",
+                        "— worth a look before you commit spend",
+                        "— assume the figures here have aged",
+                        "— check them the day you decide, not the day you read",
+                        "— these are the numbers most likely to be stale",
+                    ),
+                ),
+                _compose(
+                    _seed,
+                    "ai_check_rollout",
+                    (
+                        "Whether the rollout has reached your account",
+                        "Whether this is live for your workspace",
+                        "Whether your account is inside the rollout window yet",
+                        "Whether the feature is switched on for you",
+                        "Whether your plan tier is included in this wave",
+                        "Whether your organisation's admin has enabled it",
+                        "Whether you can actually see this in your own console",
+                    ),
+                    (
+                        "and region",
+                        "in your country",
+                        "— staged rollouts land unevenly",
+                        "— availability is region by region",
+                        "— enterprise tenants usually go last",
+                        "— the announcement date is not the availability date",
+                        "— check your own settings rather than the blog post",
+                    ),
+                ),
             ]
         elif content_type == "today_issue_explainer":
+            _seed = topic or content_type or "seed"
             confirmed = [
-                "This article sticks to what multiple reports have confirmed so far.",
-                "Facts and interpretation are kept separate on purpose.",
+                _pick(
+                    (
+                        "This article sticks to what multiple reports have confirmed so far.",
+                        "Only claims carried by more than one outlet made it into this piece.",
+                        "Every fact below survived a cross-check against a second report.",
+                        "Single-source claims were left out; what remains was reported twice over.",
+                        "The factual floor here is what at least two outlets independently reported.",
+                        "Anything that only one outlet has said is flagged as such, not stated flatly.",
+                        "What follows is the overlap between the reports published so far.",
+                    ),
+                    _seed,
+                    "today_confirmed_sourcing",
+                ),
+                _pick(
+                    (
+                        "Facts and interpretation are kept separate on purpose.",
+                        "Where this piece reads the situation rather than reports it, it says so.",
+                        "Reporting and opinion are marked apart, not blended.",
+                        "The analysis is labelled as analysis; the reporting stands on its own.",
+                        "You can tell the reported facts from the read on them by the framing.",
+                        "Judgement calls are written as judgement calls, never as findings.",
+                        "The line between what happened and what it means is drawn explicitly.",
+                    ),
+                    _seed,
+                    "today_confirmed_separation",
+                ),
             ]
             check_needed = [
-                "Details that follow-up announcements could still change",
-                "Official statements, exact figures, and timelines that aren't final yet",
+                _pick(
+                    (
+                        "Details that follow-up announcements could still change",
+                        "Anything a later statement could overturn",
+                        "Points that the next official update may revise",
+                        "Figures likely to be restated once the dust settles",
+                        "Elements still moving as the story develops",
+                        "Whatever the parties involved have yet to confirm on record",
+                        "Numbers reported early that usually get corrected later",
+                    ),
+                    _seed,
+                    "today_check_pending",
+                ),
+                _pick(
+                    (
+                        "Official statements, exact figures, and timelines that aren't final yet",
+                        "Dates and totals that no party has confirmed on the record",
+                        "The precise timeline, which reporting has not settled",
+                        "Exact amounts, which vary between the accounts published so far",
+                        "Formal confirmations that have not been issued at the time of writing",
+                        "The sequence of events, still reconstructed rather than confirmed",
+                        "Named responsibilities, which remain attributed rather than established",
+                    ),
+                    _seed,
+                    "today_check_official",
+                ),
             ]
         else:
+            _seed = topic or content_type or "seed"
             confirmed = [
-                "This article is based on publicly available information.",
-                "Details may shift as official guidance updates.",
+                _pick(
+                    (
+                        "This article is based on publicly available information.",
+                        "Everything here comes from material anyone can look up.",
+                        "No part of this relies on private or unpublished material.",
+                        "The basis for this piece is public, checkable material.",
+                        "What follows was assembled entirely from open sources.",
+                        "Nothing here depends on information you cannot access yourself.",
+                        "The underlying material for this piece is public record.",
+                    ),
+                    _seed,
+                    "generic_confirmed_basis",
+                ),
+                _pick(
+                    (
+                        "Details may shift as official guidance updates.",
+                        "Guidance gets revised, and these specifics move with it.",
+                        "The particulars can change the next time the rules are updated.",
+                        "Expect the fine print to move when official guidance is refreshed.",
+                        "Rule changes will date parts of this without notice.",
+                        "Specifics here hold until the governing guidance is amended.",
+                        "Where the official position changes, this article will lag it.",
+                    ),
+                    _seed,
+                    "generic_confirmed_drift",
+                ),
             ]
             check_needed = [
-                "The current conditions on the official page",
-                "Whether the specifics apply to your own account or situation",
+                _pick(
+                    (
+                        "The current conditions on the official page",
+                        "Today's terms as the official source states them",
+                        "The live conditions, straight from the source",
+                        "What the official page lists at the moment you read this",
+                        "The governing terms as currently published",
+                        "The conditions in force right now, not as of writing",
+                        "The official wording, which outranks any summary of it",
+                    ),
+                    _seed,
+                    "generic_check_conditions",
+                ),
+                _pick(
+                    (
+                        "Whether the specifics apply to your own account or situation",
+                        "Whether your own circumstances actually match the criteria",
+                        "Whether any of this maps onto your particular case",
+                        "Whether the conditions described are the ones you fall under",
+                        "How much of this survives contact with your own situation",
+                        "Whether you meet the criteria as written, not as summarised",
+                        "Whether your case sits inside or outside the stated scope",
+                    ),
+                    _seed,
+                    "generic_check_applies",
+                ),
             ]
 
         # 본문 기준 문장 흡수 — 짧고 검증 지향적인 줄만 (한국어 경로와 같은 취지)
@@ -993,88 +1275,216 @@ class GeoIntentService:
             # announcements"는 실제 인용이 매체 보도일 때 거짓이었다(7/24 글은 본문에서
             # 스스로 "not from an Anthropic changelog page"라고 밝혔다). 아래 Sources
             # 목록에 실제로 무엇이 걸리든 참인 문구로 바꾼다. 변주는 seed로 결정적.
-            variants = (
+            # 2026-09-10: 이 블록도 3개 풀이었고 47편 중 19편이 같은 문장을 받았다.
+            # 세 자리(출처 / 변동성 / 행동)를 각각 독립 풀에서 골라 조립한다 —
+            # 7×7×7 = 343 조합. 의미는 셋 다 동일하게 유지(출처는 아래 목록, 요금은
+            # 바뀐다, 돈·업무 데이터가 걸리면 직접 확인하라).
+            _seed = seed or content_type or "seed"
+            return _compose(
+                _seed,
+                "ai_source_trust",
                 (
-                    f"Sources for this article are listed below and named inline{date_part}. "
-                    "Free-tier limits, paid pricing, and feature availability change often with provider policy. "
-                    "Confirm anything you'll act on against the vendor's own page — and your company's AI policy."
+                    f"Sources for this article are listed below and named inline{date_part}.",
+                    f"Each claim above is attributed to the source it came from{date_part}.",
+                    f"What's cited here is listed in full below{date_part}.",
+                    f"The reference list at the end carries every source used{date_part}.",
+                    f"Each figure above is traceable to a named entry in the list below{date_part}.",
+                    f"Sourcing runs inline, with the full list at the foot of the article{date_part}.",
+                    f"Everything asserted here points to a source you can open{date_part}.",
+                    f"The claims here are traceable line by line to the list at the end{date_part}.",
+                    f"Nothing below is asserted without a citation you can follow{date_part}.",
+                    f"Where a limit or a price appears, its source is named alongside it{date_part}.",
+                    f"Every number in this piece carries a source in the list at the end{date_part}.",
                 ),
                 (
-                    f"Each claim above is attributed to the source it came from{date_part}. "
-                    "Plan limits and feature availability move with provider policy, sometimes weekly. "
-                    "For decisions that cost money or touch work data, confirm at the vendor's own page first."
+                    "Free-tier limits, paid pricing, and feature availability change often with provider policy.",
+                    "Plan limits and feature availability move with provider policy, sometimes weekly.",
+                    "Pricing tiers and feature rollouts change on the provider's schedule, not this article's.",
+                    "Quotas, prices, and which features reach which tier are all subject to change without notice.",
+                    "Providers revise free limits and paid tiers on their own timetable, often quietly.",
+                    "What a plan includes this month is not what it included last month.",
+                    "Free allowances in particular get trimmed with little or no announcement.",
+                    "Tier boundaries move whenever the provider decides they should.",
+                    "Caps that look generous today are routinely revised downward.",
+                    "Feature availability tracks the provider's rollout plan, not this article's publication date.",
+                    "The gap between what was announced and what your account has can run for weeks.",
                 ),
                 (
-                    f"What's cited here is listed in full below{date_part}. "
-                    "Pricing tiers and feature rollouts change on the provider's schedule, not this article's. "
-                    "Verify the specifics that apply to your account before you rely on them."
+                    "Confirm anything you'll act on against the vendor's own page — and your company's AI policy.",
+                    "For decisions that cost money or touch work data, confirm at the vendor's own page first.",
+                    "Verify the specifics that apply to your account before you rely on them.",
+                    "Before you commit budget or upload work data, read the vendor's current terms yourself.",
+                    "Check your own account's plan page rather than trusting a figure quoted anywhere else.",
+                    "If a decision rides on a number here, open the source and confirm it still says that.",
+                    "Treat this as a starting point and let the vendor's own page settle any disagreement.",
+                    "Anything that decides a purchase deserves a look at the live terms first.",
+                    "Read the current plan page before you assume a figure here still holds.",
+                    "Where work data is involved, the retention terms matter more than the price.",
+                    "Confirm at the source and note the date — that is what makes the check reusable.",
                 ),
             )
-            digest = hashlib.md5((seed or content_type or "seed").encode("utf-8")).hexdigest()
-            return variants[int(digest, 16) % len(variants)]
         if content_type == "today_issue_explainer":
             # 매 글 같은 문장이 반복되면 AI 티가 나므로 토픽 시드로 결정적 변주 (한국어와 동일 메커니즘).
-            variants = (
+            return _compose(
+                seed or today_str or "today_issue",
+                "today_source_trust",
                 (
-                    f"The facts here are cross-checked against multiple reports published today{date_part}. "
+                    f"The facts here are cross-checked against multiple reports published today{date_part}.",
+                    f"I limited the factual claims to what more than one outlet reported today{date_part}.",
+                    f"Everything stated as fact comes from reports by multiple outlets{date_part}.",
+                    f"Each fact below appeared in at least two independent reports{date_part}.",
+                    f"Nothing is asserted here on the strength of a single report{date_part}.",
+                    f"The factual spine of this piece is the overlap between today's reports{date_part}.",
+                    f"Claims that only one outlet carried were left out{date_part}.",
+                ),
+                (
                     "This is a developing story — numbers and timelines may shift, so check the original "
-                    "sources before making any decisions."
-                ),
-                (
-                    f"I limited the factual claims to what more than one outlet reported today{date_part}. "
-                    "The interpretation is mine; if a decision rides on this, read the original reporting."
-                ),
-                (
-                    f"Everything stated as fact comes from reports by multiple outlets{date_part}. "
-                    "Follow-up announcements may change the picture, so keep that in mind as you read."
+                    "sources before making any decisions.",
+                    "The interpretation is mine; if a decision rides on this, read the original reporting.",
+                    "Follow-up announcements may change the picture, so keep that in mind as you read.",
+                    "Early reporting gets corrected; treat the figures as provisional until confirmed.",
+                    "The read on what it means is mine, and the reporting underneath it may still move.",
+                    "Expect revisions — go back to the source reports before acting on any of this.",
+                    "What is settled today may not be settled tomorrow; the sources are listed for that reason.",
                 ),
             )
-            digest = hashlib.md5((seed or today_str or "today_issue").encode("utf-8")).hexdigest()
-            return variants[int(digest, 16) % len(variants)]
-        return (
-            f"This article is based on publicly available information{date_part}. "
-            "Details can change over time, so verify anything important at the source. "
-            "For pricing, policy, and availability, the official page is the final word."
+        return _compose(
+            seed or content_type or "generic",
+            "generic_source_trust",
+            (
+                f"This article is based on publicly available information{date_part}.",
+                f"Everything here draws on material anyone can look up{date_part}.",
+                f"The basis for this piece is open, checkable material{date_part}.",
+                f"No part of this rests on private or unpublished information{date_part}.",
+                f"This was assembled from sources you can open yourself{date_part}.",
+                f"What follows comes from public record rather than private briefing{date_part}.",
+                f"All of the underlying material for this piece is public{date_part}.",
+            ),
+            (
+                "Details can change over time, so verify anything important at the source.",
+                "Specifics drift as rules are updated — confirm the ones that matter to you.",
+                "Terms get revised without notice, so check the source before you act.",
+                "The particulars age quickly; treat the source page as the current version.",
+                "Where this and the official page disagree, the official page is right.",
+                "Anything you plan to act on is worth re-reading at its source first.",
+                "Rules move, and a summary always lags the thing it summarises.",
+            ),
+            (
+                "For pricing, policy, and availability, the official page is the final word.",
+                "On cost, eligibility, and timing, defer to the official notice.",
+                "The governing wording sits on the official page, not in this summary.",
+                "Where money or eligibility is involved, read the official terms directly.",
+                "Treat the official announcement as authoritative and this as orientation.",
+                "Any figure that decides something for you should be confirmed at source.",
+                "The official page settles anything this article leaves ambiguous.",
+            ),
         )
 
-    @staticmethod
-    def _fallback_answer_en(question: str, topic: str, content_type: str) -> str:
+    # 질문 유형별 영어 폴백 답변 풀 (2026-09-10 확장).
+    # 종전에는 유형당 문장이 **하나**여서, 유형만 같으면 완전히 다른 주제의 글이
+    # 똑같은 답을 받았다 — 47편 실측에서 이 답들이 그대로 반복된 원인 중 하나다.
+    # 유형별로 7개씩 두고 질문 문자열까지 섞은 seed 로 고른다(같은 글 안에서도
+    # 질문이 다르면 답 문장이 달라진다).
+    _FALLBACK_ANSWER_POOLS_EN: dict[str, tuple[str, ...]] = {
+        "price": (
+            "Pricing and plan limits change often — compare the official pricing page against what you actually need before paying.",
+            "Work out your real monthly usage first, then see which tier covers it without over-buying.",
+            "The listed price is only half the answer; the quota attached to it decides whether it's cheap or expensive for you.",
+            "Check the current price sheet directly — published figures go stale faster than articles get updated.",
+            "Free tiers usually cover light use; the paid step only pays off once you hit the cap regularly.",
+            "Compare the cost against the hour it saves you each week. Below that line, the free plan is the right answer.",
+            "Prices shift by region and by billing period, so read your own account's plan page rather than a quoted figure.",
+            "Annual billing usually changes the maths more than the tier does — check both before you pick.",
+            "The number that matters is cost per useful output, not the headline monthly rate.",
+            "Look at what the tier below covers first; most people over-buy by one step.",
+            "Currency and tax handling differ by market, so the sticker price is rarely what you pay.",
+        ),
+        "worth": (
+            "It depends on how often you'd use it. Try the free tier on a real task first, then decide whether the paid plan earns its keep.",
+            "Run it against one job you already know how to do by hand. If it doesn't beat that, it won't beat harder work either.",
+            "Worth it is a usage question, not a feature question — count how many times a week you'd actually reach for it.",
+            "Give it a fortnight on real work before deciding. Novelty wears off and the honest usage number shows up.",
+            "If the free allowance runs out before the month does, the upgrade is probably justified. If not, wait.",
+            "Judge it on the tasks you dislike doing, not the ones the demo shows off.",
+            "The upgrade earns its place when the free limits start dictating how you work rather than the other way round.",
+            "Ask what you would stop doing if it disappeared tomorrow. If the answer is nothing, skip it.",
+            "The honest test is whether you reach for it unprompted after the novelty fades.",
+            "Cheap tools you use daily beat capable tools you open twice a month.",
+            "Decide after a week of real work, not after the onboarding tour.",
+        ),
+        "change": (
+            "The article covers what actually changed with {subject} and what stayed the same — check the official announcement for the exact rollout details.",
+            "The substance of the change is set out above; the exact rollout dates sit in the official announcement.",
+            "What moved and what didn't is laid out in the body — the announcement carries the version numbers and dates.",
+            "Read the section above for the practical difference, and the official notice for the precise timing.",
+            "The change is narrower than the headline suggests; the detail above shows where it actually applies.",
+            "Most of the previous behaviour is untouched — the piece above marks exactly which parts moved.",
+            "The functional difference is described above; anything version-specific belongs to the release notes.",
+        ),
+        "apply": (
+            "Whether it applies to you depends on your plan, account settings, and region — check the official eligibility notes against your own setup.",
+            "Open your own account settings and compare them against the stated conditions; that answers it faster than any summary.",
+            "Eligibility turns on plan tier and region, so the honest answer is whatever your own console shows.",
+            "Staged rollouts mean the announcement date and your availability date are rarely the same day.",
+            "If you're on a managed or enterprise account, your administrator's settings decide this before the vendor's do.",
+            "Check the tier you are actually billed on, not the tier the marketing page assumes.",
+            "The criteria are published; the only reliable test is holding your own setup against them line by line.",
+        ),
+        "verify": (
+            "Go by the official announcement and product page first; treat community posts and screenshots as secondary sources.",
+            "The vendor's own documentation outranks any write-up, this one included.",
+            "Start at the source the claim came from — the reference list at the end names each one.",
+            "Screenshots circulate long after the thing they show has changed; go to the live page instead.",
+            "Where a forum post and the official page disagree, the official page is the one to act on.",
+            "Check the changelog and the status page; those are dated, while summaries usually are not.",
+            "Confirm it where the provider publishes it, and note the date you checked.",
+        ),
+        "risk": (
+            "The main trap is treating unconfirmed claims as fact — keep what's verified separate from what's still speculation.",
+            "The common mistake is trusting an announcement as though it were already shipped.",
+            "Most of the trouble comes from assuming the demo behaviour is the default behaviour.",
+            "Watch for the gap between what is announced and what is actually enabled on your account.",
+            "The risk worth guarding against is acting on a figure that was true last quarter.",
+            "Don't let a confident summary stand in for the terms you'd be agreeing to.",
+            "The failure mode here is speed — checking one source before you commit removes most of it.",
+        ),
+        "default": (
+            "With {subject}, separate what's confirmed from what still needs checking — the details depend on your plan, account, and region.",
+            "The short answer sits above; the parts worth confirming yourself are marked in the checklist.",
+            "Take the settled facts from the article and confirm the account-specific parts at the source.",
+            "Most of this is stable; the pieces that move are the prices, the quotas, and the rollout timing.",
+            "The article splits what is established from what you should verify against your own setup.",
+            "Read the confirmed list first, then check the two or three items that depend on your own account.",
+            "What holds generally is written above; what depends on you is worth a minute at the source.",
+            "The settled part is in the article; the part that depends on your account is short and worth checking.",
+            "Treat the confirmed section as the baseline and your own settings as the tiebreaker.",
+            "The general answer is above; the version that applies to you sits in your account page.",
+            "Start from what is established here, then check the two details that are specific to you.",
+        ),
+    }
+
+    @classmethod
+    def _fallback_answer_en(cls, question: str, topic: str, content_type: str) -> str:
         q = (question or "").lower()
         subject = " ".join((topic or "this topic").split()).strip() or "this topic"
         if any(token in q for token in ("cost", "price", "pricing", "free plan", "pay")):
-            return (
-                "Pricing and plan limits change often — compare the official pricing page "
-                "against what you actually need before paying."
-            )
-        if any(token in q for token in ("worth", "should i")):
-            return (
-                "It depends on how often you'd use it. Try the free tier on a real task first, "
-                "then decide whether the paid plan earns its keep."
-            )
-        if any(token in q for token in ("changed", "change", "new", "update")):
-            return (
-                f"The article covers what actually changed with {subject} and what stayed the same — "
-                "check the official announcement for the exact rollout details."
-            )
-        if any(token in q for token in ("affect", "apply", "eligible", "my account")):
-            return (
-                "Whether it applies to you depends on your plan, account settings, and region — "
-                "check the official eligibility notes against your own setup."
-            )
-        if any(token in q for token in ("official", "verify", "source", "where")):
-            return (
-                "Go by the official announcement and product page first; treat community posts "
-                "and screenshots as secondary sources."
-            )
-        if any(token in q for token in ("mistake", "watch out", "risk", "careful")):
-            return (
-                "The main trap is treating unconfirmed claims as fact — keep what's verified "
-                "separate from what's still speculation."
-            )
-        return (
-            f"With {subject}, separate what's confirmed from what still needs checking — "
-            "the details depend on your plan, account, and region."
-        )
+            kind = "price"
+        elif any(token in q for token in ("worth", "should i")):
+            kind = "worth"
+        elif any(token in q for token in ("changed", "change", "new", "update")):
+            kind = "change"
+        elif any(token in q for token in ("affect", "apply", "eligible", "my account")):
+            kind = "apply"
+        elif any(token in q for token in ("official", "verify", "source", "where")):
+            kind = "verify"
+        elif any(token in q for token in ("mistake", "watch out", "risk", "careful")):
+            kind = "risk"
+        else:
+            kind = "default"
+        pool = cls._FALLBACK_ANSWER_POOLS_EN[kind]
+        # seed 에 질문을 섞는다 — 한 글 안에서 유형이 겹쳐도 문장이 갈리도록.
+        answer = _pick(pool, f"{topic}\x1f{q}", f"fallback_answer_{kind}")
+        return answer.replace("{subject}", subject)
 
     @staticmethod
     def _is_delivery_schedule_issue(text: str) -> bool:
@@ -1198,6 +1608,15 @@ class GeoIntentService:
             key = cls._answer_key(a)
             if key in seen_answers or cls._is_low_quality_answer(a):
                 a = cls._fallback_answer_for_question(q, topic, content_type)
+                key = cls._answer_key(a)
+            # 2026-09-10: 같은 유형 질문이 둘이면 같은 폴백 풀에서 같은 문장이 나온다.
+            # 예전에는 곧바로 "For <질문 앞 34자>: " 접두사를 붙였는데, 그 접두사는
+            # 독자에게 그대로 보이고 문장도 어색했다. 먼저 **같은 풀 안에서 다른 문장**을
+            # 뽑아 본다(질문 seed 에 접미사를 붙여 재추첨). 그래도 못 찾을 때만 접두사.
+            _attempt = 0
+            while key in seen_answers and _attempt < 6:
+                _attempt += 1
+                a = cls._fallback_answer_for_question(f"{q} #{_attempt}", topic, content_type)
                 key = cls._answer_key(a)
             if key in seen_answers:
                 q_context = q.rstrip("?")[:34]

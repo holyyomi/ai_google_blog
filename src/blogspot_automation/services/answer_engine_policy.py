@@ -10,10 +10,13 @@ from typing import Any
 from blogspot_automation.services.blog_language import is_english_mode
 from blogspot_automation.services.geo_intent_service import (
     _AI_CONFIRMED_VARIANTS_EN,
+    _AI_OVERVIEW_CAVEAT_EN,
     GeoIntentService,
     _truncate_at_sentence,
 )
 from blogspot_automation.services.kst_clock import kst_today
+from blogspot_automation.services.phrase_variation import all_compositions as _all_compositions
+from blogspot_automation.services.phrase_variation import compose as _compose
 from blogspot_automation.services.news_taxonomy import content_type_for_topic_group
 
 
@@ -58,13 +61,42 @@ def _varied_label(kind: str, seed: str) -> str:
 # 노출 빈도가 특히 높았음). _varied_label과 동일한 결정적 seed-hash 방식으로
 # 주제별 변주를 준다 — 원문 topic 문자열은 여전히 삽입하지 않는다
 # (raw_topic_repeated_in_html 게이트, 2026-07-17 드라이런 #8 실측 회귀 방지).
-_YOMI_JUDGMENT_VARIANTS_EN: tuple[str, ...] = (
-    "The key here is separating the actual impact from the noise, and knowing what to verify yourself.",
-    "What matters most is telling the confirmed changes apart from the speculation, then checking the rest yourself.",
-    "The real question is what actually changes for you versus what's just chatter — verify the specifics before you act.",
-    "Cutting through the hype means sorting what's confirmed from what's still guesswork, and checking the details that apply to you.",
-    "The practical read: separate what's locked in from what's still speculation, then confirm the parts that matter to your situation.",
+# 2026-09-10: 5개 풀이라 47편 중 약 9~14편이 같은 문장을 받았다(실측: 14/47).
+# 두 조각(진단 + 행동)을 각각 다른 salt 로 골라 조립한다 — 9×9 = 81 조합.
+_YOMI_JUDGMENT_DIAGNOSIS_EN: tuple[str, ...] = (
+    "The key here is separating the actual impact from the noise",
+    "What matters most is telling the confirmed changes apart from the speculation",
+    "The real question is what actually changes for you versus what's just chatter",
+    "Cutting through the hype means sorting what's confirmed from what's still guesswork",
+    "The practical read is to separate what's locked in from what's still speculation",
+    "Most of the volume around this is positioning rather than substance",
+    "The announcement and the shipped behaviour are two different things here",
+    "The useful split is between what has landed and what has only been described",
+    "Almost all of the disagreement here comes from mixing plans with releases",
 )
+_YOMI_JUDGMENT_ACTION_EN: tuple[str, ...] = (
+    "and knowing what to verify yourself.",
+    "then checking the rest yourself.",
+    "— verify the specifics before you act.",
+    "and checking the details that apply to you.",
+    "then confirm the parts that matter to your situation.",
+    "and holding the rest against your own account before you rely on it.",
+    "— the parts that decide anything are worth a minute at the source.",
+    "and treating anything undated as provisional.",
+    "before you let it change how you work.",
+)
+_YOMI_JUDGMENT_VARIANTS_EN: tuple[str, ...] = _all_compositions(
+    _YOMI_JUDGMENT_DIAGNOSIS_EN, _YOMI_JUDGMENT_ACTION_EN
+)
+
+
+def _yomi_judgment_en(seed: str) -> str:
+    return _compose(
+        seed or "yomi_judgment",
+        "yomi_judgment",
+        _YOMI_JUDGMENT_DIAGNOSIS_EN,
+        _YOMI_JUDGMENT_ACTION_EN,
+    )
 
 
 def _varied_sentence(pool: tuple[str, ...], seed: str) -> str:
@@ -191,6 +223,16 @@ def ensure_answer_engine_optimized_html(
     # (템플릿 문장은 모든 글에서 반복돼 AI 티의 주범 — 폴백 전용으로 강등.)
     _llm_confirmed = _clean_fact_list(confirmed_facts, max_items=3)
     _llm_check = _clean_fact_list(check_needed, max_items=2)
+    # 2026-09-10: 실제 뉴스 발행 경로(news_pipeline.py:1343/1663)는 confirmed_facts /
+    # check_needed 파라미터를 **넘기지 않는다**. 그래서 47편 전부가 템플릿 문장을
+    # 받았고, 같은 문장이 16~20편에 토씨 하나 안 틀리고 반복됐다(실측).
+    # 그런데 본문 HTML에는 LLM이 프롬프트 지시대로 만든
+    # CONFIRMED_VS_CHECK_NEEDED_BLOCK 이 이미 들어 있다 — 거기서 주제 특정적 사실을
+    # 직접 걷어오면 파라미터 유무와 무관하게 템플릿을 밀어낼 수 있다.
+    if not (_llm_confirmed and _llm_check):
+        _body_confirmed, _body_check = _harvest_confirmed_block_facts(content)
+        _llm_confirmed = _llm_confirmed or _clean_fact_list(_body_confirmed, max_items=3)
+        _llm_check = _llm_check or _clean_fact_list(_body_check, max_items=2)
     if _llm_confirmed and _llm_check:
         confirmed_map = {"confirmed": _llm_confirmed, "check_needed": _llm_check}
     trust_text = service.generate_enhanced_source_trust_block(
@@ -258,8 +300,7 @@ def ensure_answer_engine_optimized_html(
                 # ai_* 콘텐츠타입에 무조건 덧붙는 지역 면책 문구. SOURCE_TRUST_BLOCK에
                 # 같은 취지가 이미 있고, lede는 SERP 스니펫이라 여기서 110자를
                 # 잡아먹으면 정작 사실이 스니펫에서 잘린다.
-                "Availability, pricing, and rollout can vary by account and region — "
-                "check the official page for the latest details.",
+                *_AI_OVERVIEW_CAVEAT_EN,
                 # 사실이 앞에 오면 이 폴백 보강 문구도 불필요하다.
                 "The article separates what's confirmed from what you should verify yourself.",
             ):
@@ -326,7 +367,13 @@ def ensure_answer_engine_optimized_html(
                         for d in _distinct
                     )
                 ]
-                _distinct.extend(_fallback_intent_answers(_extra_questions, topic_text)[: 3 - len(_distinct)])
+                _distinct.extend(
+                    _fallback_intent_answers(
+                        _extra_questions,
+                        topic_text,
+                        avoid={_fact_key(str(d.get('A') or '')) for d in _distinct},
+                    )[: 3 - len(_distinct)]
+                )
             _intent_items = _distinct
         if is_english_mode() and len(_intent_items) < 3:
             # 영어 모드(2026-07-17): 본문 FAQ와 겹침 제거·LLM FAQ 부족 등 어느 경로로든
@@ -337,7 +384,7 @@ def ensure_answer_engine_optimized_html(
                 for p in (slots.get("faq") or [])
                 if isinstance(p, dict)
             }
-            _en_generic_pool = _en_generic_intent_pool(topic_text, resolved_type)
+            _en_generic_pool = _en_generic_intent_pool(topic_text, resolved_type, content)
             _intent_items = list(_intent_items)
             for qa in _en_generic_pool:
                 if len(_intent_items) >= 3:
@@ -460,14 +507,135 @@ def ensure_answer_engine_optimized_html(
     return content
 
 
-def _en_generic_intent_pool(topic: str, content_type: str) -> list[dict[str, str]]:
+def _section_derived_intent_pool(html: str, *, limit: int = 4) -> list[dict[str, str]]:
+    """본문 h2 섹션에서 그 글에만 있는 Q&A를 만든다.
+
+    2026-09-10 실측이 이 함수를 만든 이유: 47편 중 42편에
+    "Where can you verify the current details?" 가 그대로 들어 있었다. 아래
+    _en_generic_intent_pool 의 세 갈래가 전부 그 질문을 갖고 있었고, 실제
+    발행 경로에서 그 폴백이 거의 항상 실행됐기 때문이다. 모든 글에 같은 FAQ가
+    붙으면 FAQ 스키마의 의미가 사라지고, 구글이 boilerplate 를 걷어낸 뒤 남는
+    고유 본문도 그만큼 줄어든다.
+
+    그래서 폴백 문구를 더 다양하게 만드는 것보다 **그 글의 소제목에서 질문을
+    뽑아내는 것**이 먼저다. 소제목은 LLM이 그 글의 내용에 맞춰 쓴 것이므로,
+    여기서 나온 질문은 정의상 글마다 다르고 실제로 그 글이 답하는 질문이다.
+    """
+    scoped = _content_scope_html(html or "")
+    if not scoped:
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r"<h2\b[^>]*>(.*?)</h2>(.*?)(?=<h2\b|\Z)",
+        scoped,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        heading_html = match.group(1)
+        heading = " ".join(_plain_text(heading_html).split()).strip()
+        body = match.group(2)
+        if not heading or len(heading) < 8 or len(heading) > 90:
+            continue
+        # 시스템 블록(우리가 붙인 GEO/AEO 섹션)의 소제목은 그 글의 내용이 아니다.
+        if re.search(
+            r"(frequently asked|reader questions|common questions|quick answers|"
+            r"people also ask|sources|where this comes from|confirmed|tl;dr|"
+            r"the short answer|bottom line)",
+            heading,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        key = _normalize_question_key(heading)
+        if not key or key in seen:
+            continue
+        # 답은 그 섹션의 첫 문단 — 본문 그대로가 아니라 한 문장으로 압축한다
+        # (본문 문장을 통째로 복사하면 한 글 안에서 같은 문장이 두 번 보인다).
+        paragraphs = re.findall(r"<p\b[^>]*>(.*?)</p>", body, flags=re.IGNORECASE | re.DOTALL)
+        answer = ""
+        for para in paragraphs:
+            text = " ".join(_plain_text(para).split()).strip()
+            if len(text) >= 60:
+                answer = text
+                break
+        if not answer:
+            continue
+        answer = _truncate_at_sentence(answer, max_len=300)
+        if len(answer) < 40:
+            continue
+        question = heading if heading.endswith("?") else _heading_to_question_en(heading)
+        if not question:
+            continue
+        seen.add(key)
+        out.append({"Q": question, "A": answer})
+        if len(out) >= limit:
+            break
+    return out
+
+
+_HEADING_QUESTION_FRAMES_EN: tuple[str, ...] = (
+    "What should you know about {h}?",
+    "How does {h} actually work out?",
+    "What's the practical read on {h}?",
+    "Where does {h} land for you?",
+    "What does {h} mean in day-to-day use?",
+    "How much does {h} really matter?",
+    "What's worth knowing about {h}?",
+)
+
+
+def _heading_to_question_en(heading: str) -> str:
+    """소제목을 그 글 고유의 질문으로 바꾼다. 프레임은 소제목 자체로 seed 를 준다."""
+    core = " ".join((heading or "").split()).strip().rstrip(".:;,")
+    if not core:
+        return ""
+    # 소제목이 이미 문장형이면(동사구로 시작) 프레임에 넣어도 어색하지 않도록
+    # 첫 글자만 소문자로 낮춘다. 고유명사(전부 대문자·CamelCase)는 보존한다.
+    if core[:1].isupper() and not core.split()[0].isupper() and core.split()[0].istitle():
+        head_word = core.split()[0]
+        if head_word.lower() in _LOWERCASABLE_HEAD_WORDS_EN:
+            core = head_word.lower() + core[len(head_word):]
+    frame = _varied_sentence(_HEADING_QUESTION_FRAMES_EN, core)
+    return frame.format(h=core)
+
+
+_LOWERCASABLE_HEAD_WORDS_EN: frozenset[str] = frozenset(
+    {
+        "what", "why", "how", "when", "where", "who", "which", "the", "a", "an",
+        "this", "that", "these", "those", "your", "our", "its", "their",
+        "pricing", "price", "cost", "costs", "limits", "features", "plans",
+        "setup", "getting", "using", "picking", "choosing", "before", "after",
+        "real", "actual", "practical", "everyday", "quick", "hidden", "common",
+    }
+)
+
+
+def _en_generic_intent_pool(
+    topic: str, content_type: str, html: str = ""
+) -> list[dict[str, str]]:
     """주제 유형에 맞는 범용 EN Q&A 풀.
 
     2026-07-18~19 라이브 실측: 가격 중심 3종 세트("Is it worth paying for right
     now?" 등)가 보안 사고 글을 포함한 모든 글에 똑같이 찍혀 나갔다 — 주제와
     무관한 보일러플레이트는 독자 신뢰·중복 콘텐츠 양쪽에 해롭다. 주제
     키워드로 사고/가격/일반을 구분해 그나마 관련 있는 질문만 쓴다.
+
+    2026-09-10: html 이 주어지면 **본문 소제목에서 만든 글 고유 Q&A를 먼저**
+    쓰고, 모자란 자리만 아래 템플릿으로 채운다. 템플릿 문장도 seed(주제)로
+    변주해, 같은 갈래에 떨어진 두 글이 같은 문장을 받지 않게 한다.
     """
+    derived = _section_derived_intent_pool(html) if html else []
+    generic = _en_generic_intent_template_pool(topic, content_type)
+    if not derived:
+        return generic
+    merged = list(derived)
+    derived_keys = {_normalize_question_key(qa["Q"]) for qa in derived}
+    for qa in generic:
+        if _normalize_question_key(qa["Q"]) not in derived_keys:
+            merged.append(qa)
+    return merged
+
+
+def _en_generic_intent_template_pool(topic: str, content_type: str) -> list[dict[str, str]]:
     haystack = f" {(topic or '').lower()} {(content_type or '').lower()} "
     incident_terms = (
         "leak", "breach", "exfiltrat", "outage", " down", "not working", "lawsuit",
@@ -478,38 +646,149 @@ def _en_generic_intent_pool(topic: str, content_type: str) -> list[dict[str, str
         "price", "pricing", "cost", "subscription", " plan", "free tier", "free limit",
         " paid", "worth it", "hidden cost",
     )
+    # 2026-09-10: 아래 세 갈래는 원래 고정 Q&A 4개씩이었고, 세 갈래 모두
+    # "Where can you verify the current details?" 를 갖고 있어서 47편 중 42편에
+    # 같은 질문이 실렸다. 질문·답변 모두 seed(주제)로 고르는 풀로 바꾼다 —
+    # 여전히 폴백이지만, 폴백끼리도 글마다 달라진다.
+    seed = topic or content_type or "seed"
+    verify_q = _varied_sentence(_VERIFY_QUESTIONS_EN, seed)
+    verify_a = _varied_sentence(_VERIFY_ANSWERS_EN, seed)
+    precheck_q = _varied_sentence(_PRECHECK_QUESTIONS_EN, seed)
     if any(t in haystack for t in incident_terms):
         return [
-            {"Q": "What actually happened?",
-             "A": "The short version is in the summary above — read the timeline in the article for the confirmed sequence of events."},
-            {"Q": "Who is affected?",
-             "A": "Check whether you used the tool or service involved during the affected window; if not, no action is usually needed."},
-            {"Q": "What should you do now?",
-             "A": "Follow the step-by-step checklist in the article — start with the highest-impact action (credentials, settings, or updates) first."},
-            {"Q": "Where can you verify the current details?",
-             "A": "Go by the vendor's official announcement or status page; treat community screenshots as secondary sources."},
+            {"Q": _varied_sentence(
+                ("What actually happened?", "What is confirmed so far?",
+                 "What set this off?", "What's the sequence of events?",
+                 "What do we actually know?"), seed),
+             "A": _varied_sentence(
+                ("The short version is in the summary above — read the timeline in the article for the confirmed sequence of events.",
+                 "The article lays out the confirmed sequence; start there rather than with the first summary you saw.",
+                 "The timeline above sticks to what has been confirmed and marks where reporting is still thin.",
+                 "Read the timeline in the piece — it separates what was announced from what was inferred.",
+                 "The confirmed account is above; anything still unverified is flagged as such."), seed)},
+            {"Q": _varied_sentence(
+                ("Who is affected?", "Does this reach you?", "Who is actually in scope?",
+                 "Are you likely to be caught by this?", "Whose accounts are involved?"), seed),
+             "A": _varied_sentence(
+                ("Check whether you used the tool or service involved during the affected window; if not, no action is usually needed.",
+                 "It comes down to whether your account touched the affected service inside the stated window.",
+                 "If you weren't using the service in the period named above, there is usually nothing to do.",
+                 "Match the affected window against your own usage — that is the whole test.",
+                 "Scope is defined by service and by date range, so check both against your own account."), seed)},
+            {"Q": _varied_sentence(
+                ("What should you do now?", "What's the first step?",
+                 "What's worth doing today?", "Where should you start?",
+                 "What action actually helps?"), seed),
+             "A": _varied_sentence(
+                ("Follow the step-by-step checklist in the article — start with the highest-impact action (credentials, settings, or updates) first.",
+                 "Work the checklist above in order; credentials and access settings come before anything cosmetic.",
+                 "Take the highest-impact item first — usually access, then settings, then updates.",
+                 "The checklist above is ordered by impact, so start at the top and stop when it stops applying to you.",
+                 "Deal with anything touching credentials first; the rest can wait a day without much cost."), seed)},
+            {"Q": verify_q,
+             "A": _varied_sentence(_VERIFY_ANSWERS_INCIDENT_EN, seed)},
         ]
     if any(t in haystack for t in pricing_terms):
         return [
-            {"Q": "Is it worth paying for right now?",
-             "A": "Try the free tier on one real task first; upgrade only if the limits actually slow you down."},
-            {"Q": "How does this affect existing users?",
-             "A": "Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you."},
-            {"Q": "Where can you verify the current details?",
-             "A": "Go by the official announcement and pricing pages; treat community screenshots as secondary sources."},
-            {"Q": "What should you check before relying on it?",
-             "A": "Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted."},
+            {"Q": _varied_sentence(
+                ("Is it worth paying for right now?", "Does the paid tier earn its place?",
+                 "Should you upgrade yet?", "Is the free plan enough?",
+                 "Where's the line between free and paid here?"), seed),
+             "A": _varied_sentence(
+                ("Try the free tier on one real task first; upgrade only if the limits actually slow you down.",
+                 "Run it free for a fortnight on real work — the usage number tells you more than any comparison table.",
+                 "If the free allowance runs out before the month does, upgrading is defensible. Otherwise wait.",
+                 "Count the times a week you'd actually reach for it; below a handful, the free plan wins.",
+                 "The paid step is worth it once the limits start shaping how you work."), seed)},
+            {"Q": _varied_sentence(
+                ("How does this affect existing users?", "What changes for current accounts?",
+                 "Are existing subscribers moved automatically?",
+                 "Does anything change if you're already paying?",
+                 "What happens to accounts already on a paid plan?"), seed),
+             "A": _varied_sentence(
+                ("Rollouts are usually gradual — check your own account and plan settings rather than assuming the change is live for you.",
+                 "Existing accounts typically move in waves, so your own plan page is the only reliable answer.",
+                 "Grandfathering varies by tier; read your billing page rather than the announcement.",
+                 "The announcement date and your own change date are rarely the same — check the account.",
+                 "Current subscribers are often shifted last, and the terms can differ from new sign-ups."), seed)},
+            {"Q": verify_q, "A": verify_a},
+            {"Q": precheck_q,
+             "A": _varied_sentence(
+                ("Confirm the plan limits, data handling settings, and the as-of date of any numbers you saw quoted.",
+                 "Check three things: the current cap, what happens to your data, and how old the quoted figure is.",
+                 "Look at the quota, the data-retention terms, and whether the price you saw is still listed.",
+                 "Pin down the limit that applies to your tier and when the figure you're relying on was published.",
+                 "Read the data handling terms alongside the price — the cheaper tier is often the looser one."), seed)},
         ]
     return [
-        {"Q": "What does this change in practice?",
-         "A": "The article separates what is confirmed from what is still marketing — start with the confirmed list before changing your workflow."},
-        {"Q": "How can you try it safely?",
-         "A": "Test it on one low-stakes task first, review the output yourself, and only then fold it into real work."},
-        {"Q": "Where can you verify the current details?",
-         "A": "Go by the official documentation and announcement pages; treat community screenshots as secondary sources."},
-        {"Q": "What should you check before relying on it?",
-         "A": "Confirm the limits, data handling settings, and the as-of date of any numbers you saw quoted."},
+        {"Q": _varied_sentence(
+            ("What does this change in practice?", "What actually changes for you?",
+             "Does this alter how you work?", "What's the practical difference?",
+             "How much of this reaches everyday use?"), seed),
+         "A": _varied_sentence(
+            ("The article separates what is confirmed from what is still marketing — start with the confirmed list before changing your workflow.",
+             "Most of the announcement is positioning; the confirmed list above is the part worth acting on.",
+             "Start from the confirmed facts above and leave the roadmap talk out of your decision.",
+             "The practical delta is smaller than the announcement suggests — the confirmed section marks it.",
+             "Work from what has shipped rather than what has been promised; the article draws that line."), seed)},
+        {"Q": _varied_sentence(
+            ("How can you try it safely?", "What's a low-risk way to test it?",
+             "How should you trial this?", "What's a sensible first test?",
+             "How do you try it without betting anything on it?"), seed),
+         "A": _varied_sentence(
+            ("Test it on one low-stakes task first, review the output yourself, and only then fold it into real work.",
+             "Pick a job you already know the right answer to, and see whether it gets there.",
+             "Start on work that nobody sees, check the output line by line, then widen it.",
+             "Trial it on something reversible — the review pass matters more than the trial itself.",
+             "Give it a task where you can spot a wrong answer immediately; that is the whole safety margin."), seed)},
+        {"Q": verify_q, "A": verify_a},
+        {"Q": precheck_q,
+         "A": _varied_sentence(
+            ("Confirm the limits, data handling settings, and the as-of date of any numbers you saw quoted.",
+             "Check the quota that applies to your tier, what happens to your data, and how current the figures are.",
+             "Three things: the cap, the data terms, and whether the numbers are still the published ones.",
+             "Read the limits against your own usage and check the publication date on any figure you rely on.",
+             "Confirm the data handling terms before the pricing — that is the part you cannot undo."), seed)},
     ]
+
+
+# verify / pre-check 질문·답변 풀 — 세 갈래가 공유하던 고정 문장을 대체한다.
+_VERIFY_QUESTIONS_EN: tuple[str, ...] = (
+    "Where can you verify the current details?",
+    "Where should you check this yourself?",
+    "What's the authoritative source here?",
+    "Where do the numbers come from?",
+    "How do you confirm this is still accurate?",
+    "Which page settles this?",
+    "Where would you go to double-check?",
+)
+_VERIFY_ANSWERS_EN: tuple[str, ...] = (
+    "Go by the official documentation and announcement pages; treat community screenshots as secondary sources.",
+    "The provider's own documentation is the reference; forum posts and screenshots age badly.",
+    "Start at the official product page — it is dated, and third-party summaries usually are not.",
+    "Check the changelog and pricing page directly rather than a quoted figure from anywhere else.",
+    "The vendor's own page settles it; anything circulating second-hand may be months old.",
+    "Open the source named in the reference list at the end and read the current wording.",
+    "Confirm on the official page and note the date you checked — that is what makes it verifiable later.",
+)
+_VERIFY_ANSWERS_INCIDENT_EN: tuple[str, ...] = (
+    "Go by the vendor's official announcement or status page; treat community screenshots as secondary sources.",
+    "The status page is the live record; social posts lag it and often garble it.",
+    "Read the vendor's own incident notice before any summary of it, this one included.",
+    "Official post-incident write-ups are dated and revised — that makes them the reference.",
+    "Check the status history rather than a screenshot; the screenshot is a moment, the history is the record.",
+    "The incident page names what was affected and when; start there and work outward.",
+    "Take the vendor's own timeline as the baseline and treat everything else as commentary.",
+)
+_PRECHECK_QUESTIONS_EN: tuple[str, ...] = (
+    "What should you check before relying on it?",
+    "What's worth confirming first?",
+    "What would you want to know before committing?",
+    "What deserves a second look?",
+    "What should you nail down before you depend on this?",
+    "What's the pre-flight check here?",
+    "What would you check before putting work through it?",
+)
 
 
 def _ensure_min_intent_items_en(content: str, *, topic: str = "", content_type: str = "") -> str:
@@ -527,7 +806,7 @@ def _ensure_min_intent_items_en(content: str, *, topic: str = "", content_type: 
         for q in re.findall(r"Q\.\s*([^<]+)", block_match.group(2))
     } if block_match else set()
     additions: list[str] = []
-    for qa in _en_generic_intent_pool(topic, content_type):
+    for qa in _en_generic_intent_pool(topic, content_type, content):
         q, a = qa["Q"], qa["A"]
         if count + len(additions) >= 3:
             break
@@ -597,7 +876,7 @@ def _build_slots_from_html(html: str, *, title: str, topic: str) -> dict[str, An
         return {
             "hook_opening": hook,
             "real_criterion": second_sentence or _first_sentence(plain, max_len=160) or hook,
-            "yomi_judgment": _varied_sentence(_YOMI_JUDGMENT_VARIANTS_EN, topic or title),
+            "yomi_judgment": _yomi_judgment_en(topic or title),
             "faq": faq,
         }
     hook = first_sentence or f"{topic}에 대해 독자가 먼저 확인해야 할 핵심을 정리했습니다."
@@ -717,15 +996,31 @@ def _merge_questions(
     return merged[:8]
 
 
-def _fallback_intent_answers(questions: list[str], topic: str) -> list[dict[str, str]]:
-    if is_english_mode():
-        answer = (
-            "Availability, pricing, and rollout can vary by account and region — "
-            "check the official page for the latest details."
-        )
-    else:
-        answer = f"{topic}은 공식 안내, 적용 대상, 실제 영향 순서로 확인하는 것이 안전합니다."
+def _fallback_intent_answers(
+    questions: list[str], topic: str, avoid: set[str] | None = None
+) -> list[dict[str, str]]:
+    # 2026-09-10: 여기가 **모든 질문에 같은 한 문장**을 붙이던 자리였다. 한 글 안에서도
+    # 3~5개 Q&A의 답이 전부 같았고, 글끼리도 같았다(47편 실측 반복 문장 중 하나).
+    # 질문 유형별 폴백(GeoIntentService._fallback_answer_en)으로 넘겨, 질문마다·
+    # 글마다 다른 답이 나오게 한다.
     answers: list[dict[str, str]] = []
+    if is_english_mode():
+        used: set[str] = set(avoid or ())
+        for question in questions[:5]:
+            answer = GeoIntentService._fallback_answer_en(question, topic, "ai_work_tip")
+            # 같은 유형의 질문이 둘 이상이면 같은 풀에서 같은 문장을 뽑을 수 있다.
+            # 한 글 안에서 답이 겹치면 repeated_faq_or_intent_answers 게이트에 걸리므로
+            # 질문 seed 에 접미사를 붙여 다시 뽑는다.
+            attempt = 0
+            while _fact_key(answer) in used and attempt < 6:
+                attempt += 1
+                answer = GeoIntentService._fallback_answer_en(
+                    f"{question} #{attempt}", topic, "ai_work_tip"
+                )
+            used.add(_fact_key(answer))
+            answers.append({"Q": question, "A": answer})
+        return _dedupe_qa_pairs(answers)
+    answer = f"{topic}은 공식 안내, 적용 대상, 실제 영향 순서로 확인하는 것이 안전합니다."
     for question in questions[:5]:
         answers.append({"Q": question, "A": answer})
     return answers
@@ -1308,6 +1603,47 @@ def _relocate_hashtags_to_tail(html: str) -> str:
     if last_article >= 0:
         return stripped[:last_article] + block + "\n" + stripped[last_article:]
     return stripped.rstrip() + "\n" + block
+
+
+def _harvest_confirmed_block_facts(html: str) -> tuple[list[str], list[str]]:
+    """본문에 이미 있는 CONFIRMED_VS_CHECK_NEEDED_BLOCK 에서 <li> 사실을 걷어온다.
+
+    LLM 본문 프롬프트가 이 블록을 주제 특정 사실로 채워서 내보내므로, 여기서
+    걷어오면 템플릿 상투어를 쓰지 않고도 confirmed_map 을 글마다 다르게 만들 수
+    있다. 템플릿 문구(_AI_CONFIRMED_VARIANTS_EN 조합)는 걸러낸다 — 이전 렌더가
+    남긴 템플릿을 다시 주워오면 아무것도 나아지지 않기 때문이다.
+    """
+    content = html or ""
+    if not content:
+        return [], []
+    template_keys = {
+        _fact_key(s)
+        for group in _AI_CONFIRMED_VARIANTS_EN
+        for s in group
+    }
+
+    def _items(section_class: str) -> list[str]:
+        match = re.search(
+            rf'<div[^>]*class="[^"]*\b{section_class}\b[^"]*"[^>]*>(.*?)</ul>',
+            content,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not match:
+            return []
+        out: list[str] = []
+        for li in re.findall(r"<li[^>]*>(.*?)</li>", match.group(1), re.DOTALL):
+            text = unescape(re.sub(r"<[^>]+>", " ", li))
+            text = " ".join(text.split()).strip()
+            if len(text) < 12 or _fact_key(text) in template_keys:
+                continue
+            out.append(text)
+        return out
+
+    return _items("confirmed-section"), _items("check-needed-section")
+
+
+def _fact_key(text: str) -> str:
+    return " ".join(str(text or "").split()).rstrip(".").lower()
 
 
 def _clean_fact_list(items: list[str] | None, *, max_items: int) -> list[str]:

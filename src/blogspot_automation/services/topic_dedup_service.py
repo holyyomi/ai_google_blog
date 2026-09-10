@@ -208,6 +208,25 @@ _TOKEN_ONLY_ALIASES = {
 DRAFT_REVIEW_STATUS = "draft_saved_for_review"
 DRAFT_SOFT_CONSUME_HOURS = 48
 
+# 클러스터 연속 발행 상한 (2026-09-10 신설).
+#
+# 클러스터 후보는 아래 is_duplicate()에서 엔티티 쿨다운·키워드 중복을 면제받는다.
+# 그 면제 자체는 옳다 — 7슬롯짜리 클러스터가 1편 발행 후 자기 자신 때문에 나머지
+# 6편이 막히면 기능이 성립하지 않는다. 문제는 면제에 **연속 상한이 없었다**는 것이다.
+#
+# 실측(2026-09-10): 8/31~9/4에 chatgpt_free_limits_per_day →
+# chatgpt_free_limit_for_chats_with_attachments → chatgpt_free_limit_message →
+# chatgpt_free_limits_image_generation → chatgpt_free_limit_reduced 가 5일 연속
+# 발행됐고, 생성된 제목의 키워드 자카드가 0.67~0.80이었다. 슬롯 의도(per day /
+# attachments / message)는 롱테일로 갈라져 있었지만 제목이 전부 같은 말로 수렴했다.
+# 권위 0인 blogspot 서브도메인에서 같은 계열이 연속으로 나가면 구글은 개별 롱테일이
+# 아니라 "한 주제 재탕"으로 읽는다 — 해당 47편 전부 색인 0편.
+#
+# 그래서 면제는 유지하되 연속 편수만 끊는다. 상한에 걸리면 그 실행은 클러스터가 아닌
+# 후보(뉴스/에버그린)로 폴백하므로 발행 자체가 막히지는 않는다.
+# CLUSTER_MAX_CONSECUTIVE env로 조정, 0이면 상한 없음(종전 동작).
+_DEFAULT_CLUSTER_MAX_CONSECUTIVE = 2
+
 
 class TopicDedupService:
     def __init__(
@@ -306,6 +325,12 @@ class TopicDedupService:
         # 근접중복(norm 일치) 검사는 아래에서 그대로 적용된다.
         cluster_candidate = self._is_cluster_candidate(candidate)
 
+        # 클러스터 면제에는 연속 상한이 붙는다 (위 _DEFAULT_CLUSTER_MAX_CONSECUTIVE 주석).
+        if cluster_candidate:
+            cap = self.cluster_max_consecutive()
+            if cap > 0 and self._cluster_publish_streak(history_records) >= cap:
+                return True
+
         for record in history_records:
             if not self.record_blocks_duplicate(record):
                 # 초안(draft_saved_for_review)은 발행이 아니므로 영구 dedup·엔티티
@@ -365,6 +390,54 @@ class TopicDedupService:
                 return True
 
         return False
+
+    @staticmethod
+    def cluster_max_consecutive() -> int:
+        """클러스터 후보를 연속 몇 편까지 허용할지. 0이면 상한 없음."""
+        raw = (os.getenv("CLUSTER_MAX_CONSECUTIVE", "") or "").strip()
+        if raw.isdigit():
+            return max(0, int(raw))
+        return _DEFAULT_CLUSTER_MAX_CONSECUTIVE
+
+    @staticmethod
+    def _record_is_cluster(record: dict[str, Any]) -> bool:
+        """원장 레코드가 클러스터 경로로 발행된 글인지."""
+        if not isinstance(record, dict):
+            return False
+        return bool(
+            str(record.get("cluster_slot") or "").strip()
+            or str(record.get("topic_cluster") or "").strip()
+        )
+
+    def _cluster_publish_streak(self, history_records: list[dict]) -> int:
+        """최신 발행분부터 세어, 연속으로 클러스터였던 편수.
+
+        발행 성공 레코드만 센다(record_blocks_duplicate) — 차단·스킵까지 세면
+        실패만으로 클러스터가 봉쇄된다. 원장의 나열 순서를 신뢰하지 않고
+        시간 필드로 직접 정렬한다.
+        """
+        published = [
+            record
+            for record in history_records
+            if isinstance(record, dict) and self.record_blocks_duplicate(record)
+        ]
+        if not published:
+            return 0
+
+        def _sort_key(record: dict[str, Any]) -> str:
+            for field in ("run_at", "published_at", "created_at", "date"):
+                value = record.get(field)
+                if value:
+                    return str(value)
+            return ""
+
+        published.sort(key=_sort_key, reverse=True)
+        streak = 0
+        for record in published:
+            if not self._record_is_cluster(record):
+                break
+            streak += 1
+        return streak
 
     @staticmethod
     def _is_cluster_candidate(candidate: ScoredNewsCandidate) -> bool:
