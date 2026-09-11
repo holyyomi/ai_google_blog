@@ -48,7 +48,7 @@ from blogspot_automation.services.seo_policy import (
 )
 from blogspot_automation.services.search_demand_service import collect_demand_phrases
 from blogspot_automation.services.title_generation_service import TitleGenerationService
-from blogspot_automation.services.topic_dedup_service import TopicDedupService
+from blogspot_automation.services.topic_dedup_service import ENTITY_ALIASES, TopicDedupService
 from blogspot_automation.utils.html_meta import extract_meta_description
 
 logger = logging.getLogger(__name__)
@@ -2518,6 +2518,27 @@ class NewsPipeline:
         ):
             blocking_reasons.append("topic_is_developer_tooling_repo_not_consumer_ai")
 
+        # 2026-09-11 실사고 재발 방지. 09-10 저녁 슬롯이 발행한 글:
+        # 제목 "Volvo EX40 Price Range 2026", 소제목 "what the spec databases
+        # show about the ex40" / "what the verified specs mean for a buyer" —
+        # AI 블로그에 올라간 전기차 구매가이드였다. 원본 헤드라인
+        # "Volvo cancels EX40 in the US, updates XC40 with better sensors and
+        # Gemini AI" 꼬리에 "Gemini AI"가 붙어 있었던 것만으로 AI 주제로
+        # 통과했다(topic_engine_score 49 · grade D · article_focus 68).
+        #
+        # 점수 기반 차단은 쓰지 않는다 — 위 dev-tooling 주석에 적힌 것과 같은
+        # 이유로 이미 한 번 폐기됐다(Topic Engine v2 점수는 "상업적 검색의도
+        # 키워드가 있는가"를 재는 지표라 정상 뉴스형 후보까지 죽인다).
+        # 대신 같은 방식으로 "이 글의 실제 주제가 AI인가"를 직접 본다:
+        # 발행될 제목과 본문 소제목 어디에도 AI 용어가 한 번도 안 나오면
+        # 본문의 주제가 AI가 아닌 것이다. 원본 주제 문장은 일부러 보지 않는다
+        # — 거기 꼬리로 붙은 "Gemini AI"가 바로 이 사고를 통과시킨 신호다.
+        if ai_blog_content_allowed and self._looks_like_non_ai_subject_article(
+            title=str(base_result.get("selected_title") or ""),
+            html=html or "",
+        ):
+            blocking_reasons.append("article_subject_is_not_ai")
+
         return {
             "allowed": not blocking_reasons,
             "blocking_reasons": list(dict.fromkeys(blocking_reasons)),
@@ -2590,6 +2611,81 @@ class NewsPipeline:
             if any(term in nearby for term in cls._DEV_TOOLING_REPO_CONTEXT_TERMS):
                 return True
         return False
+
+    # 일반 AI 용어. 특정 도구 목록으로 좁히지 않는다 — 회사명은 아래
+    # ENTITY_ALIASES로 따로 받는다. "model"/"agent"/"assistant"처럼 다소 넓은
+    # 단어를 일부러 포함했다: 이 목록이 넓을수록 게이트는 **덜** 막으므로
+    # 오탐(정상 AI 글 차단) 쪽으로는 안전하고, 자동차·스포츠처럼 완전히 다른
+    # 도메인 글만 남는다.
+    _NON_AI_SUBJECT_AI_TERMS: tuple[str, ...] = (
+        "ai", "a.i.", "artificial intelligence", "chatbot", "chatbots",
+        "llm", "llms", "large language model", "generative", "genai",
+        "machine learning", "neural network", "deep learning",
+        "prompt", "prompts", "prompting", "agent", "agents", "agentic",
+        "transformer", "inference", "gpu", "neocloud", "agi",
+        "superintelligence", "text-to-image", "text to image",
+        "image generator", "image generation", "voice clone",
+        "fine-tune", "fine-tuning", "open-weight", "open weights",
+        "context window", "hallucination", "hallucinations",
+        "token", "tokens", "copilot", "assistant", "assistants",
+        "coding assistant", "model", "models", "benchmark", "benchmarks",
+        "dataset", "datasets", "인공지능", "챗봇", "생성형",
+    )
+
+    @classmethod
+    def _non_ai_subject_term_pattern(cls) -> re.Pattern[str]:
+        cached = getattr(cls, "_NON_AI_SUBJECT_PATTERN_CACHE", None)
+        if cached is not None:
+            return cached
+        terms: set[str] = {t for t in cls._NON_AI_SUBJECT_AI_TERMS if t}
+        # 회사·제품 별칭(openai/claude/gemini/메타 …)도 AI 신호로 친다.
+        # ASCII 별칭은 3자 이상만 쓴다("qu", "cue" 같은 2자 토큰이 일반 영문에
+        # 우연히 걸리는 것을 막는다). 한글 별칭은 2자("메타", "라마")가
+        # 정상이라 길이 제한을 따로 둔다 — 이 구분을 빼면 한국어 시절 발행글이
+        # 통째로 오탐된다(실측: 2026-07-13 "메타 라마 …" 글).
+        for aliases in ENTITY_ALIASES.values():
+            for alias in aliases:
+                alias = (alias or "").strip().lower()
+                if not alias:
+                    continue
+                if alias.isascii():
+                    if len(alias) >= 3:
+                        terms.add(alias)
+                elif len(alias) >= 2:
+                    terms.add(alias)
+        pattern = re.compile(
+            r"(?<![a-z0-9])(?:"
+            + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True))
+            + r")(?![a-z0-9])"
+        )
+        cls._NON_AI_SUBJECT_PATTERN_CACHE = pattern
+        return pattern
+
+    @classmethod
+    def _looks_like_non_ai_subject_article(cls, *, title: str, html: str) -> bool:
+        """제목과 소제목 어디에도 AI 용어가 없으면 글의 실제 주제가 AI가 아니다.
+
+        오탐 방지 장치 2개 — 둘 다 실측으로 필요성이 확인된 것이다:
+
+        1. **소제목이 있어야만 판정한다.** 소제목을 못 뽑으면 본문 주제를
+           읽을 근거가 없는 것이므로 차단하지 않는다(증거 없음 = 통과).
+        2. **부분일치가 아니라 단어 경계로 찾는다.** "ai"를 단순 부분문자열로
+           찾으면 "remains"·"email"·"available"이 전부 AI 신호가 되어
+           바로 이 Volvo 글도 통과한다(실측: 소제목 "what remains unconfirmed").
+
+        2026-09-11 기준 발행 이력 68편 전체에 걸어 본 실측 결과 —
+        소제목이 있는 16편 중 걸린 것은 Volvo 글 1편뿐이고, 소제목이 없는
+        52편은 제목만으로도 0편이 걸렸다(오탐 0).
+        """
+        headings = [
+            str(h).strip()
+            for h in (NewsQualityGate._section_headings(html or "") or [])
+            if str(h).strip()
+        ]
+        if not headings:
+            return False
+        haystack = f"{title or ''} {' '.join(headings)}".lower()
+        return not cls._non_ai_subject_term_pattern().search(haystack)
 
     @staticmethod
     def _evergreen_auto_publish_allowed() -> bool:
