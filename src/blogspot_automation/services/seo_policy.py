@@ -7,6 +7,7 @@ import os
 from urllib.parse import unquote, urlsplit
 
 from blogspot_automation.services.blog_language import is_english_mode
+from blogspot_automation.services.phrase_variation import variant_index
 from blogspot_automation.services.publish_history_service import PublishHistoryService
 from blogspot_automation.services.title_integrity_policy import audit_title_integrity
 
@@ -555,6 +556,32 @@ def append_hashtags_block(
     return f"{content.rstrip()}\n{block}"
 
 
+# 2026-09-11: "Related guides" was a fixed string on every post, and it is also
+# listed in news_quality_gate._STOCK_SECTION_HEADINGS_EN as a reused stock
+# heading. This function has no topic/title argument, so the article's own <h1>
+# is used as the seed - the same article always renders the same heading.
+_KO_RELATED_HEADING = "같이 보면 좋은 내부 글"
+_RELATED_HEADINGS_EN: tuple[str, ...] = (
+    "Related guides",
+    "More on this topic",
+    "Keep reading",
+    "Related reading",
+    "More guides like this",
+    "Read next",
+    "More from this blog",
+    "Nearby topics",
+)
+
+
+def _related_guides_heading(html: str) -> str:
+    if not is_english_mode():
+        return _KO_RELATED_HEADING
+    match = re.search(r"<h1[^>]*>(.*?)</h1>", html or "", flags=re.IGNORECASE | re.DOTALL)
+    seed = re.sub(r"<[^>]+>", " ", match.group(1)) if match else (html or "")[:200]
+    seed = " ".join(seed.split())
+    return _RELATED_HEADINGS_EN[variant_index(seed, "seo:related", len(_RELATED_HEADINGS_EN))]
+
+
 def append_internal_links_block(
     html: str,
     *,
@@ -581,10 +608,10 @@ def append_internal_links_block(
         f'<li><a href="{escape(url)}">{escape(title)}</a></li>'
         for title, url in selected_links[:3]
     )
-    heading = "Related guides" if is_english_mode() else "같이 보면 좋은 내부 글"
+    heading = _related_guides_heading(cleaned)
     block = (
         '\n<section class="yomi-internal-links" data-yomi-block="internal-links">'
-        f"<h2>{heading}</h2>"
+        f"<h2>{escape(heading)}</h2>"
         f"<ul>{items}</ul>"
         "</section>"
     )
