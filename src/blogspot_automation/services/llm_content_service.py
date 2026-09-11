@@ -435,13 +435,8 @@ Then output this block verbatim in structure (keep id and classes exactly; fill 
 
 [REQUIRED — every article ends with something the reader can act on]
 - Pre-flight checklist: <div class="quality-checklist"><ul><li>topic-specific check item</li>...</ul></div>
-  3-5 items, each one a check the reader performs THEMSELVES before acting on this
-  topic. Items must be specific to this article (a name, a setting, a number, a page
-  to open) — a check that would read the same on any other article is worthless.
-- One reproducible recipe the reader can run: the exact steps/settings/prompt, the
-  condition to run it under, and what to measure in the result. Put a 3+ step
-  process in the actions-box <ol> above. This is the ONLY honest substitute for a
-  hands-on test — this publication cannot run one, so never claim you did.
+  3-5 items, each a check the reader runs THEMSELVES, each naming something from this
+  article (a setting, a number, a page). A check that would fit any other article is useless.
 {asset_directive}
 [DO NOT]
 - Use any class not listed above (plus verdict-box when the asset directive asks for it), or inline style attributes.
