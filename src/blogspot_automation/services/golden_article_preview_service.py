@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from blogspot_automation.services.blog_language import is_english_mode
+from blogspot_automation.services.paragraph_rhythm import split_numbered_steps
 from blogspot_automation.services.golden_pattern_service import GoldenPatternService
 from blogspot_automation.services.official_sources import (
     get_official_sources_for_pattern,
@@ -536,10 +537,21 @@ class GoldenArticlePreviewService:
         # real_criterion
         real = _str_slot(slots.get("real_criterion"))
         if real:
+            # 2026-09-11: real_criterion 은 슬롯 명세부터 단계 문자열이다
+            # (Step 1 / Step 2 ... 또는 1단계 / 2단계 ...). 그런데 여기서
+            # <p> 하나로 escape 되면서 줄바꿈이 사라져 3단계가 통짜 문단으로
+            # 뭉개졌다. 단계가 실제로 들어 있으면 <ol> 로 낸다 — 읽기도 낫고,
+            # 게이트의 example/checklist 신호도 이 <ol> 을 근거로 인정한다.
+            _steps = split_numbered_steps(real)
+            if len(_steps) >= 2:
+                _items = "".join(f"<li>{escape(step)}</li>" for step in _steps)
+                _real_body = f"      <ol>{_items}</ol>\n"
+            else:
+                _real_body = f"      <p>{escape(real)}</p>\n"
             sections.append(
                 f'    <section class="real-criterion">\n'
                 f'      <p class="section-label">{escape(_section_label("real_criterion", ai_family))}</p>\n'
-                f'      <p>{escape(real)}</p>\n'
+                f"{_real_body}"
                 f'    </section>'
             )
 

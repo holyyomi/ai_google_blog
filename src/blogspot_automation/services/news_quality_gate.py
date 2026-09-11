@@ -768,7 +768,28 @@ class NewsQualityGate:
         blocking_issues.extend(str(issue) for issue in final_html_audit.get("issues", []))
         warnings.extend(str(warning) for warning in final_html_audit.get("warnings", []))
         issue_context_markers = ("확인된", "아직 확인", "관전 포인트", "반응이 갈린", "확산 이유")
-        if not any(marker in html for marker in ("예시", "체크리스트", "오늘 바로 할 것")) and not (
+        # 2026-09-11 수정. 이 검사는 한국어 마커만 찾고 있어서 영어 전환
+        # (2026-07-17) 이후 **한 번도 꺼진 적이 없다** — 최근 12편 중 12편에서
+        # 경고가 떴고, 경고 하나당 품질점수 5점을 깎고 있었다. 실제로는 글에
+        # 체크리스트도 리스트도 있었다(같은 파일의 ai_save_value_checklist_missing
+        # 은 영어 분기가 있어서 0번 떴다 — 같은 글을 두 검사가 반대로 판정했다).
+        _example_markers_en = (
+            "checklist", "for example", "for instance", "worked example",
+            "walkthrough", "step 1", "step one",
+        )
+        _example_markup_en = ("quality-checklist", "actions-box", "<ol")
+        _lowered_html = (html or "").lower()
+        _has_example_or_checklist = (
+            any(marker in html for marker in ("예시", "체크리스트", "오늘 바로 할 것"))
+            or (
+                is_english_mode()
+                and (
+                    any(marker in _lowered_html for marker in _example_markers_en)
+                    or any(marker in _lowered_html for marker in _example_markup_en)
+                )
+            )
+        )
+        if not _has_example_or_checklist and not (
             content_type in {"viral_issue_decode", "trend_decode", "today_issue_explainer"}
             and any(marker in html for marker in issue_context_markers)
         ):
@@ -3190,7 +3211,20 @@ class NewsQualityGate:
             "verify", "today", "right now",
         )
         target_clear = 20 if "target-reader-box" in html and any(term in plain_text for term in target_terms) else 10
-        one_sentence_conclusion = 20 if "core-message-box" in html and any(term in plain_text for term in conclusion_terms) else 8
+        # 2026-09-11: 영어 본문 생성기는 core-message-box 대신 yomi-thesis 클래스를
+        # 쓴다. 같은 파일 778행의 경고 검사는 이미 둘을 같이 인정하는데 이 점수만
+        # 좁게 봐서 40편 중 39편이 8점으로 고정됐다 — 실제로는 결론 블록이 있었다.
+        _conclusion_box_present = (
+            "core-message-box" in html
+            or "yomi-thesis" in html
+            or "hero-summary-box" in html
+        )
+        one_sentence_conclusion = (
+            20
+            if _conclusion_box_present
+            and any(term in plain_text for term in conclusion_terms)
+            else 8
+        )
         search_intent_match = 20 if any(term in title or term in plain_text[:700] for term in search_terms) else 10
         actionable = 20 if "action-guide-box" in html and sum(1 for term in action_terms if term in plain_text) >= 2 else 10
         mixed_terms = cls._hashtag_mismatch_terms(content_type, hashtags)

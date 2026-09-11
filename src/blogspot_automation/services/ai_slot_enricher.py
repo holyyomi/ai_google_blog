@@ -526,6 +526,19 @@ def enrich_slots_with_llm(
         t = re.sub(r"\s+", " ", llm_title).strip().strip('"').strip()
         _max_title_len = 75 if is_english_mode() else 60  # 영어 제목은 더 길다
         if 6 <= len(t) <= _max_title_len and not re.search(r"\d+\s*가지\s*$", t):
+            # 표기 통일(2026-09-11): normalize_english_title이 지금까지
+            # select_best_title 한 곳에만 걸려 있어서, 여기서 채택되는 LLM 제목은
+            # 정규화를 통째로 건너뛰었다 — 검색어를 그대로 실은 소문자 제목
+            # ("copilot how to use agents: Publishing for Organizations 2026",
+            # 2026-09-10 리허설 실측)이 그 경로로 나왔다. 이 함수가 LLM 제목의
+            # 유일한 관문이므로(아래 무결성 검사 주석 참고) 여기서 통일한다.
+            # 무결성 검사는 정규화 **후** 문자열로 돌린다 — 실제 발행될 제목을
+            # 검사해야 하고, 대소문자는 조사·비문 판정에 영향을 주지 않는다.
+            # 한국어 제목은 normalize_english_title이 그대로 돌려준다.
+            from blogspot_automation.services.title_candidate_service import (
+                normalize_english_title,
+            )
+            t = normalize_english_title(t) or t
             from blogspot_automation.services.title_integrity_policy import audit_title_integrity
             integrity = audit_title_integrity(t, content_type=content_type)
             if integrity.get("passed"):

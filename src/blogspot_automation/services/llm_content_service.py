@@ -433,8 +433,10 @@ Then output this block verbatim in structure (keep id and classes exactly; fill 
 </section>
 (The system appends related internal links after your article — do not add external links or a "read more" section yourself.)
 
-[OPTIONAL — only when the topic genuinely calls for it]
+[REQUIRED — every article ends with something the reader can act on]
 - Pre-flight checklist: <div class="quality-checklist"><ul><li>topic-specific check item</li>...</ul></div>
+  3-5 items, each a check the reader runs THEMSELVES, each naming something from this
+  article (a setting, a number, a page). A check that would fit any other article is useless.
 {asset_directive}
 [DO NOT]
 - Use any class not listed above (plus verdict-box when the asset directive asks for it), or inline style attributes.

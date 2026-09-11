@@ -247,13 +247,68 @@ def _faq_questions(html: str) -> list[str]:
 
 
 def _shareability_signals(html: str, visible_text: str) -> list[str]:
+    """공유될 만한 요소가 실제로 글에 있는지 센다. 14점 x 신호 수 = shareability_score.
+
+    2026-09-11 수정. 7개 신호 중 4개(checklist/example/official_check/
+    risk_or_mistake)가 한국어 문자열만 찾고 있어서 영어 전환(2026-07-17) 이후
+    **구조적으로 절대 켜지지 않았다**. 남은 3개(table/faq/updated_date)는 전부
+    구조적으로 항상 참이라(테이블은 프롬프트 필수, FAQ h3 3개 미만은 하드 차단,
+    날짜는 source-trust 블록이 항상 찍음) 최근 발행 40편의 점수가 예외 없이
+    3 x 14 = 42 로 고정됐다. 임계값이 55라 경고도 40/40 으로 떴고, 그 경고가
+    ai_recommender_score 를 6점씩 깎아 그 점수마저 94 로 고정시켰다.
+    즉 지표 두 개가 아무것도 측정하지 못하는 상수였다.
+
+    한국어 조건은 그대로 두고 영어 조건을 더한다(과거 발행물 재평가 호환).
+    """
+    lowered_html = (html or "").lower()
+    lowered_text = (visible_text or "").lower()
+
+    def _present(ko_terms: tuple[str, ...], en_terms: tuple[str, ...]) -> bool:
+        if any(term in visible_text for term in ko_terms):
+            return True
+        return any(term in lowered_text for term in en_terms)
+
+    # 체크리스트/단계: 클래스와 <ol> 은 렌더러가 실제로 그 블록을 낸 증거다.
+    checklist_markup = (
+        "quality-checklist" in lowered_html
+        or "actions-box" in lowered_html
+        or "<ol" in lowered_html
+    )
     checks: list[tuple[str, bool]] = [
-        ("table", "<table" in (html or "").lower()),
+        ("table", "<table" in lowered_html),
         ("faq", len(_faq_questions(html)) >= 3),
-        ("checklist", any(term in visible_text for term in ("체크리스트", "바로 할", "지금 바로", "오늘 바로"))),
-        ("example", any(term in visible_text for term in ("예시", "상황", "사례"))),
-        ("official_check", any(term in visible_text for term in ("공식", "공고", "신청 페이지", "정부24", "복지로"))),
-        ("risk_or_mistake", any(term in visible_text for term in ("주의", "함정", "착각", "제외", "놓치기 쉬운"))),
+        (
+            "checklist",
+            checklist_markup
+            or _present(
+                ("체크리스트", "바로 할", "지금 바로", "오늘 바로"),
+                ("checklist", "before you start", "step 1", "step one", "quick check"),
+            ),
+        ),
+        (
+            "example",
+            _present(
+                ("예시", "상황", "사례"),
+                ("for example", "for instance", "worked example", "walkthrough",
+                 "say you", "suppose you", "scenario:"),
+            ),
+        ),
+        (
+            "official_check",
+            _present(
+                ("공식", "공고", "신청 페이지", "정부24", "복지로"),
+                ("official", "status page", "pricing page", "release notes",
+                 "the vendor's own", "documentation"),
+            ),
+        ),
+        (
+            "risk_or_mistake",
+            _present(
+                ("주의", "함정", "착각", "제외", "놓치기 쉬운"),
+                ("mistake", "pitfall", "caveat", "watch out", "gotcha",
+                 "common error", "where people get it wrong", "limitation"),
+            ),
+        ),
         ("updated_date", bool(re.search(r"20\d{2}-\d{2}-\d{2}", visible_text))),
     ]
     return [name for name, present in checks if present]

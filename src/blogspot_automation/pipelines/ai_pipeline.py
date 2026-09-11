@@ -12,7 +12,10 @@ from blogspot_automation.services.news_label_service import NewsLabelService
 from blogspot_automation.services.publish_history_service import PublishHistoryService
 from blogspot_automation.services.run_artifact_service import RunArtifactService
 from blogspot_automation.services.seo_policy import normalize_hashtags, normalize_labels, prepare_blogspot_html
-from blogspot_automation.services.title_candidate_service import TitleCandidateService
+from blogspot_automation.services.title_candidate_service import (
+    TitleCandidateService,
+    normalize_english_title,
+)
 from blogspot_automation.services.evergreen_topic_service import EvergreenTopicService
 from blogspot_automation.services.news_scoring_service import NewsScoringService
 
@@ -546,7 +549,10 @@ class AiTopicPipeline:
             pattern_id=pattern_id, candidate_raw=raw_candidate,
         )
         best = tr.get("best_title") or {}
-        selected_title = best.get("title", topic)
+        # 후보가 전부 막히면 검색어 원문(topic)이 그대로 제목이 된다 — 소문자
+        # 검색어 제목의 두 번째 경로였다(2026-09-11). best_title 경로는
+        # select_best_title 안에서 이미 정규화되므로 폴백만 통일하면 된다.
+        selected_title = best.get("title") or normalize_english_title(topic) or topic
         ctr = int(best.get("ctr_score") or 0)
         return tr, selected_title, ctr
 

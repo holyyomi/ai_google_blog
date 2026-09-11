@@ -17,6 +17,8 @@ from blogspot_automation.services.geo_intent_service import (
 from blogspot_automation.services.kst_clock import kst_today
 from blogspot_automation.services.phrase_variation import all_compositions as _all_compositions
 from blogspot_automation.services.phrase_variation import compose as _compose
+from blogspot_automation.services.phrase_variation import variant_index
+from blogspot_automation.services.paragraph_rhythm import split_dense_paragraphs
 from blogspot_automation.services.news_taxonomy import content_type_for_topic_group
 
 
@@ -36,23 +38,91 @@ _LABEL_VARIANTS: dict[str, tuple[str, ...]] = {
 # 주의: 변형은 전부 '비질문형' 표현만 쓴다 — What/Why/How/Which 시작이나 '?'가
 # 들어가면 final_html_audit의 질문 헤딩 예산(≤5)을 GEO 블록이 잡아먹어
 # visible_question_headings_above_5로 발행이 차단된다 (2026-07-17 드라이런 #4 실측).
+#
+# 2026-09-11 확장. 그 전에는 종류별 풀이 2~3개뿐이라 발행 16편에서
+# "bottom line first" 8회 · "the backstory in brief" 8회 · "the short answer" 7회 ·
+# "the change, in context" 7회로 반복됐다(실측). 풀이 3개면 md5 균등분포에서
+# 16편 중 같은 라벨을 받는 글이 기댓값 5.3편이라 구조적으로 피할 수 없었다.
+# 각 종류를 9~10개로 늘려 기댓값을 1.6~1.8편으로 낮춘다.
+#
+# 🔴 질문형 금지 규칙은 그대로다. 단, 실제 판정자(final_html_audit_service.
+# _heading_text_is_question)는 영어 헤딩을 '?'로 끝날 때만 질문으로 센다 —
+# 의문사로 시작하는 명사구는 질문이 아니다(그 파일 328~332행 주석 참고).
+# 그래서 물음표만 쓰지 않으면 된다.
 _LABEL_VARIANTS_EN: dict[str, tuple[str, ...]] = {
-    "overview": ("The short answer", "TL;DR", "Bottom line first"),
-    "context": ("The context behind it", "The backstory in brief", "Behind this change"),
-    "context_ai": ("The change, in context", "Behind this update", "The backstory in brief"),
-    "intent": ("Reader questions, answered", "Common questions, answered", "Quick answers for searchers"),
-    "confirmed": ("Confirmed vs. still unclear", "The confirmed facts so far"),
-    "trust": ("Sources & where to verify", "Where this comes from", "Sources"),
+    "overview": (
+        "The short answer", "TL;DR", "Bottom line first", "Start here",
+        "The quick take", "In one paragraph", "Short version first",
+        "The gist", "Straight to it", "Key takeaway up front",
+    ),
+    "context": (
+        "The context behind it", "The backstory in brief", "Behind this change",
+        "The lead-up, briefly", "How this came about", "The situation so far",
+        "Setting the scene", "A little background", "The road to this point",
+        "Where this started",
+    ),
+    "context_ai": (
+        "The change, in context", "Behind this update", "The backstory in brief",
+        "The update in context", "The shift, explained", "What changed, in context",
+        "This update in plain terms", "Putting the update in context",
+        "The change, step back", "Why this landed now",
+    ),
+    "intent": (
+        "Reader questions, answered", "Common questions, answered",
+        "Quick answers for searchers", "The questions people actually ask",
+        "Answers to the usual questions", "Reader follow-ups",
+        "Straight answers, briefly", "The common sticking points",
+        "Questions worth answering first", "Short answers to common asks",
+    ),
+    "confirmed": (
+        "Confirmed vs. still unclear", "The confirmed facts so far",
+        "Settled facts and open questions", "Confirmed, and still open",
+        "Verified so far, and not yet", "Facts and open items",
+        "Confirmed details and gaps", "The verified part, and the rest",
+        "Nailed down, and not yet", "Solid facts and loose ends",
+    ),
+    "trust": (
+        "Sources & where to verify", "Where this comes from", "Sources",
+        "Sources and checks", "Primary sources", "The source list",
+        "Source notes", "References and checks", "Where to verify this",
+        "Checked against these",
+    ),
+    # 2026-09-11 신설. FAQ 헤딩은 _faq_block 안에 하드코딩돼 있어 발행 16편 중
+    # 15편이 "Frequently Asked Questions"였다 — 가장 심한 반복이었는데
+    # 변주 장치 자체가 없었다.
+    "faq": (
+        "Frequently Asked Questions", "Common questions", "Questions readers ask",
+        "Quick answers", "The usual questions", "Reader FAQ",
+        "Questions that come up a lot", "Short answers to reader questions",
+        "Asked and answered", "Loose ends readers ask about",
+    ),
+    # CONFIRMED 블록 안쪽 h3 2개도 매 글 고정이었다.
+    "confirmed_sub": (
+        "What's confirmed", "Confirmed so far", "Established facts",
+        "Verified points", "On the record", "Settled",
+    ),
+    "check_sub": (
+        "Check for yourself (this changes often)", "Worth checking yourself",
+        "Verify before you rely on it", "Check these yourself",
+        "Confirm at the source", "Still worth a look",
+    ),
 }
 
 
 def _varied_label(kind: str, seed: str) -> str:
+    """종류별로 **다른 salt** 를 써서 결정적으로 고른다.
+
+    2026-09-11 이전에는 모든 종류가 `md5(seed)` 하나를 공유했다. 그러면 한 글이
+    받는 라벨들이 같은 난수 하나에서 파생돼 서로 상관되고, 풀 크기가 같은
+    종류끼리는 항상 같은 인덱스를 받는다. phrase_variation 이 이미 이 문제를
+    풀어 둔 모듈이라(조각마다 salt 를 달리해 조합 수를 곱으로 늘림) 그걸 쓴다.
+    선택은 여전히 결정적이다 — 같은 글은 다시 렌더해도 같은 라벨을 받는다.
+    """
     pool = _LABEL_VARIANTS_EN if is_english_mode() else _LABEL_VARIANTS
     variants = pool.get(kind, ())
     if not variants:
         return ""
-    digest = hashlib.md5((seed or kind).encode("utf-8")).hexdigest()
-    return variants[int(digest, 16) % len(variants)]
+    return variants[variant_index(seed or kind, f"label:{kind}", len(variants))]
 
 
 # yomi_judgment 폴백 문장 — 2026-07-23 라이브 실측: 이 문장이 완전히 다른 주제의
@@ -127,6 +197,11 @@ def ensure_answer_engine_optimized_html(
     likely question, answer need, source trust, and follow-up questions.
     """
     content = html or ""
+    # 2026-09-11: 본문 문단 리듬 교정. 생성 프롬프트에 "문단 70단어 이하" 계약이
+    # 있는데 검증기도 게이트도 확인하지 않아 지켜지지 않았다(최근 12편 중 8편에
+    # dense_paragraph_over_90_words). 부탁 대신 코드로 자른다 — 결정적이고 멱등이라
+    # 이 함수가 복구 경로에서 여러 번 불려도 결과가 흔들리지 않는다.
+    content = split_dense_paragraphs(content)
     if not content.strip():
         return content
 
@@ -437,7 +512,9 @@ def ensure_answer_engine_optimized_html(
         content = _insert_before_internal_links_or_body_end(content, "\n".join(tail_blocks))
 
     if not _has_faq_section(content):
-        content = _insert_before_internal_links_or_body_end(content, _faq_block(intent_answers))
+        content = _insert_before_internal_links_or_body_end(
+            content, _faq_block(intent_answers, label=_varied_label("faq", _seed))
+        )
     # LLM이 본문에 직접 쓴 ld+json이 깨져 있으면(제목 안 raw 개행으로 JSON 무효 —
     # 2026-07-18 라이브 "Copilot Share Falls to 51% as \n ARR" 실측) 문자열 존재
     # 검사가 "이미 있음"으로 오인해 유효 블록을 재생성하지 못한다. 파싱 실패한
@@ -826,9 +903,11 @@ def _ensure_min_intent_items_en(content: str, *, topic: str = "", content_type: 
             + "".join(additions)
             + content[block_match.end(2):]
         )
+    # 2026-09-11: 여기만 리터럴이라 복구 경로를 탄 글은 매번 같은 헤딩을 받았다.
+    # 정상 경로(_intent_answer_block)와 같은 변주를 쓴다.
     block = (
         '<section id="INTENT_ANSWER_BLOCK" class="yomi-faq">'
-        "<h2>Reader questions, answered</h2>"
+        f"<h2>{escape(_varied_label('intent', topic or content_type))}</h2>"
         + "".join(additions)
         + "</section>"
     )
@@ -1336,8 +1415,14 @@ def _confirmed_vs_check_needed_block(items: dict[str, list[str]], *, label: str 
     check_needed = "".join(f"<li>{escape(str(item))}</li>" for item in items.get("check_needed", [])[:5])
     if is_english_mode():
         heading = label or "What's confirmed so far"
-        confirmed_h3 = "What's confirmed"
-        check_needed_h3 = "Check for yourself (this changes often)"
+        # 안쪽 h3 2개도 매 글 고정이었다 — 바깥 h2만 변주해도 소용이 없다.
+        # seed 는 바깥 라벨을 그대로 써서 같은 글이면 항상 같은 조합이 나온다.
+        _sub_seed = label or heading
+        confirmed_h3 = _varied_label("confirmed_sub", _sub_seed) or "What's confirmed"
+        check_needed_h3 = (
+            _varied_label("check_sub", _sub_seed)
+            or "Check for yourself (this changes often)"
+        )
     else:
         heading = label or "지금까지 확인된 것"
         confirmed_h3 = "확인된 내용"
@@ -1353,7 +1438,7 @@ def _confirmed_vs_check_needed_block(items: dict[str, list[str]], *, label: str 
     )
 
 
-def _faq_block(items: list[dict[str, str]]) -> str:
+def _faq_block(items: list[dict[str, str]], *, label: str = "") -> str:
     cards = "".join(
         '<div class="faq-card">'
         f'<h3>{escape(str(item.get("Q") or ""))}</h3>'
@@ -1362,8 +1447,8 @@ def _faq_block(items: list[dict[str, str]]) -> str:
         for item in items[:5]
         if item.get("Q") and item.get("A")
     )
-    heading = "Frequently Asked Questions" if is_english_mode() else "자주 묻는 질문"
-    return f'<section class="yomi-faq"><h2>{heading}</h2>{cards}</section>'
+    heading = label or ("Frequently Asked Questions" if is_english_mode() else "자주 묻는 질문")
+    return f'<section class="yomi-faq"><h2>{escape(heading)}</h2>{cards}</section>'
 
 
 def _collapse_visible_question_overstack(html: str) -> str:
