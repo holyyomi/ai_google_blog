@@ -98,11 +98,18 @@ TIER_BLOG = "small_publisher"
 TIER_UNKNOWN = "unknown"
 
 # 각 등급이 우리가 낄 자리에 주는 영향. 작은 퍼블리셔만 양수다.
+#
+# TIER_UNKNOWN 은 0(중립)이다. 2026-09-11 리허설 실측에서 후보 6개가 전부
+# not winnable 로 걸려 전멸 방지가 발동했고, 그중에는 상위가 거의 전부
+# unknown 인 자리(= 벤더도 대형매체도 없는, 우리가 낄 수 있는 자리)까지
+# 섞여 있었다. unknown 에 음수를 주면 **대형 플레이어가 한 명도 없는 자리도
+# 38점으로 탈락**한다(10개 전부 unknown 일 때). 모르는 도메인을 개인 블로그로
+# 낙관하지도(+), 대형 사업자로 비관하지도(-) 않는 게 맞다.
 _TIER_WEIGHT = {
     TIER_VENDOR: -12,
     TIER_MEDIA: -8,
     TIER_PLATFORM: -6,
-    TIER_UNKNOWN: -1,
+    TIER_UNKNOWN: 0,
     TIER_BLOG: +14,
 }
 

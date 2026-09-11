@@ -136,6 +136,25 @@ class CompetitionVerdictTest(unittest.TestCase):
         few = ["https://openai.com/a"] * (MIN_RESULTS_TO_JUDGE - 1)
         self.assertIsNone(assess_from_domains("x", few).winnable)
 
+    def test_serp_with_no_big_player_is_winnable(self):
+        """대형 플레이어가 한 명도 없는 자리는 우리가 낄 수 있는 자리다.
+
+        2026-09-11 리허설에서 후보 6개가 전부 not winnable 로 걸려 전멸 방지가
+        발동했는데, 그 안에 상위가 거의 전부 unknown 인 자리까지 섞여 있었다.
+        unknown 에 음수 가중치를 주면 벤더도 대형매체도 없는 자리가 38점으로
+        탈락한다 — 이 테스트가 그 회귀를 막는다.
+        """
+        no_big_player = [f"https://small{i}.example/post" for i in range(10)]
+        verdict = assess_from_domains("open field", no_big_player)
+        self.assertIs(verdict.winnable, True, f"score={verdict.score}")
+
+    def test_vendor_presence_still_blocks_even_among_unknowns(self):
+        mixed = (
+            ["https://nvidia.com/a", "https://www.reddit.com/r/x", "https://news.ycombinator.com/i"]
+            + [f"https://small{i}.example/post" for i in range(6)]
+        )
+        self.assertIs(assess_from_domains("vendor news", mixed).winnable, False)
+
     def test_verdict_serializes(self):
         keys = set(assess_from_domains("q", OPEN_FIELD).as_dict())
         self.assertTrue({"winnable", "competition_score", "reason"} <= keys)
