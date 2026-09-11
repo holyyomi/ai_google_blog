@@ -162,6 +162,10 @@ jobs:
           # LLM 주제 특화 본문 생성
           ENABLE_AI_LLM_ENRICH: "true"
           ENABLE_SEARCH_DEMAND: "true"
+          # SERP 경쟁도 필터 (2026-09-11) — 벤더 공식문서·대형 테크매체가 점유한
+          # 주제를 후보에서 뺀다. EXA_API_KEY 가 없거나 조회 실패면 막지 않는다.
+          ENABLE_SERP_COMPETITION_FILTER: "true"
+          SERP_COMPETITION_MAX_CHECKS: "6"
           # 읽기쉬움 기준(2026-08-25). 실측: 발행 5편의 Flesch가 34.9~52.5로
           # 일반 독자 기준(60+)에 한참 못 미쳤다. TARGET 미달이면 "쉬운 말로 다시
           # 써라" 보정을 1회 돌리고, FLOOR 미달이면 그때만 차단한다. 차단부터 걸면

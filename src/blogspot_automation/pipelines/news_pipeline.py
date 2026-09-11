@@ -939,6 +939,13 @@ class NewsPipeline:
                 ]
                 golden_filtered_count = len(deduped) - len(golden_deduped)
                 deduped = golden_deduped
+            # 2026-09-11 신설: SERP 경쟁도 필터.
+            # 색인 0의 원인은 "구글이 색인을 안 해준다"가 아니라 애초에 이길 수
+            # 없는 자리를 겨냥한 것이었다(같은 계정 holyteminsight 는 아무도 안
+            # 쓰는 제품명으로 2위 색인, holyyomiai 는 벤더가 소유한 머리 키워드로
+            # 120일 노출 0). 여기서 그 자리를 떠서 벤더·대형매체가 점유한 주제를
+            # 버린다. 측정 못 하면(키 없음·실패) 절대 막지 않는다.
+            deduped = self._filter_by_serp_competition(deduped)
             # 클러스터 후보가 어느 단계에서 사라졌는지 로그만 보고 알 수 있게 한다.
             # (주입은 됐는데 선택은 안 되는 상황을 추정으로 좁히느라 드라이런을
             #  두 번 더 돌린 적이 있다 — 2026-08-26)
@@ -2686,6 +2693,76 @@ class NewsPipeline:
             return False
         haystack = f"{title or ''} {' '.join(headings)}".lower()
         return not cls._non_ai_subject_term_pattern().search(haystack)
+
+    def _filter_by_serp_competition(self, candidates: list) -> list:
+        """상위 결과를 벤더·대형매체가 점유한 주제를 후보에서 뺀다.
+
+        안전 장치 3개 — 전부 이 repo 가 실제로 밟았던 사고에서 나온 것이다:
+        1. **전멸 방지**: 전부 걸리면 아무것도 빼지 않는다. 검증 안 된 필터가
+           발행을 0건으로 만드는 사고(2026-08-06 이미지게이트)를 반복하지 않는다.
+        2. **확인 불가는 통과**: winnable=None(키 없음·네트워크 실패)은 막지
+           않는다. 측정 실패로 주제를 버리면 조용히 아무것도 못 쓰게 된다.
+        3. **호출 수 상한**: 점수 상위 후보 몇 개만 조회한다(기본 6).
+           나머지는 조회하지 않고 그대로 둔다.
+        """
+        if not candidates:
+            return candidates
+        flag = (os.getenv("ENABLE_SERP_COMPETITION_FILTER", "true") or "").strip().lower()
+        if flag not in {"1", "true", "yes", "on"}:
+            return candidates
+        try:
+            from blogspot_automation.services.serp_competition_service import (
+                SerpCompetitionService,
+            )
+            service = getattr(self, "_serp_competition_service", None)
+            if service is None:
+                service = SerpCompetitionService()
+                self._serp_competition_service = service
+            try:
+                max_checks = int(os.getenv("SERP_COMPETITION_MAX_CHECKS", "") or 6)
+            except ValueError:
+                max_checks = 6
+            kept: list = []
+            dropped: list = []
+            checks = 0
+            for item in candidates:
+                raw = item.candidate.raw if isinstance(getattr(item.candidate, "raw", None), dict) else {}
+                query = str(
+                    raw.get("search_demand_topic")
+                    or getattr(item.candidate, "topic", "")
+                    or ""
+                ).strip()
+                if checks >= max_checks or not query:
+                    kept.append(item)
+                    continue
+                checks += 1
+                verdict = service.assess(query)
+                raw["serp_competition"] = verdict.as_dict()
+                if verdict.winnable is False:
+                    dropped.append((query, verdict))
+                    continue
+                kept.append(item)
+            if dropped and not kept:
+                logger.warning(
+                    "serp_competition: 후보 %d개가 전부 경쟁 과열로 걸려 필터를 적용하지 "
+                    "않는다(전멸 방지) — %s",
+                    len(dropped), dropped[0][1].reason,
+                )
+                return candidates
+            for query, verdict in dropped:
+                logger.info(
+                    "serp_competition: 후보 제외 score=%d %r — %s",
+                    verdict.score, query[:60], verdict.reason,
+                )
+            if dropped:
+                logger.info(
+                    "serp_competition: %d개 제외 / %d개 유지 (조회 %d회)",
+                    len(dropped), len(kept), checks,
+                )
+            return kept
+        except Exception as exc:  # noqa: BLE001 - 이 필터 때문에 발행이 멈추면 안 된다.
+            logger.warning("serp_competition: 필터 실패(무시): %s", exc)
+            return candidates
 
     @staticmethod
     def _evergreen_auto_publish_allowed() -> bool:

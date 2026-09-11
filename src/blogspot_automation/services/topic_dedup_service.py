@@ -635,11 +635,35 @@ class TopicDedupService:
 
     @staticmethod
     def _norms_match(candidate_norm: str, history_norm: str) -> bool:
+        """정규화된 제목/주제가 근접중복인지.
+
+        2026-09-11 수정. 포함(substring) 규칙에 **두 단어 이상** 조건을 붙인다.
+
+        normalize_text 는 불용어를 걷어내므로 일반 독자 질문형 문구는 브랜드명
+        한 단어로 줄어든다 — "is chatgpt worth it" -> "chatgpt",
+        "is gemini free" -> "gemini". 그 한 단어가 6자를 넘으면 그 브랜드를
+        언급한 과거 글 아무거나에 포함돼 버린다(실측: "chatgpt" 가
+        "chatgpt limit reduced" 에 포함 -> 중복 판정).
+
+        그래서 질문 발굴(question_demand_service)이 고른 소비자 질문이 매번
+        전멸했고, 파이프라인은 그때마다 뉴스 리라이트로 흘러내렸다
+        (2026-09-11 리허설 실측: 6회 시도 전부 deduped=0 -> 뉴스 선택).
+
+        한 단어 norm 은 "주제"가 아니라 "브랜드"다. 브랜드가 같다고 중복은
+        아니다 — 그건 엔티티 쿨다운이 따로 담당한다. 완전 일치(=같은 맨몸
+        주제)는 그대로 중복으로 본다.
+
+        회귀 측정(발행 68편 전수): 제목 norm 이 한 단어인 글 0편,
+        과거 글 쌍 중 판정이 바뀌는 쌍 0개. "chatgpt gemini" 처럼 두 단어
+        이상인 근접중복은 그대로 잡힌다.
+        """
         if not candidate_norm or not history_norm:
             return False
         if candidate_norm == history_norm:
             return True
         shorter, longer = sorted((candidate_norm, history_norm), key=len)
+        if len(shorter.split()) < 2:
+            return False
         shorter_compact = shorter.replace(" ", "")
         longer_compact = longer.replace(" ", "")
         return len(shorter_compact) >= 6 and shorter_compact in longer_compact
