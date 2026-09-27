@@ -301,6 +301,11 @@ _GENERIC_CLI_TOOLS: frozenset[str] = frozenset(
         "pip", "pip3", "npm", "pnpm", "yarn", "npx", "git", "cd", "ls", "curl",
         "wget", "python", "python3", "node", "brew", "docker", "export", "echo",
         "cat", "mkdir", "uv", "uvx", "conda", "sudo", "apt", "apt-get", "set",
+        # 2026-09-27 리허설 오탐: `touch test.tmp && rm test.tmp` 가 걸렸다.
+        # 기본 유닉스 명령은 출처에 적혀 있을 이유가 없다.
+        "touch", "rm", "cp", "mv", "chmod", "chown", "grep", "find", "head", "tail",
+        "less", "ln", "pwd", "which", "whoami", "env", "tar", "unzip", "ssh", "scp",
+        "code", "open", "start", "powershell", "bash", "sh", "zsh", "source",
     }
 )
 _COMMAND_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\s+\S+)+$")

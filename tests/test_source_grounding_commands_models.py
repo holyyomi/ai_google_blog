@@ -43,3 +43,8 @@ def test_version_prefix_is_not_a_match():
     # 팩트에 5.5 만 있을 때 "Claude Opus 5" 는 다른 모델이다.
     r = _audit("Claude Opus 5 is older.")
     assert r.ungrounded_models == ["Claude Opus 5"]
+
+
+def test_basic_shell_utilities_are_not_flagged():
+    r = _audit("Check write access: <code>touch test.tmp && rm test.tmp</code>.")
+    assert r.ungrounded_commands == []
