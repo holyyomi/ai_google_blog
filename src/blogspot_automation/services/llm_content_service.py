@@ -926,8 +926,10 @@ class LlmContentService:
                 regrounded = audit_grounding(repaired, facts or "")
                 logger.info(
                     "SourceGrounding: 재작성 %d건 → %d건 (하드 %d → %d)",
-                    len(grounding.ungrounded_absence) + len(grounding.ungrounded_numbers),
-                    len(regrounded.ungrounded_absence) + len(regrounded.ungrounded_numbers),
+                    len(grounding.ungrounded_absence) + len(grounding.ungrounded_numbers)
+                    + len(grounding.ungrounded_commands) + len(grounding.ungrounded_models),
+                    len(regrounded.ungrounded_absence) + len(regrounded.ungrounded_numbers)
+                    + len(regrounded.ungrounded_commands) + len(regrounded.ungrounded_models),
                     len(grounding.hard_violations), len(regrounded.hard_violations),
                 )
                 if len(regrounded.hard_violations) <= len(grounding.hard_violations):
