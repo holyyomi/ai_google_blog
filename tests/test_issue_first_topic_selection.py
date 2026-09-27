@@ -68,3 +68,28 @@ def test_only_big_issues_skip_entity_cooldown(monkeypatch):
     small = _scored({"today_buzz_score": 6}, "Anthropic minor update")
     assert TopicDedupService._is_entity_cooldown_exempt(big) is True
     assert TopicDedupService._is_entity_cooldown_exempt(small) is False
+
+
+def test_big_issue_is_not_dropped_by_serp_competition(monkeypatch):
+    """리허설 실측: HN 2,232점 Anthropic 판결이 '대형 매체 점유'로 경쟁 필터에서 빠졌다."""
+    from blogspot_automation.services.serp_competition_service import CompetitionVerdict
+
+    monkeypatch.delenv("ISSUE_BUZZ_MIN", raising=False)
+    monkeypatch.setenv("ENABLE_SERP_COMPETITION_FILTER", "true")
+    big = _scored({"today_buzz_score": 10, "search_demand_topic": "anthropic ruling"}, "Anthropic ruling")
+    small = _scored({"today_buzz_score": 4, "search_demand_topic": "small news"}, "small news")
+    other = _scored({"today_buzz_score": 4, "search_demand_topic": "other news"}, "other news")
+    verdicts = {
+        "anthropic ruling": CompetitionVerdict(topic="t", winnable=False, score=2, reason="big media"),
+        "small news": CompetitionVerdict(topic="t", winnable=False, score=2, reason="big media"),
+        "other news": CompetitionVerdict(topic="t", winnable=True, score=80, reason="ok"),
+    }
+
+    class _Svc:
+        def assess(self, topic):
+            return verdicts[topic]
+
+    pipeline = _pipeline()
+    pipeline._serp_competition_service = _Svc()
+    kept = [k.candidate.topic for k in pipeline._filter_by_serp_competition([big, small, other])]
+    assert kept == ["Anthropic ruling", "other news"]
