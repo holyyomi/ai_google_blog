@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from html import unescape
 
 logger = logging.getLogger(__name__)
 
@@ -156,15 +157,24 @@ class GroundingReport:
         ungrounded_absence: list[str],
         ungrounded_numbers: list[str],
         facts_chars: int,
+        ungrounded_commands: list[str] | None = None,
+        ungrounded_models: list[str] | None = None,
     ) -> None:
         self.checked = checked
         self.ungrounded_absence = ungrounded_absence
         self.ungrounded_numbers = ungrounded_numbers
+        self.ungrounded_commands = list(ungrounded_commands or [])
+        self.ungrounded_models = list(ungrounded_models or [])
         self.facts_chars = facts_chars
 
     @property
     def clean(self) -> bool:
-        return not self.ungrounded_absence and not self.ungrounded_numbers
+        return not (
+            self.ungrounded_absence
+            or self.ungrounded_numbers
+            or self.ungrounded_commands
+            or self.ungrounded_models
+        )
 
     @property
     def hard_violations(self) -> list[str]:
@@ -174,8 +184,15 @@ class GroundingReport:
         섞여 있어(관찰 12일 실측) 재작성만 시키고 차단 사유로 쓰지 않는다.
         가격은 독자가 돈을 결정하는 숫자라 출처 없이 나가면 안 된다.
         """
+        # 2026-09-27 추가: 없는 명령어·출처에 없는 모델 버전도 차단 대상이다.
+        # 독자가 그대로 쳐 보고 실패하거나, 옛 모델을 현재 것으로 믿게 된다.
         dollars = [n for n in self.ungrounded_numbers if n.lstrip().startswith("$")]
-        return list(self.ungrounded_absence) + dollars
+        return (
+            list(self.ungrounded_absence)
+            + dollars
+            + [f"command: {c}" for c in self.ungrounded_commands]
+            + [f"model: {m}" for m in self.ungrounded_models]
+        )
 
     def as_dict(self) -> dict:
         return {
@@ -183,6 +200,8 @@ class GroundingReport:
             "facts_chars": self.facts_chars,
             "ungrounded_absence_claims": self.ungrounded_absence,
             "ungrounded_numbers": self.ungrounded_numbers,
+            "ungrounded_commands": self.ungrounded_commands,
+            "ungrounded_models": self.ungrounded_models,
             "clean": self.clean,
             "hard_violations": self.hard_violations,
         }
@@ -245,16 +264,109 @@ def audit_grounding(content_html: str, facts: str, *, max_items: int = 8) -> Gro
         if len(ungrounded_numbers) >= max_items:
             break
 
+    ungrounded_commands = _ungrounded_commands(content_html, facts)[:max_items]
+    ungrounded_models = _ungrounded_models(text, facts)[:max_items]
+
     report = GroundingReport(
         checked=True,
         ungrounded_absence=ungrounded_absence,
         ungrounded_numbers=ungrounded_numbers,
         facts_chars=len(facts),
+        ungrounded_commands=ungrounded_commands,
+        ungrounded_models=ungrounded_models,
     )
     if not report.clean:
         logger.warning(
-            "SourceGrounding(관찰): 팩트에 근거 없는 주장 — 부재주장 %d건 %s / 숫자 %d건 %s",
+            "SourceGrounding(관찰): 팩트에 근거 없는 주장 — 부재주장 %d건 %s / 숫자 %d건 %s"
+            " / 명령어 %d건 %s / 모델 %d건 %s",
             len(ungrounded_absence), ungrounded_absence[:3],
             len(ungrounded_numbers), ungrounded_numbers[:5],
+            len(ungrounded_commands), ungrounded_commands[:5],
+            len(ungrounded_models), ungrounded_models[:5],
         )
     return report
+
+
+# ── 3) 명령어 (2026-09-27) ────────────────────────────────────────────────────
+# 2026-09-26 라이브 글에 `gemini quota`, `gemini auth status` 가 나갔다. 초안 41개
+# 실측에서 <code> 가 있는 글은 13개였고, `claude init`·`claude log --level debug`
+# 처럼 출처 없이 지어낸 것으로 보이는 명령과 `ollama show` 같은 실제 명령이 섞여
+# 있었다. 명령은 전부 <code> 안에 있었으므로 <code> 만 본다.
+#
+# 판정 단위는 "도구 + 첫 하위명령"(gemini quota, claude log). 플래그 값까지 요구하면
+# 출처가 같은 명령을 다른 플래그로 보여줄 때 오탐이 난다. 하위명령 없이 플래그만
+# 있으면(claude --version) 도구 이름만 확인한다.
+_GENERIC_CLI_TOOLS: frozenset[str] = frozenset(
+    {
+        "pip", "pip3", "npm", "pnpm", "yarn", "npx", "git", "cd", "ls", "curl",
+        "wget", "python", "python3", "node", "brew", "docker", "export", "echo",
+        "cat", "mkdir", "uv", "uvx", "conda", "sudo", "apt", "apt-get", "set",
+    }
+)
+_COMMAND_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\s+\S+)+$")
+_SLASH_COMMAND_RE = re.compile(r"^/[a-z][a-z0-9-]*$")
+
+
+def _flat(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").lower())
+
+
+def _ungrounded_commands(content_html: str, facts: str) -> list[str]:
+    facts_flat = _flat(facts)
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in re.findall(r"<code\b[^>]*>(.*?)</code>", content_html or "", flags=re.S | re.I):
+        code = _flat(unescape(re.sub(r"<[^>]+>", "", raw))).strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        if _SLASH_COMMAND_RE.match(code):
+            key = code
+        elif _COMMAND_RE.match(code):
+            tokens = code.split()
+            if tokens[0] in _GENERIC_CLI_TOOLS:
+                continue
+            sub = next((t for t in tokens[1:] if not t.startswith("-")), "")
+            # 하위명령 자리가 파일·경로·값이면(modelname, ./x) 도구 이름만 본다.
+            if sub and re.fullmatch(r"[a-z][a-z0-9-]*", sub) and sub != "modelname":
+                key = f"{tokens[0]} {sub}"
+            else:
+                key = tokens[0]
+        else:
+            continue  # 파일명·경로·설정 키는 명령이 아니다
+        if not re.search(rf"(?<![a-z0-9/-]){re.escape(key)}(?![a-z0-9-])", facts_flat):
+            out.append(code)
+    return out
+
+
+# ── 4) 모델 버전 (2026-09-27) ─────────────────────────────────────────────────
+# 2026-09 글에 "Gemini 1.5 Flash, 1.5 Pro, or 2.0" 이 현재 모델처럼 나갔다. 모델
+# 목록을 코드에 적어 두면 다음 달에 낡는다. 대신 "회사명+버전"이 팩트에 있는지만
+# 본다 — 팩트는 그날 수집한 것이라 항상 현재 기준이다.
+_MODEL_RE = re.compile(
+    r"\b(gpt|gemini|claude|llama|grok|deepseek|mistral|qwen)"
+    r"[- ]?(?:(?:opus|sonnet|haiku|pro|flash|ultra|nano|mini|v)[- ]?)?"
+    r"(\d+(?:\.\d+)?)\b",
+    re.I,
+)
+
+
+def _ungrounded_models(text: str, facts: str) -> list[str]:
+    facts_flat = _flat(facts).replace("-", " ")
+    out: list[str] = []
+    seen: set[str] = set()
+    for match in _MODEL_RE.finditer(text or ""):
+        family, version = match.group(1).lower(), match.group(2)
+        key = f"{family} {version}"
+        if key in seen:
+            continue
+        seen.add(key)
+        # "Claude Opus 5.5" 는 팩트에 "Claude Opus 5.5" 든 "claude-opus-5-5" 든
+        # 회사명 뒤 두 단어 안에 같은 버전이 있으면 근거로 본다.
+        version_re = re.escape(version).replace(r"\.", r"[. ]")
+        # (?!\s\d): 모델 ID "claude-opus-5-5" 를 펼친 "claude opus 5 5" 가
+        # "Claude Opus 5" 의 근거로 잡히지 않게 한다.
+        pattern = rf"\b{family}\s?(?:[a-z]+\s){{0,2}}{version_re}(?![\d.]|\s\d)"
+        if not re.search(pattern, facts_flat):
+            out.append(match.group(0))
+    return out
