@@ -1579,6 +1579,18 @@ class NewsPipeline:
             _grade = _artifact_result.get("content_candidate_grade", "D")
             _gpm = _gpr.get("pattern_match") or {}
             _candidate_meta = _artifact_result.get("article_candidate_meta") or {}
+            # 2026-09-27 리허설(run 36319914669) 실측: 이슈 후보가 품질 게이트를 전부
+            # 통과했는데 human_review_required;near_match_requires_review 로 홀드됐다.
+            # 07-25 에 넣은 "본문 검증된 near_match 면제"는 _save_artifact 가 계산하지만,
+            # 아래 최종 결과는 article_candidate_meta.json 값을 우선 읽는데 그 파일
+            # (run_artifact_service)은 near_match 면 무조건 검토로 적는다. 면제 판정이
+            # 났으면 파이프라인 값으로 덮는다. HN 이슈 후보는 대개 near_match 다.
+            if _artifact_result.get("_near_match_body_verified"):
+                _candidate_meta = {
+                    **_candidate_meta,
+                    "human_review_required": bool(_artifact_result.get("_human_review_required")),
+                    "near_match_body_verified": True,
+                }
             _article_candidate_generated = bool(
                 _artifact_result.get("_article_candidate_generated")
                 or _candidate_meta.get("article_candidate_generated")
@@ -2767,6 +2779,15 @@ class NewsPipeline:
                     or ""
                 ).strip()
                 if checks >= max_checks or not query:
+                    kept.append(item)
+                    continue
+                # 2026-09-27: 큰 이슈는 경쟁 판정으로 버리지 않는다(요미님: "경쟁 피해서
+                # 하려니 이상한 것만 한다", "이슈가 되는 주제를 찾아라"). 그날 리허설에서
+                # HN 2,232점 Anthropic 판결이 "상위 10개를 대형 매체가 점유"로 여기서
+                # 빠졌다. 큰 사건은 원래 대형 매체가 덮는다 — 경쟁은 각도로 푼다.
+                from blogspot_automation.services.topic_dedup_service import _is_big_issue
+
+                if _is_big_issue(raw):
                     kept.append(item)
                     continue
                 checks += 1
@@ -4014,6 +4035,7 @@ class NewsPipeline:
             "_why_topic_selected": why_selected,
             "_why_topic_held": why_held,
             "_human_review_required": human_review_required,
+            "_near_match_body_verified": _near_match_body_verified,
             "_article_candidate_generated": _can_generate_candidate,
         }
 
