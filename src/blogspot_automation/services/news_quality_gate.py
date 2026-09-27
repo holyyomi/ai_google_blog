@@ -3020,6 +3020,28 @@ class NewsQualityGate:
     })
 
     @classmethod
+    def _body_faq_sections_html(cls, html: str) -> list[str]:
+        """본문 FAQ 섹션 전부(순서대로). GEO 블록 제외 규칙은 아래와 같다.
+
+        2026-09-27 리허설(run 36324354946) 실측: 본문 FAQ가 질문 하나짜리
+        `<section class="yomi-faq">` 여러 개로 쪼개져 나왔고, 첫 섹션만 읽던
+        추출기가 답변 1개로 세어 faq_answer_too_short 로 막았다(HN 2,234점
+        Anthropic 판결 글). FAQ 3개는 다 있었다.
+        """
+        sections: list[str] = []
+        for match in re.finditer(
+            r'<(?P<tag>section|div|article)\b(?P<attrs>[^>]*)class=["\'][^"\']*faq[^"\']*["\'][^>]*>(?P<inner>.*?)</(?P=tag)>',
+            html,
+            flags=re.IGNORECASE | re.DOTALL,
+        ):
+            id_match = re.search(r'\bid=["\']([^"\']+)["\']', match.group("attrs"), flags=re.IGNORECASE)
+            section_id = id_match.group(1) if id_match else ""
+            if section_id.upper() in cls._GEO_INJECTED_SECTION_IDS:
+                continue
+            sections.append(match.group("inner"))
+        return sections
+
+    @classmethod
     def _body_faq_section_html(cls, html: str) -> str:
         # LLM 직접발행 본문은 FAQ를 <div class="faq-section">(→yomi-faq 정규화)으로
         # 출력한다 — <section> 태그만 찾으면 본문 FAQ를 영영 못 찾는다
@@ -3038,23 +3060,22 @@ class NewsQualityGate:
 
     @classmethod
     def _faq_answers(cls, html: str) -> list[str]:
-        section = cls._body_faq_section_html(html)
-        if not section:
-            return []
-        answers = re.findall(
-            r"<h3\b[^>]*>.*?</h3>\s*<p\b[^>]*>(.*?)</p>",
-            section,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
+        answers: list[str] = []
+        for section in cls._body_faq_sections_html(html):
+            answers.extend(
+                re.findall(
+                    r"<h3\b[^>]*>.*?</h3>\s*<p\b[^>]*>(.*?)</p>",
+                    section,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+            )
         return [" ".join(re.sub(r"<[^>]+>", " ", answer).split()) for answer in answers]
 
     @classmethod
     def _faq_questions(cls, html: str) -> list[str]:
-        section = cls._body_faq_section_html(html)
-        if not section:
-            return []
         return [
             " ".join(re.sub(r"<[^>]+>", " ", question).split())
+            for section in cls._body_faq_sections_html(html)
             for question in re.findall(r"<h3\b[^>]*>(.*?)</h3>", section, flags=re.IGNORECASE | re.DOTALL)
         ]
 
