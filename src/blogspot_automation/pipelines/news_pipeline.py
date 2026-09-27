@@ -2131,6 +2131,33 @@ class NewsPipeline:
                         **base_result,
                     }
 
+            # 출처 대조 차단(2026-09-27 요미님 지시로 관찰→차단 승격). 재작성 1회
+            # 뒤에도 출처에 없는 $가격·부재 단정이 남은 본문은 여기서 끝낸다.
+            # 판정은 llm_content_service 가 하고(facts 가 거기에만 있다), 여기서는
+            # 결과만 읽는다. 위 한국어 잔존 차단과 같은 반환 형태 — 재시도 루프가
+            # 다음 후보로 넘어간다.
+            _grounding_result = (_llm_fact_supply or {}).get("source_grounding") or {}
+            if isinstance(_grounding_result, dict) and _grounding_result.get("blocked"):
+                logger.error(
+                    "NewsPipeline: 출처 대조 차단 — 재작성 후에도 근거 없는 주장 남음 %s",
+                    (_grounding_result.get("hard_violations") or [])[:5],
+                )
+                publish_quality_gate = dict(publish_quality_gate)
+                publish_quality_gate["passed"] = False
+                _sg_issues = list(publish_quality_gate.get("blocking_issues") or [])
+                _sg_issues.append("source_grounding_ungrounded_claims")
+                publish_quality_gate["blocking_issues"] = _sg_issues
+                base_result["publish_quality_gate"] = publish_quality_gate
+                history_recorded = self._try_record_history(
+                    status="blocked_by_quality_gate", result=base_result
+                )
+                return {
+                    "status": "blocked_by_quality_gate",
+                    "blocking_issues": publish_quality_gate["blocking_issues"],
+                    "history_recorded": history_recorded,
+                    **base_result,
+                }
+
             auto_publish_gate = self._evaluate_auto_publish_gate(
                 base_result=base_result,
                 publish_quality_gate=publish_quality_gate,
