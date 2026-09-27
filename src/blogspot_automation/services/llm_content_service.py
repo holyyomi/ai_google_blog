@@ -2007,6 +2007,10 @@ def _build_grounding_repair_prompt(draft: str, report: GroundingReport, facts: s
         lines.append(f'- Absence claim not supported by the sources: "{quote}"')
     for number in report.ungrounded_numbers:
         lines.append(f'- Number not found in the sources: "{number}"')
+    for command in report.ungrounded_commands:
+        lines.append(f'- Command not found in the sources (may not exist): "{command}"')
+    for model in report.ungrounded_models:
+        lines.append(f'- Model version not found in the sources (may be outdated or wrong): "{model}"')
     flagged = "\n".join(lines)
     return (
         "[REVISION TASK — remove claims the sources do not support]\n"
@@ -2016,7 +2020,9 @@ def _build_grounding_repair_prompt(draft: str, report: GroundingReport, facts: s
         "\"does not disclose\" or \"does not publish\" something unless the SOURCE FACTS say so.\n"
         "3. Do not invent new prices, limits, or percentages. Worked examples must use only numbers "
         "from the SOURCE FACTS.\n"
-        "4. Do not add hedging filler to make up length. Keep every other sentence, heading, table, "
+        "4. Only show commands and model names that appear in the SOURCE FACTS. If a flagged command "
+        "is not there, remove it and tell the reader to check the official docs instead.\n"
+        "5. Do not add hedging filler to make up length. Keep every other sentence, heading, table, "
         "and the HTML structure unchanged.\n\n"
         f"[FLAGGED]\n{flagged}\n\n"
         f"[SOURCE FACTS]\n{facts}\n\n"
