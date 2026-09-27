@@ -38,6 +38,7 @@ from blogspot_automation.services.publish_history_service import PublishHistoryS
 from blogspot_automation.services.reader_first_layout_service import reorder_for_reader_first
 from blogspot_automation.services.run_artifact_service import RunArtifactService
 from blogspot_automation.services.seo_policy import (
+    ASTROLOGY_TITLE_RE as _ASTROLOGY_TITLE_RE,
     append_hashtags_block,
     build_english_permalink_slug,
     build_internal_links_from_history,
@@ -2684,6 +2685,12 @@ class NewsPipeline:
         소제목이 있는 16편 중 걸린 것은 Volvo 글 1편뿐이고, 소제목이 없는
         52편은 제목만으로도 0편이 걸렸다(오탐 0).
         """
+        # 2026-09-20 실사고: "Gemini Shani Horoscope Today, 19th September 2026"
+        # (별자리 운세)가 발행됐다. 제목의 "Gemini"가 구글 Gemini 별칭으로
+        # 잡혀 AI 신호를 통과했다. 점성술 어휘가 제목에 있으면 소제목과
+        # 상관없이 AI 주제가 아니다.
+        if _ASTROLOGY_TITLE_RE.search(title or ""):
+            return True
         headings = [
             str(h).strip()
             for h in (NewsQualityGate._section_headings(html or "") or [])
