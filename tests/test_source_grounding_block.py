@@ -85,3 +85,12 @@ def test_observe_mode_does_not_rewrite_or_block(monkeypatch):
     svc, _, calls = _run(monkeypatch, [bad], mode="observe")
     assert len(calls) == 1
     assert svc.last_grounding_report["blocked"] is False
+
+
+def test_no_fixed_number_is_grounded_when_docs_say_varies():
+    facts = "Vertex AI Express mode: Varies. Free tier: 250 requests per day."
+    body = _html('Express mode has a published quota: the docs say "Varies" with no fixed number.')
+    assert audit_grounding(body, facts).ungrounded_absence == []
+    # "varies" 가 있어도 다른 부재 단정은 여전히 잡는다.
+    body2 = _html("Google does not publish the Express quota.")
+    assert audit_grounding(body2, facts).ungrounded_absence

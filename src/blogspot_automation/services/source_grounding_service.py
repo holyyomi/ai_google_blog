@@ -58,12 +58,16 @@ _ABSENCE_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bdoes\s+not\s+(?:publish|disclose|specify|state|document)\b", re.I),
     re.compile(r"\bdo(?:es)?n[’']?t\s+(?:publish|disclose|specify|state|document)\b", re.I),
     re.compile(
-        r"\bno\s+(?:fixed|official|published|public|documented)\s+"
+        r"\bno\s+(?:official|published|public|documented)\s+"
         r"(?:daily\s+)?(?:limit|quota|cap|number|figure|rate|price)s?\b",
         re.I,
     ),
     re.compile(r"\bnot\s+(?:specified|documented|stated)\s+(?:anywhere|publicly|officially)\b", re.I),
 )
+_NO_FIXED_CLAIM_RE = re.compile(
+    r"\bno\s+fixed\s+(?:daily\s+)?(?:limit|quota|cap|number|figure|rate|price)s?\b", re.I
+)
+_ABSENCE_CLAIM_PATTERNS = _ABSENCE_CLAIM_PATTERNS + (_NO_FIXED_CLAIM_RE,)
 
 # 팩트 쪽에 이런 표현이 하나라도 있으면, 위 부재 주장은 출처에서 온 것으로 본다.
 _ABSENCE_SUPPORT_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -203,7 +207,14 @@ def audit_grounding(content_html: str, facts: str, *, max_items: int = 8) -> Gro
     ungrounded_absence: list[str] = []
     if not absence_supported:
         seen: set[str] = set()
+        # 2026-09-27 리허설 오탐: 공식 쿼터 표가 "Varies"라고 적은 것을 본문이
+        # "no fixed number"로 옮겼다 — 출처 그대로다. "no fixed …" 단정만 "varies"를
+        # 근거로 인정한다(전역 support 로 넣으면 "pricing varies by region" 하나로
+        # 부재 검사 전체가 꺼진다).
+        facts_say_varies = bool(re.search(r"\bvar(?:y|ies)\b", facts, flags=re.I))
         for pattern in _ABSENCE_CLAIM_PATTERNS:
+            if facts_say_varies and pattern is _NO_FIXED_CLAIM_RE:
+                continue
             for match in pattern.finditer(text):
                 phrase = match.group(0).strip().lower()
                 if phrase in seen:
