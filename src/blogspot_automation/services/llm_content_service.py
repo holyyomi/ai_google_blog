@@ -38,7 +38,11 @@ from blogspot_automation.services.readability_service import (
     measure_html as _measure_readability_html,
 )
 from blogspot_automation.services.reader_interest_brief_service import ReaderInterestBriefService
-from blogspot_automation.services.source_grounding_service import audit_grounding
+from blogspot_automation.services.source_grounding_service import (
+    GroundingReport,
+    audit_grounding,
+    grounding_gate_mode,
+)
 from blogspot_automation.templates.blog_post_template import render_full_post
 
 logger = logging.getLogger(__name__)
@@ -901,7 +905,35 @@ class LlmContentService:
         # (2026-09-01 사고). 여기가 본문과 수집 팩트를 대조하는 유일한 지점이라
         # facts가 아직 살아 있는 이 함수 안에서 돌려야 한다.
         grounding = audit_grounding(content_html, facts or "")
-        self.last_grounding_report = grounding.as_dict()
+        # 2026-09-27 차단 승격: 걸리면 그 문장 목록을 주고 1회 고쳐 쓰게 한다.
+        # 재작성본도 같은 validator·후처리를 거치도록 _run_fallback_chain 을 쓴다.
+        # 재작성 뒤에도 하드 위반(부재 단정·출처 없는 $가격)이 남으면 blocked 로
+        # 표시하고, 실제 차단은 news_pipeline 발행 직전 방어선이 한다.
+        grounding_blocked = False
+        if english and grounding.checked and not grounding.clean and grounding_gate_mode() == "block":
+            repaired = self._run_fallback_chain(
+                _build_grounding_repair_prompt(content_html, grounding, facts or ""),
+                min_words=_m, target_min=_tmin, target_max=_tmax,
+            )
+            if repaired:
+                repaired = _clean_entity_artifacts(repaired)
+                for _pat, _repl in _OVERCLAIM_SOFTENERS + _OVERCLAIM_SOFTENERS_EN:
+                    repaired = _pat.sub(_repl, repaired)
+                repaired = re.sub(r"(?<![\w/:.\-])#([A-Za-z][A-Za-z0-9_]+)", r"\1", repaired)
+                repaired = re.sub(r'<div(\s+class="faq-section")', r"<section\1", repaired, count=1)
+                repaired = _close_faq_section_wrapper(repaired)
+                repaired = re.sub(r"(<t[dh]\b[^>]*>)\s*(</t[dh]>)", r"\1n/a\2", repaired)
+                regrounded = audit_grounding(repaired, facts or "")
+                logger.info(
+                    "SourceGrounding: 재작성 %d건 → %d건 (하드 %d → %d)",
+                    len(grounding.ungrounded_absence) + len(grounding.ungrounded_numbers),
+                    len(regrounded.ungrounded_absence) + len(regrounded.ungrounded_numbers),
+                    len(grounding.hard_violations), len(regrounded.hard_violations),
+                )
+                if len(regrounded.hard_violations) <= len(grounding.hard_violations):
+                    content_html, grounding = repaired, regrounded
+            grounding_blocked = bool(grounding.hard_violations)
+        self.last_grounding_report = {**grounding.as_dict(), "blocked": grounding_blocked}
 
         # 4. FAQ 추출 (JSON-LD용 + 답변엔진 블록용)
         schema_faq = _extract_faq(content_html)
@@ -1962,6 +1994,34 @@ def _build_readability_repair_prompt(draft: str) -> str | None:
         hard_sentences=hard_lines,
     )
     return f"{head}\n[PREVIOUS DRAFT — rewrite this exact HTML in easier English]\n{draft}"
+
+
+def _build_grounding_repair_prompt(draft: str, report: GroundingReport, facts: str) -> str:
+    """출처에 없는 주장만 고치게 하는 재작성 프롬프트(2026-09-27).
+
+    모델에게 "더 조심해라"라고만 하면 헤지를 늘려 채운다(2026-09-01 헤지 포화 사고).
+    그래서 걸린 표현을 그대로 보여주고, 출처로 바꾸거나 지우라는 두 선택지만 준다.
+    """
+    lines: list[str] = []
+    for quote in report.ungrounded_absence:
+        lines.append(f'- Absence claim not supported by the sources: "{quote}"')
+    for number in report.ungrounded_numbers:
+        lines.append(f'- Number not found in the sources: "{number}"')
+    flagged = "\n".join(lines)
+    return (
+        "[REVISION TASK — remove claims the sources do not support]\n"
+        "The draft below states things that are not in the SOURCE FACTS. For each flagged item:\n"
+        "1. If the SOURCE FACTS contain the correct figure or statement, replace it with that, exactly.\n"
+        "2. Otherwise delete the claim or rewrite the sentence without it. Do not say the vendor "
+        "\"does not disclose\" or \"does not publish\" something unless the SOURCE FACTS say so.\n"
+        "3. Do not invent new prices, limits, or percentages. Worked examples must use only numbers "
+        "from the SOURCE FACTS.\n"
+        "4. Do not add hedging filler to make up length. Keep every other sentence, heading, table, "
+        "and the HTML structure unchanged.\n\n"
+        f"[FLAGGED]\n{flagged}\n\n"
+        f"[SOURCE FACTS]\n{facts}\n\n"
+        f"[PREVIOUS DRAFT — return the full corrected HTML]\n{draft}"
+    )
 
 
 def _readability_rank(metrics: dict[str, object]) -> tuple[float, float, float]:

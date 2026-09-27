@@ -280,9 +280,18 @@ chats"라고 말한다. 아무도 숫자를 준 적이 없으니 모델이 "비�
   $1,500/1500)는 정규화하고 연도는 면제한다.
 - 팩트가 비면 검사하지 않는다 — 그 경우는 `facts_headline_only_no_source_body`가 담당.
 
-**경고만 낸다.** 승격 조건은 도입부 답변 게이트와 같다: 실제 발행 몇 회에서 오탐률을
-재고 나서 `SOURCE_GROUNDING_GATE=block`. 결과는 run_meta의 `fact_supply.source_grounding`에
-실린다.
+**2026-09-27 차단으로 승격(요미님 지시).** 관찰 12일 실측: 초안 37개 중 27개가 경고.
+대부분 출처에 없는 가격, 직접 계산한 금액, "30 requests라고 치면" 같은 가정 예시였다.
+그래서 걸리면 바로 버리지 않는다.
+1. 걸린 표현 목록 + 팩트를 주고 LLM이 1회 재작성한다(`_build_grounding_repair_prompt`).
+2. 재작성 뒤에도 **하드 위반**(부재 단정 전부 + 출처에 없는 `$` 금액)이 남으면
+   `blocked=True` → news_pipeline 발행 직전 방어선이 `source_grounding_ungrounded_claims`로
+   차단하고 다음 후보로 넘어간다.
+3. 퍼센트·요청 수·용량은 재작성만 시키고 차단하지 않는다.
+- `SOURCE_GROUNDING_GATE=observe`로 되돌리면 예전처럼 기록만 한다(기본 `block`).
+- **이 검사가 못 잡는 것**: 존재하지 않는 CLI 명령·옛 모델명. 숫자와 부재 단정만 본다.
+- 결과는 run_meta의 `fact_supply.source_grounding`(`hard_violations`, `blocked`)에 실린다.
+  발행 0건이 며칠 이어지면 가장 먼저 이 필드를 본다.
 
 실측: 2026-09-01 원문에 거짓 주장 4건을 전부 잡았고, **사람이 손으로 고친 뒤에도
 남아 있던 5번째**(같은 거짓 전제로 쓰인 문단 하나)를 추가로 잡았다.

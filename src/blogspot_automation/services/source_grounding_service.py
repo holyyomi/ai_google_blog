@@ -21,7 +21,7 @@ disclosed"라고 단정했다. 아무도 그 숫자를 준 적이 없으니 모�
 2. **근거 없는 숫자**. 가격·한도·용량 숫자가 팩트 어디에도 없는 경우. 연도,
    버전, 목록 세기용 한 자리 숫자는 오탐이 많아 제외한다.
 
-**지금은 경고만 낸다.** 검증 안 된 차단 게이트가 발행을 멈추는 위험이 이 검사가
+**2026-09-27 차단으로 승격(grounding_gate_mode). 아래는 도입 당시 기록.** 당시엔 경고만 냈다. 검증 안 된 차단 게이트가 발행을 멈추는 위험이 이 검사가
 막으려는 문제보다 크다는 걸 answer-block 게이트에서 이미 한 번 배웠다
 (2026-09-01, CLAUDE.md 참고). 실제 발행 몇 회에서 오탐률을 재고 나서
 `SOURCE_GROUNDING_GATE=block`으로 승격한다.
@@ -30,11 +30,23 @@ disclosed"라고 단정했다. 아무도 그 숫자를 준 적이 없으니 모�
 from __future__ import annotations
 
 import logging
+import os
 import re
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["GroundingReport", "audit_grounding"]
+__all__ = ["GroundingReport", "audit_grounding", "grounding_gate_mode"]
+
+
+def grounding_gate_mode() -> str:
+    """SOURCE_GROUNDING_GATE: observe | block (기본 block, 2026-09-27 승격).
+
+    block 은 "바로 버린다"가 아니다. 걸리면 먼저 LLM 이 해당 문장만 고쳐 쓰고
+    (llm_content_service), 그 뒤에도 하드 위반이 남을 때만 차단한다. 관찰 12일
+    실측에서 초안 37개 중 27개가 경고를 받았다 — 재작성 없이 막으면 발행이 멈춘다.
+    """
+    mode = (os.getenv("SOURCE_GROUNDING_GATE", "block") or "").strip().lower()
+    return mode if mode in {"observe", "block"} else "block"
 
 
 # ── 1) 부재 주장 ──────────────────────────────────────────────────────────────
@@ -46,12 +58,16 @@ _ABSENCE_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bdoes\s+not\s+(?:publish|disclose|specify|state|document)\b", re.I),
     re.compile(r"\bdo(?:es)?n[’']?t\s+(?:publish|disclose|specify|state|document)\b", re.I),
     re.compile(
-        r"\bno\s+(?:fixed|official|published|public|documented)\s+"
+        r"\bno\s+(?:official|published|public|documented)\s+"
         r"(?:daily\s+)?(?:limit|quota|cap|number|figure|rate|price)s?\b",
         re.I,
     ),
     re.compile(r"\bnot\s+(?:specified|documented|stated)\s+(?:anywhere|publicly|officially)\b", re.I),
 )
+_NO_FIXED_CLAIM_RE = re.compile(
+    r"\bno\s+fixed\s+(?:daily\s+)?(?:limit|quota|cap|number|figure|rate|price)s?\b", re.I
+)
+_ABSENCE_CLAIM_PATTERNS = _ABSENCE_CLAIM_PATTERNS + (_NO_FIXED_CLAIM_RE,)
 
 # 팩트 쪽에 이런 표현이 하나라도 있으면, 위 부재 주장은 출처에서 온 것으로 본다.
 _ABSENCE_SUPPORT_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -131,7 +147,7 @@ def _quote_around(text: str, start: int, end: int, *, window: int = 60) -> str:
 
 
 class GroundingReport:
-    """검사 결과. 발행을 막지 않고, 무엇을 봤는지 기록만 남긴다."""
+    """검사 결과. 차단 여부는 호출부(llm_content_service)가 재작성 후 판정한다."""
 
     def __init__(
         self,
@@ -150,6 +166,17 @@ class GroundingReport:
     def clean(self) -> bool:
         return not self.ungrounded_absence and not self.ungrounded_numbers
 
+    @property
+    def hard_violations(self) -> list[str]:
+        """차단 대상: 부재 단정 전부 + 출처에 없는 달러 금액.
+
+        퍼센트·요청 수·용량은 "한 세션에 30 requests라고 치면" 같은 가정 예시가
+        섞여 있어(관찰 12일 실측) 재작성만 시키고 차단 사유로 쓰지 않는다.
+        가격은 독자가 돈을 결정하는 숫자라 출처 없이 나가면 안 된다.
+        """
+        dollars = [n for n in self.ungrounded_numbers if n.lstrip().startswith("$")]
+        return list(self.ungrounded_absence) + dollars
+
     def as_dict(self) -> dict:
         return {
             "checked": self.checked,
@@ -157,6 +184,7 @@ class GroundingReport:
             "ungrounded_absence_claims": self.ungrounded_absence,
             "ungrounded_numbers": self.ungrounded_numbers,
             "clean": self.clean,
+            "hard_violations": self.hard_violations,
         }
 
 
@@ -179,7 +207,14 @@ def audit_grounding(content_html: str, facts: str, *, max_items: int = 8) -> Gro
     ungrounded_absence: list[str] = []
     if not absence_supported:
         seen: set[str] = set()
+        # 2026-09-27 리허설 오탐: 공식 쿼터 표가 "Varies"라고 적은 것을 본문이
+        # "no fixed number"로 옮겼다 — 출처 그대로다. "no fixed …" 단정만 "varies"를
+        # 근거로 인정한다(전역 support 로 넣으면 "pricing varies by region" 하나로
+        # 부재 검사 전체가 꺼진다).
+        facts_say_varies = bool(re.search(r"\bvar(?:y|ies)\b", facts, flags=re.I))
         for pattern in _ABSENCE_CLAIM_PATTERNS:
+            if facts_say_varies and pattern is _NO_FIXED_CLAIM_RE:
+                continue
             for match in pattern.finditer(text):
                 phrase = match.group(0).strip().lower()
                 if phrase in seen:
