@@ -228,6 +228,26 @@ DRAFT_SOFT_CONSUME_HOURS = 48
 _DEFAULT_CLUSTER_MAX_CONSECUTIVE = 2
 
 
+def big_issue_buzz_min() -> int:
+    """큰 이슈 문턱(today_buzz_score). 8 = HN 언급점수 800 이상(news_pipeline 환산).
+
+    0 이면 큰 이슈 우대를 끈다(ISSUE_BUZZ_MIN=0).
+    """
+    raw = (os.getenv("ISSUE_BUZZ_MIN", "8") or "").strip()
+    return int(raw) if raw.isdigit() else 8
+
+
+def _is_big_issue(raw: dict) -> bool:
+    threshold = big_issue_buzz_min()
+    if threshold <= 0:
+        return False
+    try:
+        buzz = int(raw.get("today_buzz_score") or 0)
+    except (TypeError, ValueError):
+        buzz = 0
+    return buzz >= threshold
+
+
 class TopicDedupService:
     def __init__(
         self,
@@ -478,6 +498,15 @@ class TopicDedupService:
         # 한다 — 그래도 양쪽 다 막히면 2026-07-23과 동일하게 그날은 스킵한다
         # (물량보다 품질/다양성 우선 정책은 그대로). 콘텐츠 레벨 dedup(7일,
         # 제목/키워드 근접중복)은 이 값과 무관하게 항상 적용된다.
+        #
+        # 2026-09-27 요미님 지시("주제는 이슈가 되는 주제를 찾아라"): 큰 이슈만은
+        # 쿨다운에서 뺀다. 그날 실측 — HN 상위 12건 중 11건이 이 쿨다운 한 줄에
+        # 잘렸다(Anthropic 항소법원 판결 2,232점, OpenAI-Hugging Face 해킹 1,630점).
+        # 전날 Claude·Gemini 글을 썼다는 이유였다. 그 사이 클러스터 후보는 면제라
+        # "gemini limits free users"를 6번 연속 골랐다. 07-23 전면 면제는 GPT 쏠림
+        # (08-05)을 낳았으므로 전면 해제가 아니라 buzz 문턱을 넘는 후보만 면제한다.
+        if _is_big_issue(raw):
+            return True
         if (os.getenv("ENTITY_COOLDOWN_APPLIES_TO_AI_BLOG_MODE", "") or "").strip().lower() in {
             "1", "true", "yes", "on",
         }:

@@ -6255,7 +6255,38 @@ class NewsPipeline:
         deduped: list[ScoredNewsCandidate],
         topic_group_history: Any,
     ) -> ScoredNewsCandidate:
-        """그날 쓸 후보 하나를 고른다 — 클러스터 후보가 있으면 그것으로 확정."""
+        """그날 쓸 후보 하나를 고른다 — 큰 이슈 > 클러스터 > 나머지.
+
+        2026-09-27 요미님 지시: "주제는 이슈가 되는 주제를 찾아라". 그 전에는
+        클러스터·수요 후보가 있으면 무조건 확정이라, HN 2,232점짜리 Anthropic
+        판결이 살아 있어도 "gemini limits free users"를 골랐다(그날 재시도 6번 중 5번).
+        """
+        from blogspot_automation.services.topic_dedup_service import _is_big_issue
+
+        big_issues = [
+            item
+            for item in deduped
+            if not self._selected_is_cluster_post(item)
+            and _is_big_issue(item.candidate.raw if isinstance(item.candidate.raw, dict) else {})
+        ]
+        if big_issues:
+            big_issues.sort(
+                key=lambda item: (
+                    int((item.candidate.raw or {}).get("community_mention_score") or 0),
+                    int((item.candidate.raw or {}).get("today_buzz_score") or 0),
+                    item.total_score,
+                ),
+                reverse=True,
+            )
+            selected = big_issues[0]
+            logger.info(
+                "issue_first selected: %s (buzz=%s, mentions=%s, competitors=%d)",
+                (selected.candidate.topic or "")[:80],
+                (selected.candidate.raw or {}).get("today_buzz_score"),
+                (selected.candidate.raw or {}).get("community_mention_score"),
+                len(deduped),
+            )
+            return selected
         cluster_ready = [item for item in deduped if self._selected_is_cluster_post(item)]
         if cluster_ready:
             selected = cluster_ready[0]
