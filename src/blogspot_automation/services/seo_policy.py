@@ -17,6 +17,15 @@ MAX_BLOGSPOT_LABELS = 5
 MAX_CONTENT_HASHTAGS = 4
 MAX_PERMALINK_SLUG_LENGTH = 48
 
+# 점성술 글 판별(2026-09-20 실사고). "Gemini"는 구글 AI 이면서 쌍둥이자리다.
+# "Gemini Shani Horoscope Today"가 AI 글로 발행됐고, 이후 AI 글들의 내부링크에
+# 계속 끼어들었다. 발행 게이트(news_pipeline)와 내부링크 후보 필터가 같이 쓴다.
+ASTROLOGY_TITLE_RE = re.compile(
+    r"\b(?:horoscope|horoscopes|zodiac|astrology|astrological|tarot|shani|"
+    r"rashifal|sun sign|moon sign|star sign)\b",
+    flags=re.IGNORECASE,
+)
+
 BLOGSPOT_HOME_URL = os.getenv("BLOGSPOT_HOME_URL", "https://holyyomiai.blogspot.com/")
 BLOGSPOT_HOST = urlsplit(BLOGSPOT_HOME_URL).netloc or "holyyomiai.blogspot.com"
 DEFAULT_BLOGSPOT_LABELS = ("AI활용", "업무자동화", "AI도구")
@@ -615,8 +624,14 @@ def append_internal_links_block(
         f"<ul>{items}</ul>"
         "</section>"
     )
-    if re.search(r"</article>", cleaned, flags=re.IGNORECASE):
-        return re.sub(r"</article>", f"{block}\n</article>", cleaned, count=1, flags=re.IGNORECASE)
+    closes = list(re.finditer(r"</article>", cleaned, flags=re.IGNORECASE))
+    if closes:
+        # 마지막 </article>(최상위 본문 닫힘) 앞에 넣는다. append_hashtags_block 이
+        # 07-08 에 고친 것과 같은 버그다: "첫 번째 </article>"은 FAQ 가 중첩
+        # <article class="faq-item"> 일 때 첫 FAQ 안쪽이라, 2026-09 라이브 글에서
+        # 내부링크 목록이 FAQ 1번과 2번 사이에 박혀 나갔다.
+        last = closes[-1]
+        return f"{cleaned[:last.start()]}{block}\n{cleaned[last.start():]}"
     if re.search(r"</body>", cleaned, flags=re.IGNORECASE):
         return re.sub(r"</body>", f"{block}\n</body>", cleaned, count=1, flags=re.IGNORECASE)
     return cleaned.rstrip() + block
@@ -633,6 +648,19 @@ def ensure_yomi_clean_article_layout(html: str) -> str:
     return content
 
 
+_INTERNAL_LINK_STOP_TOKENS: frozenset[str] = frozenset(
+    {
+        "오늘", "이슈", "뉴스", "정리",
+        "the", "and", "for", "with", "how", "to", "use", "what", "why", "vs",
+        "of", "in", "on", "is", "are", "your", "you", "it", "its", "this",
+        "free", "new", "best", "guide", "update", "news", "today", "now",
+        "actually", "works", "work", "really", "ai", "tools", "tool", "2026",
+        "per", "day", "daily", "plan", "plans", "limits", "limit", "price",
+        "pricing", "launch", "first", "look", "explained", "post", "posts",
+    }
+)
+
+
 def build_internal_links_from_history(
     records: list[dict] | tuple[dict, ...],
     *,
@@ -646,10 +674,12 @@ def build_internal_links_from_history(
 ) -> tuple[tuple[str, str], ...]:
     """Build crawlable links to already-published Blogspot posts."""
     current_text = f"{current_title} {current_topic}".lower()
+    # 연도·숫자·범용어는 관련도 신호가 아니다. 2026-09 라이브 실측: "2026"
+    # 하나 겹친 걸로 무관한 Copilot 글이 Gemini API 글에 붙었다.
     current_tokens = {
         token
         for token in re.findall(r"[가-힣A-Za-z0-9]{2,}", current_text)
-        if token not in {"오늘", "이슈", "뉴스", "정리"}
+        if token not in _INTERNAL_LINK_STOP_TOKENS and not token.isdigit()
     }
     candidates: list[tuple[int, str, str, str]] = []
     seen_urls: set[str] = set()
@@ -671,6 +701,21 @@ def build_internal_links_from_history(
             continue
         if not _record_title_is_safe_for_internal_link(record, title=title):
             continue
+        if ASTROLOGY_TITLE_RE.search(title):
+            continue
+        # 겹침은 독자가 보는 제목으로만 잰다. selected_topic(원본 헤드라인)은
+        # "Volvo cancels EX40 ... with Gemini AI"처럼 꼬리 단어로 엉뚱한 글을 붙인다.
+        record_text = title.lower()
+        overlap = sum(
+            1 for token in current_tokens if re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", record_text)
+        )
+        # 겹치는 주제어가 하나도 없으면 링크하지 않는다. 예전에는 기본점수만으로
+        # 항상 3개를 채워 "최근 글 아무거나"가 붙었다. 모자라면 적게 붙인다.
+        same_cluster = bool(current_cluster_key) and str(record.get("cluster_key") or "") == current_cluster_key
+        # 영어 모드만: 발행글이 전부 topic_group=ai_work 라 주제군 가중이 관련도를
+        # 못 가른다. 한국어 시절 경로는 주제군 가중으로 묶으므로 건드리지 않는다.
+        if is_english_mode() and current_tokens and overlap == 0 and not same_cluster:
+            continue
         seen_urls.add(url)
 
         score = 10
@@ -685,8 +730,6 @@ def build_internal_links_from_history(
             score += 8
         if current_content_type and str(record.get("content_type") or "") == current_content_type:
             score += 4
-        record_text = f"{title} {record.get('selected_topic') or ''}".lower()
-        overlap = sum(1 for token in current_tokens if token in record_text)
         score += min(5, overlap)
         score -= idx // 5
         candidates.append((score, title[:70], url, str(record.get("run_at") or "")))

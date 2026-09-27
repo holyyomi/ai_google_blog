@@ -584,6 +584,14 @@ def ensure_answer_engine_optimized_html(
     return content
 
 
+_SYSTEM_BLOCK_HEADINGS_LOWER: frozenset[str] = frozenset(
+    label.lower().rstrip(".:")
+    for pool in (_LABEL_VARIANTS_EN, _LABEL_VARIANTS)
+    for labels in pool.values()
+    for label in labels
+)
+
+
 def _section_derived_intent_pool(html: str, *, limit: int = 4) -> list[dict[str, str]]:
     """본문 h2 섹션에서 그 글에만 있는 Q&A를 만든다.
 
@@ -621,6 +629,12 @@ def _section_derived_intent_pool(html: str, *, limit: int = 4) -> list[dict[str,
             heading,
             flags=re.IGNORECASE,
         ):
+            continue
+        # 위 정규식은 GEO 소제목 풀의 일부만 덮는다. 2026-09-26 라이브 글에
+        # "Q. How does Start here actually work out?" / "Where does the change,
+        # step back land for you?"가 나갔다 — 우리가 붙인 블록 소제목을 질문으로
+        # 바꾸고, 답은 본문 첫 문단을 그대로 되풀이했다. 풀 전체와 대조한다.
+        if heading.lower().rstrip(".:") in _SYSTEM_BLOCK_HEADINGS_LOWER:
             continue
         key = _normalize_question_key(heading)
         if not key or key in seen:
