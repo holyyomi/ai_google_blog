@@ -194,6 +194,54 @@ def _reorder_spliced_how_to_use(text: str) -> str:
     return f"How to Use {match.group('head').strip()} {match.group('tail').strip()}"
 
 
+_SEED_PREFIX_RE = re.compile(r"^(?P<head>[^:]{3,40}):\s*(?P<tail>.{8,})$")
+_SEED_INTENT_LABELS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("pricing", "price", "prices", "cost", "costs"), "Pricing"),
+    (("free",), "Free Tier"),
+    (("limits", "limit"), "Limits"),
+    (("plans", "plan"), "Plans"),
+    (("api",), "API"),
+)
+_SEED_INTENT_WORDS = {w for words, _ in _SEED_INTENT_LABELS for w in words} | {"how", "to", "use"}
+
+
+def _reorder_spliced_seed_prefix(text: str) -> str:
+    """'<제품> <의도어>: <헤드라인>' 으로 검색 시드가 앞에 붙은 제목을 바로잡는다.
+
+    2026-10-14 리허설 실측: "Gemini Pricing API: Gemini 4 Argon Launch 2026".
+    머리가 제품명 1단어 + 의도어뿐이고 그 제품명이 꼬리에 다시 나올 때만 고친다
+    → "Gemini 4 Argon Launch: Pricing and API (2026)".
+    """
+    match = _SEED_PREFIX_RE.match(text)
+    if not match:
+        return text
+    head_words = match.group("head").lower().split()
+    tail = match.group("tail").strip()
+    if len(head_words) < 2 or len(head_words) > 5:
+        return text
+    product, intents = head_words[0], head_words[1:]
+    if not all(w in _SEED_INTENT_WORDS for w in intents):
+        return text
+    if not re.search(rf"(?<![a-z0-9]){re.escape(product)}(?![a-z0-9])", tail.lower()):
+        return text
+    # 꼬리가 이미 의도를 말하면("Gemini API: Gemini Rate Limits Explained") 정상 제목이다.
+    if any(w in _SEED_INTENT_WORDS - {"to", "use"} for w in re.findall(r"[a-z]+", tail.lower())):
+        return text
+    labels: list[str] = []
+    if "how" in intents and "use" in intents:
+        labels.append("How to Use It")
+    for words, label in _SEED_INTENT_LABELS:
+        if any(w in intents for w in words) and label not in labels:
+            labels.append(label)
+    if not labels:
+        return text
+    year = re.search(r"\(?\b(20\d\d)\b\)?\s*$", tail)
+    if year:
+        tail = tail[: year.start()].rstrip(" -:,")
+    joined = labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+    return f"{tail}: {joined}" + (f" ({year.group(1)})" if year else "")
+
+
 def normalize_english_title(title: str) -> str:
     """영문 제목의 최종 표기 통일 (2026-09-10 신설).
 
@@ -211,6 +259,7 @@ def normalize_english_title(title: str) -> str:
     if not text or _HANGUL_RE.search(text) or not re.search(r"[A-Za-z]", text):
         return text
     text = _reorder_spliced_how_to_use(text)
+    text = _reorder_spliced_seed_prefix(text)
 
     def _cased(chunk: str) -> str:
         cased = _en_title_case(chunk)
