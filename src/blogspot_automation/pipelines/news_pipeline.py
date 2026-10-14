@@ -1276,6 +1276,7 @@ class NewsPipeline:
             # 2026-07-25: 팩트 공급 품질 진단. 본문 발췌 없이 헤드라인만으로 쓴 글은
             # 실제로 공개된 사실을 "안 공개됐다"고 서술하는 껍데기가 된다(7/24 사고).
             _llm_fact_supply: dict[str, object] = {}
+            _llm_facts_text = ""
             if self.llm_content_service:
                 try:
                     _raw = selected.candidate.raw if isinstance(selected.candidate.raw, dict) else {}
@@ -1300,6 +1301,9 @@ class NewsPipeline:
                         )
                         _llm_fact_supply = dict(
                             getattr(self.llm_content_service, "last_fact_supply", None) or {}
+                        )
+                        _llm_facts_text = str(
+                            getattr(self.llm_content_service, "last_facts_text", "") or ""
                         )
                         # 출처 대조 결과를 fact_supply에 얹어 run_meta까지 태운다
                         # (2026-09-02, 관찰 모드). 별도 인자를 새로 만들면 run_meta
@@ -1347,7 +1351,19 @@ class NewsPipeline:
                 selected=selected,
                 content_type=str(content_angle_summary.get("content_type") or "general_life"),
             )
-            html = prepare_blogspot_html(html, links=history_internal_links, strip_document=True)
+            # 2026-10-14: 영어 본문은 출처 문장을 본문 링크로 단다(프롬프트 개편). 이 단계에서
+            # 인용 URL 예외를 넘기지 않으면 검증된 본문 링크까지 href 가 벗겨진다. 예외는
+            # 이번 실행에서 실제로 수집한 인용 URL 의 정확 일치뿐이다(지어낸 링크는 그대로 벗김).
+            html = prepare_blogspot_html(
+                html,
+                links=history_internal_links,
+                strip_document=True,
+                extra_allowed_urls=tuple(
+                    str(c.get("url", "")).strip()
+                    for c in _llm_source_citations
+                    if isinstance(c, dict) and str(c.get("url", "")).strip()
+                ),
+            )
             html = ensure_answer_engine_optimized_html(
                 html,
                 title=best_title.title,
@@ -2169,6 +2185,43 @@ class NewsPipeline:
                     "history_recorded": history_recorded,
                     **base_result,
                 }
+
+            # 최종 HTML 품질 게이트(2026-10-14, en_editorial_policy). 후처리가 다 끝난
+            # 발행 직전 html 을 본다: 문장 중복·공식 출처 0개·출처 자료에 없는 숫자.
+            # 숫자 재작성 1회는 llm_content_service 출처 대조가 이미 했다. 차단 시 위
+            # 출처 대조 차단과 같은 반환 형태라 재시도 루프가 다음 후보로 넘어간다.
+            if is_english_mode():
+                from blogspot_automation.services.en_editorial_policy import (
+                    audit_final_publish_html,
+                )
+
+                _final_gate = audit_final_publish_html(
+                    html,
+                    source_text=_llm_facts_text,
+                    citations=_llm_source_citations,
+                )
+                base_result["final_publish_quality_gate"] = _final_gate
+                if _final_gate["issues"]:
+                    logger.warning(
+                        "NewsPipeline: 최종 HTML 게이트(%s) — %s",
+                        _final_gate["mode"], _final_gate["issues"][:6],
+                    )
+                if not _final_gate["passed"]:
+                    publish_quality_gate = dict(publish_quality_gate)
+                    publish_quality_gate["passed"] = False
+                    _fg_issues = list(publish_quality_gate.get("blocking_issues") or [])
+                    _fg_issues.extend(f"final_html:{i}" for i in _final_gate["issues"])
+                    publish_quality_gate["blocking_issues"] = _fg_issues
+                    base_result["publish_quality_gate"] = publish_quality_gate
+                    history_recorded = self._try_record_history(
+                        status="blocked_by_quality_gate", result=base_result
+                    )
+                    return {
+                        "status": "blocked_by_quality_gate",
+                        "blocking_issues": publish_quality_gate["blocking_issues"],
+                        "history_recorded": history_recorded,
+                        **base_result,
+                    }
 
             auto_publish_gate = self._evaluate_auto_publish_gate(
                 base_result=base_result,

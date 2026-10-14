@@ -37,7 +37,8 @@ def test_validator_honours_the_short_minimum(monkeypatch):
 
 def test_validator_still_rejects_short_drafts_in_the_full_format(monkeypatch):
     monkeypatch.setattr(L, "is_english_mode", lambda: True)
-    body = "<section>" + (" word" * 832) + "</section>"
+    # 2026-10-14: 긴 포맷 하한 1500 → 800. 그 아래 분량은 여전히 거부된다.
+    body = "<section>" + (" word" * (L.EN_MIN_BODY_WORDS - 68)) + "</section>"
     with pytest.raises(L._WordCountShortfallError):
         L._make_content_validator(L.EN_MIN_BODY_WORDS)(body)
 

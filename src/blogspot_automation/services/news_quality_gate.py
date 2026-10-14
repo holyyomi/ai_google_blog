@@ -8,6 +8,7 @@ import re
 from blogspot_automation.models.news_models import ScoredNewsCandidate
 from blogspot_automation.services.answer_engine_policy import answer_engine_coverage
 from blogspot_automation.services.blog_language import is_english_mode
+from blogspot_automation.services.en_editorial_policy import lean_en_mode
 from blogspot_automation.services.cover_image_policy import cover_image_coverage, cover_image_required_from_env
 from blogspot_automation.services.final_html_audit_service import audit_final_html_quality
 from blogspot_automation.services.news_focus_policy import ai_blog_mode_from_env, evaluate_news_focus
@@ -734,26 +735,37 @@ class NewsQualityGate:
         faq_h3_count = len(re.findall(r"<h3\b[^>]*>.*?</h3>", html, flags=re.IGNORECASE | re.DOTALL))
         faq_json_ld_present = '"@type": "FAQPage"' in html or '"@type":"FAQPage"' in html
         faq_answers = self._faq_answers(html)
-        if not faq_section_present:
-            blocking_issues.append("missing_faq_section")
-        if faq_h3_count < 3:
-            blocking_issues.append("faq_h3_count_below_3")
-        if not faq_json_ld_present:
-            blocking_issues.append("missing_faqpage_json_ld")
-        if len(faq_answers) < 3 or any(len(answer) < 20 for answer in faq_answers[:3]):
-            blocking_issues.append("faq_answer_too_short")
+        # 2026-10-14 영어 lean 모드: FAQ 는 실제 독자 질문이 있을 때만 0~3개(강제 아님),
+        # 후처리 블록 4종은 생성하지 않으므로 요구하지도 않는다(en_editorial_policy).
+        # FAQ 를 쓴 글이면 답 길이·JSON-LD 요건은 그대로 건다.
+        _lean_en = lean_en_mode()
+        if _lean_en:
+            if faq_answers:
+                if any(len(answer) < 20 for answer in faq_answers[:3]):
+                    blocking_issues.append("faq_answer_too_short")
+                if not faq_json_ld_present:
+                    blocking_issues.append("missing_faqpage_json_ld")
+        else:
+            if not faq_section_present:
+                blocking_issues.append("missing_faq_section")
+            if faq_h3_count < 3:
+                blocking_issues.append("faq_h3_count_below_3")
+            if not faq_json_ld_present:
+                blocking_issues.append("missing_faqpage_json_ld")
+            if len(faq_answers) < 3 or any(len(answer) < 20 for answer in faq_answers[:3]):
+                blocking_issues.append("faq_answer_too_short")
         answer_coverage = answer_engine_coverage(html)
         if not bool(answer_coverage.get("ai_overview_target_answer_present")):
             blocking_issues.append("missing_ai_overview_target_answer")
-        if not bool(answer_coverage.get("issue_context_present")):
+        if not _lean_en and not bool(answer_coverage.get("issue_context_present")):
             blocking_issues.append("missing_issue_context_block")
-        if not bool(answer_coverage.get("intent_answer_present")):
+        if not _lean_en and not bool(answer_coverage.get("intent_answer_present")):
             blocking_issues.append("missing_intent_answer_block")
-        if int(answer_coverage.get("intent_qa_count") or 0) < 3:
+        if not _lean_en and int(answer_coverage.get("intent_qa_count") or 0) < 3:
             blocking_issues.append("intent_qa_count_below_3")
         # PEOPLE_ALSO_ASK_BLOCK 요건 제거(2026-07-09) — 답 없는 검색어 나열이라 읽는
         # 값이 없는 순수 SEO 필러로 판단, 더 이상 생성/요구하지 않음(answer_engine_policy.py).
-        if not bool(answer_coverage.get("confirmed_vs_check_needed_present")):
+        if not _lean_en and not bool(answer_coverage.get("confirmed_vs_check_needed_present")):
             blocking_issues.append("missing_confirmed_vs_check_needed_block")
         if not bool(answer_coverage.get("source_trust_block_present")):
             blocking_issues.append("missing_source_trust_block")
@@ -1991,7 +2003,12 @@ class NewsQualityGate:
 
         table_count = lowered.count("<table")
         if table_count < 1:
-            blocking.append("ai_save_value_no_table")
+            # 2026-10-14 영어 lean 모드: 표는 글 유형(가격·비교)이 필요로 할 때만 쓴다.
+            # 표를 의무로 두면 뉴스 해설·에러 해결 글에 빈약한 표를 끼워 넣게 된다.
+            if lean_en_mode():
+                soft.append("ai_save_value_no_table")
+            else:
+                blocking.append("ai_save_value_no_table")
 
         # 복사형 프롬프트 자산: ai_prompt_recipe(패턴 자체가 프롬프트 템플릿 모음)만 강제.
         # ai_work_tip/ai_beginner_guide에 일괄 강제하면 주제와 무관한 범용 프롬프트 3개를

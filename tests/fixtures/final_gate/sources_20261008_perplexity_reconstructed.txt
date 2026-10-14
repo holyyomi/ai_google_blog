@@ -1,0 +1,13 @@
+RECONSTRUCTED SOURCE EXCERPT (calibration fixture, 2026-10-14).
+The run that published this post did not persist its Exa facts text, and the cited
+perplexity.ai pages return HTTP 403/404 to scripted fetches. This excerpt restates only
+the figures the published post attributes to the linked Perplexity help-center page and
+Perplexity blog post, so the final gate's number check can be calibrated on a post whose
+numbers came from an official source.
+
+- Perplexity and American Express business promotion (perplexity.ai help center):
+  Eligible U.S. American Express Business Card Members with Enterprise subscriptions get
+  10 curated skills for cash flow, marketing, hiring, and tax. Spend $325 or more in a
+  single Perplexity purchase at perplexity.ai to receive a statement credit; App Store
+  purchases do not qualify. Members also receive 1,000 bonus Computer credits.
+  Typical business workflows use about 40 to 80 credits per run. Launched October 1, 2026.

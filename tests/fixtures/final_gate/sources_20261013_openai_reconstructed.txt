@@ -1,0 +1,10 @@
+RECONSTRUCTED SOURCE EXCERPT (calibration fixture, 2026-10-14).
+The run that published this post did not persist its facts text and help.openai.com
+returns HTTP 403 to scripted fetches. The published post makes no price, percentage,
+request, or capacity claim, so the number check has nothing to match here; this excerpt
+only records what the post attributes to the cited OpenAI help-center article.
+
+- OpenAI Help Center (help.openai.com/en/articles/20001276): the ChatGPT desktop app was
+  replaced by a unified client with Chat, Work, and Codex modes; ChatGPT Classic remains
+  available for chat-only use and continues to receive model updates and security patches.
+  The rollout began on macOS and Windows in late September 2026.

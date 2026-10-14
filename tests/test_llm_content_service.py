@@ -53,7 +53,8 @@ def test_english_prompt_removes_reusable_heading_examples() -> None:
 
     assert "generic stock labels" in prompt
     assert "[MEASURED GOOGLE AUTOCOMPLETE SEARCH DEMAND]" in prompt
-    assert "at least 2 <h2> headings" in prompt
+    # 2026-10-14 개편: "최소 2개" 강제 대신 자료가 답할 수 있는 측정 검색어만 소제목으로.
+    assert "turn the measured queries the facts can answer into section titles" in prompt
 
 
 def test_custom_search_is_disabled_by_default(monkeypatch) -> None:

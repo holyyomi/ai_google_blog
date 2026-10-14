@@ -1,0 +1,221 @@
+<style>
+.yomi-clean-post{--a1:#0f766e;--ink:#1c2430;--body:#3b4657;--muted:#69748a;--line:#e4e9f1;--soft:#f6f8fb;max-width:744px;margin:0 auto;padding:10px 0 42px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,'Helvetica Neue',Arial,sans-serif;color:var(--ink);line-height:1.84;font-size:17px;letter-spacing:0;overflow-wrap:anywhere}
+.yomi-clean-post *{box-sizing:border-box;max-width:100%}
+.yomi-clean-post h1{font-size:1.74rem;line-height:1.32;margin:6px 0 24px;color:var(--ink);font-weight:800;padding:0 0 16px;border-bottom:1px solid var(--line);background:linear-gradient(var(--a1),var(--a1)) bottom left/64px 3px no-repeat}
+.yomi-clean-post h2{font-size:1.26rem;line-height:1.42;margin:42px 0 16px;color:var(--ink);font-weight:800;padding:0 0 10px;border-bottom:1px solid var(--line);background:linear-gradient(var(--a1),var(--a1)) bottom left/40px 3px no-repeat}
+.yomi-clean-post h3{font-size:1.04rem;line-height:1.48;margin:18px 0 8px;color:var(--ink);font-weight:750}
+.yomi-clean-post p{margin:0 0 16px;color:var(--body)}
+.yomi-clean-post ul,.yomi-clean-post ol{margin:10px 0 18px;padding-left:22px}
+.yomi-clean-post li{margin:8px 0;color:var(--body)}
+.yomi-clean-post li::marker{color:var(--muted);font-weight:700}
+.yomi-clean-post strong{color:var(--ink)}
+.yomi-clean-post a{color:var(--a1);text-decoration:none;border-bottom:1px solid transparent}
+.yomi-clean-post a:hover{border-bottom-color:var(--a1)}
+.section-label,.yomi-kicker{display:block;margin:0 0 10px;padding:0;border:0;background:none;color:var(--a1);font-size:.82rem;font-weight:800;line-height:1.4;letter-spacing:.01em}
+.section-label:before,.yomi-kicker:before{content:none;display:none}
+.yomi-lede,.preview-hook,.hero-summary-box,
+.yomi-note,.yomi-judgment-box,.real-criterion,.core-message-box,.target-reader-box,
+.misconception-box,.quick-decision-table,
+.actions-box,.action-guide-box,.checklist,.quality-checklist,
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,
+.yomi-paa-compact,.yomi-engine-support,
+.confirmed-section,.check-needed-section,
+.yomi-internal-links,.tool-summary,.pricing-table,
+.who-for-rec,.who-for-non,.risk-note,.verdict-box,.use-case-card{
+  margin:26px 0;padding:18px 20px;border:1px solid var(--line);background:#fff;border-radius:10px;box-shadow:none}
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,.confirmed-section,.check-needed-section,.use-case-card{margin:0 0 12px}
+.yomi-lede,.preview-hook,.hero-summary-box{background:var(--soft);border-left:3px solid var(--a1)}
+.yomi-lede p,.preview-hook p,.hero-summary-box p{font-size:1.03em;color:var(--ink)}
+.yomi-lede p:last-child,.preview-hook p:last-child,.hero-summary-box p:last-child{margin-bottom:0}
+.yomi-judgment-box{border-left:3px solid var(--a1)}
+.yomi-note p{color:var(--body);font-weight:600}
+.yomi-note p:last-child,.yomi-judgment-box p:last-child{margin-bottom:0}
+.yomi-note h2,.yomi-judgment-box h2,.real-criterion h2,.core-message-box h2,.target-reader-box h2{margin-top:0;border:0;padding:0;background:none;font-size:1.06rem}
+.real-criterion{white-space:pre-line}
+.yomi-clean-post table{width:100%;border-collapse:separate;border-spacing:0;margin:14px 0;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.yomi-clean-post th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
+.yomi-clean-post td{border-top:1px solid var(--line);padding:12px 14px;vertical-align:top;background:#fff;color:var(--body)}
+.yomi-clean-post tr:first-child td{border-top:0}
+.misconception-box table,.quick-decision-table table,.pricing-table table,.yomi-risk{width:100%;border-collapse:separate;border-spacing:0;margin:12px 0 4px;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.misconception-box th,.quick-decision-table th,.pricing-table th,.yomi-risk th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
+.misconception-box td,.quick-decision-table td,.pricing-table td,.yomi-risk td{border-top:1px solid var(--line);padding:12px 14px;vertical-align:top;background:#fff;color:var(--body)}
+.misconception-box tr:first-child td,.quick-decision-table tr:first-child td,.pricing-table tr:first-child td,.yomi-risk tr:first-child td{border-top:0}
+.misconception-box td:first-child,.quick-decision-table td:first-child,.yomi-risk td:first-child{font-weight:650;color:var(--ink)}
+.misconception-box,.quick-decision-table,.pricing-table{overflow-x:auto}
+.pricing-table caption{caption-side:top;text-align:left;color:var(--muted);font-size:.88rem;margin-bottom:8px}
+.actions-box ol,.yomi-list{counter-reset:yomi-step;list-style:none;margin:12px 0 4px;padding:0}
+.actions-box li,.yomi-list li{counter-increment:yomi-step;position:relative;margin:0;padding:13px 0 13px 44px;border-top:1px dashed var(--line)}
+.actions-box li:first-child,.yomi-list li:first-child{border-top:0}
+.actions-box li:before,.yomi-list li:before{content:attr(data-step);position:absolute;left:0;top:13px;width:28px;height:28px;border-radius:8px;background:var(--ink);color:#fff;font-size:.78rem;line-height:28px;text-align:center;font-weight:800}
+.actions-box li:not([data-step]):before,.yomi-list li:not([data-step]):before{content:counter(yomi-step)}
+.yomi-list li::marker{content:""}
+.actions-box strong{color:var(--ink)}
+.yomi-thesis,.key-fact-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0}
+.yomi-thesis div,.key-fact-cards .fact-card{border:1px solid var(--line);background:#fff;padding:16px 17px;border-radius:10px}
+.yomi-lens{display:grid;grid-template-columns:1fr;gap:11px;margin:22px 0}
+.yomi-lens article{border:1px solid var(--line);background:#fff;padding:15px 17px;border-radius:10px}
+.yomi-lens article p{margin-bottom:0}
+.yomi-thesis b,.yomi-lens b,.key-fact-cards strong{display:block;margin-bottom:8px;color:var(--ink);font-size:1.01em}
+.yomi-tag{display:inline-block;font-size:.78rem;font-weight:800;padding:3px 10px;border-radius:999px;background:#eef2f7;color:var(--body);margin-bottom:5px}
+.yomi-tag.red,.yomi-tag.amber,.yomi-tag.blue{background:#eef2f7;color:var(--body)}
+.yomi-faq,.faq-block{margin:30px 0}
+.yomi-faq h3,.faq-card h3,.faq-item h3,.intent-qa-item h3{margin-top:0;color:var(--ink);padding-left:12px;border-left:3px solid var(--a1)}
+.yomi-faq p:last-child,.faq-card p:last-child,.faq-item p:last-child,.intent-qa-item p:last-child{margin-bottom:0}
+.yomi-paa-compact h2{font-size:1.05rem;margin:0 0 10px;color:var(--ink);border:0;padding:0;background:none}
+.yomi-paa-compact ul{margin:0;padding-left:20px}
+.yomi-paa-compact li{margin:7px 0}
+.yomi-engine-support{padding-bottom:4px}
+.confirmed-needed-box{margin:30px 0;padding:0}
+.confirmed-needed-box h2{margin-top:0}
+.confirmed-section h3,.check-needed-section h3{margin-top:0;display:flex;align-items:center;gap:8px}
+.confirmed-section h3:before{content:"OK";flex:none;width:30px;height:22px;border-radius:6px;background:#eef2f7;color:var(--body);font-size:.66rem;line-height:22px;text-align:center;font-weight:800}
+.check-needed-section h3:before{content:"CHK";flex:none;width:34px;height:22px;border-radius:6px;background:#fdf3e3;color:#8a5a12;font-size:.64rem;line-height:22px;text-align:center;font-weight:800}
+.check-needed-section{border-left:3px solid #d9a24a}
+.risk-note{border-left:3px solid #d9a24a}
+.risk-note .section-label{color:#8a5a12}
+.risk-note ul{margin:10px 0 2px;padding-left:20px}
+.risk-note li{margin:7px 0}
+.yomi-source{font-size:.92rem;color:var(--muted);border-top:1px solid var(--line);margin-top:36px;padding-top:18px}
+.yomi-source h2{font-size:1.02rem;border:0;padding:0;margin:0 0 10px;color:var(--body);background:none}
+.yomi-source li{margin-bottom:7px}
+.yomi-source p{color:var(--muted)}
+.yomi-hashtags,.hashtag-box{margin:28px 0 8px;padding:16px 0 0;border-top:1px solid var(--line);background:transparent}
+.yomi-hashtags p,.hashtag-box p{margin:0;color:var(--a1);font-size:.93rem;line-height:2;font-weight:750}
+.yomi-internal-links h2{font-size:1.05rem;margin:0 0 12px;color:var(--ink);border:0;padding:0;background:none}
+.yomi-internal-links ul{margin:0;padding:0;list-style:none}
+.yomi-internal-links li{margin:9px 0;padding-left:20px;position:relative}
+.yomi-internal-links li:before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;border-top:2px solid var(--a1);border-right:2px solid var(--a1);transform:rotate(45deg)}
+.yomi-internal-links a{font-weight:650}
+.prompt-recipe-box{margin:26px 0}
+.prompt-card{border:1px solid var(--line);border-radius:10px;margin:0 0 14px;overflow:hidden}
+.prompt-card-label{margin:0!important;padding:10px 15px!important;background:var(--soft)!important;color:var(--ink)!important;font-size:.86rem;font-weight:750;border-bottom:1px solid var(--line)}
+.yomi-clean-post .prompt-code{margin:0!important;padding:16px 17px!important;background:#fbfcfe!important;color:var(--ink)!important;font-family:'D2Coding','Consolas','Courier New',monospace;font-size:.92rem;line-height:1.75;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.deadline-box{margin:30px 0 8px;padding:20px 22px;border:1px solid var(--line);border-left:3px solid var(--a1);background:var(--soft);border-radius:10px}
+.deadline-box .dl-icon{display:inline-block;font-size:1.4rem;line-height:1;margin-right:8px;vertical-align:-3px}
+.deadline-box .dl-title{display:inline-block;font-weight:800;color:var(--ink);font-size:1.05rem}
+.deadline-box .dl-desc{margin:10px 0 0;color:var(--ink);font-size:1.01em}
+.quality-checklist ul{margin:10px 0 2px;padding:0;list-style:none}
+.quality-checklist li{margin:0;padding:10px 0 10px 30px;position:relative;border-top:1px dashed var(--line);color:var(--body)}
+.quality-checklist li:first-child{border-top:0}
+.quality-checklist li:before{content:"\2713";position:absolute;left:2px;top:9px;color:var(--a1);font-weight:800;font-size:1.1em}
+.tool-summary p[itemprop="description"]{margin:0;color:var(--ink);font-weight:600;font-size:1.02em}
+.who-for{margin:26px 0}
+.who-for-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+.who-for-rec,.who-for-non{margin:0}
+.who-for-rec h3,.who-for-non h3{margin:0 0 9px;font-size:1rem}
+.who-for ul{margin:0;padding-left:20px}
+.who-for li{margin:7px 0}
+.verdict-box{border-left:3px solid var(--a1)}
+.verdict-box p{margin:0 0 8px;color:var(--ink)}
+.verdict-box p:last-child{margin-bottom:0}
+.verdict-rating{color:var(--a1);font-size:1.1rem;font-weight:800;letter-spacing:2px}
+.use-cases{margin:26px 0}
+.use-case-when{margin:0 0 5px;font-weight:750;color:var(--ink)}
+.use-case-how{margin:0;color:var(--body)}
+.ai-cover-image,figure[data-yomi-block="cover-image"]{margin:0 0 24px}
+.ai-cover-image img,figure[data-yomi-block="cover-image"] img{width:100%;height:auto;display:block;aspect-ratio:16/9;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.ai-hero{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:2px 0 28px;padding:20px 22px;border-radius:12px;background:var(--a1);color:#fff}
+.ai-hero-icon{font-size:1.7rem;line-height:1}
+.ai-hero-badge{font-size:.78rem;font-weight:800;letter-spacing:.02em;background:rgba(255,255,255,.18);padding:5px 12px;border-radius:999px}
+.ai-hero-title{flex:1 1 100%;font-size:1.14rem;font-weight:750;line-height:1.42;margin-top:4px}
+.yomi-clean-post.theme-teal{--a1:#0f766e}
+.yomi-clean-post.theme-violet{--a1:#6d28d9}
+.yomi-clean-post.theme-blue{--a1:#1d4ed8}
+.yomi-clean-post.theme-emerald{--a1:#047857}
+.yomi-clean-post.theme-rose{--a1:#be123c}
+.yomi-clean-post.theme-indigo{--a1:#4338ca}
+.yomi-clean-post.theme-sky{--a1:#0369a1}
+.yomi-clean-post.theme-amber{--a1:#b45309}
+@media(max-width:640px){
+.post-title.entry-title{font-size:19px!important;line-height:1.28!important;overflow-wrap:normal!important;letter-spacing:0!important}
+.yomi-clean-post{width:100%;max-width:100%;font-size:16px;line-height:1.78;padding:0 16px 30px!important;overflow-x:hidden;word-break:normal}
+.yomi-clean-post h1{font-size:1.42rem}
+.yomi-clean-post h2{font-size:1.16rem;overflow-wrap:anywhere;margin:34px 0 14px}
+.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box,.misconception-box,.quick-decision-table,.actions-box,.action-guide-box,.checklist,.quality-checklist,.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support,.tool-summary,.pricing-table,.risk-note,.verdict-box,.deadline-box{padding:15px 16px;border-radius:10px}
+.yomi-clean-post table{display:block;overflow-x:auto}
+.yomi-thesis,.yomi-lens,.key-fact-cards,.who-for-cols{grid-template-columns:1fr;gap:12px}
+.ai-hero{padding:16px 17px;border-radius:11px}
+.ai-hero-title{font-size:1.04rem}
+.misconception-box table,.quick-decision-table table,.pricing-table table,.yomi-risk{display:block;border:0;background:transparent}
+.misconception-box thead,.quick-decision-table thead,.pricing-table thead,.yomi-risk thead{display:none}
+.misconception-box tbody,.quick-decision-table tbody,.pricing-table tbody,.yomi-risk tbody{display:block}
+.misconception-box tr,.quick-decision-table tr,.pricing-table tr,.yomi-risk tr{display:block;border:1px solid var(--line);border-radius:8px;margin:0 0 12px;background:#fff;overflow:hidden}
+.misconception-box td,.quick-decision-table td,.pricing-table td,.yomi-risk td{display:block;width:100%;border:0!important;border-top:1px solid var(--line)!important;padding:11px 13px!important;background:#fff!important}
+.misconception-box td:first-child,.quick-decision-table td:first-child,.pricing-table td:first-child,.yomi-risk td:first-child{border-top:0!important;background:var(--soft)!important;font-weight:750;color:var(--ink)}
+}
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Perplexity and American Express Launch AI-Powered Business Skills for Card Members (2026)", "description": "If you have a U.S. American Express Business Card and pay for Perplexity Enterprise, you can now get 10 ready-made AI workflows for cash flow, marketing, hir...", "datePublished": "2026-10-08", "dateModified": "2026-10-08", "author": {"@type": "Person", "name": "holyyomi AI"}, "mainEntityOfPage": {"@type": "WebPage"}, "keywords": "News, AITools, Perplexity"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Does the $325 statement credit apply to monthly Enterprise payments or only annual?", "acceptedAnswer": {"@type": "Answer", "text": "The help center states \"spend $325 or more in a single Perplexity purchase\" — a single annual Enterprise payment typically clears this threshold, while a monthly payment may not. Check your plan's billing amount at perplexity.ai before purchasing."}}, {"@type": "Question", "name": "Can I get the 1,000 bonus Computer Credits if I already have an active Enterprise subscription?", "acceptedAnswer": {"@type": "Answer", "text": "The promotion describes the bonus credits when you \"buy Enterprise Pro or Enterprise Max with your U.S. American Express Card.\" Contact Perplexity support to confirm whether renewals or plan upgrades qualify before renewing."}}, {"@type": "Question", "name": "Are the 10 curated Skills available to Enterprise users without an American Express card?", "acceptedAnswer": {"@type": "Answer", "text": "No. The announcement specifies the curated collection is \"specifically curated for U.S. American Express Business Card Members with a Perplexity Enterprise subscription.\" Both conditions must be met at the same time."}}]}</script>
+<article class="yomi-clean-post">
+<figure class="ai-cover-image" data-yomi-block="cover-image" data-yomi-cover-kind="ai"><img src="https://i.ibb.co/kknF31v/perplexity-american-express-launch-ai-a62eb2.jpg" alt="Cover image for Perplexity and American Express Launch AI-Powered Business Skills for Card Members (2026) — workspace scene symbolizing AI productivity and setup checks" loading="eager" decoding="async" width="1200" height="675" /></figure>
+<section id="AI_OVERVIEW_TARGET_ANSWER" class="yomi-lede"><h2>In one paragraph</h2><p>10 curated Skills for cash flow, marketing, hiring, and tax launched October 1, 2026 for eligible U.S. American Express Business Card Members with Enterprise subscriptions. Statement credit requires a single $325+ purchase at perplexity.ai; app store purchases do not qualify.</p></section>
+  <div class="post-content">
+<p>If you have a U.S. American Express Business Card and pay for Perplexity Enterprise, you can now get 10 ready-made AI workflows for cash flow, marketing, hiring, and tax tasks. You also get a statement credit on purchases of $325 or more and 1,000 bonus Computer Credits. This started in October 2026, per Perplexity's announcement and help center.</p>
+
+<h2>What the partnership includes</h2>
+<p>Perplexity and American Express picked 10 Skills inside Perplexity Computer for common business jobs. They cover cash flow forecasting, marketing campaign planning, hiring workflows, and tax prep help. Each Skill is a ready-to-use AI workflow that connects to tools you already use, so you don't write prompts from scratch. You need both an eligible U.S. American Express Business Card and an active Perplexity Enterprise subscription (Pro or Max tier).</p>
+
+<h2>Eligibility and requirements</h2>
+<p>Only U.S. American Express Small Business Card Members qualify. Corporate cards, personal cards, and cards issued outside the United States do not count. You must buy or pay for your Perplexity subscription directly at perplexity.ai. Purchases through the Perplexity mobile app or any app store do not qualify for the statement credit or bonus credits. Your Enterprise subscription must be active when you buy to trigger the promotion.</p>
+
+<h2>The three-part promotion</h2>
+<p>The program has three separate parts. You can benefit from one, two, or all three depending on what you qualify for. Part 1 gives a statement credit when you spend $325 or more in one qualifying Perplexity purchase with your eligible card.</p><p>Part 2 gives 1,000 bonus Perplexity Computer Credits when you buy an Enterprise Pro or Max plan with that card. Part 3 unlocks the exclusive curated Skills collection inside Perplexity Computer. Each part has its own eligibility check, so meeting one does not automatically enroll you in the others.</p>
+
+<div class="quick-decision-table"><table><thead><tr><th>Promotion part</th><th>Requirement</th><th>Benefit</th><th>Where to buy</th></tr></thead><tbody><tr><td>Statement credit</td><td>Spend $325+ in one Perplexity purchase</td><td>Statement credit on qualifying purchase</td><td>perplexity.ai only</td></tr><tr><td>Bonus Computer Credits</td><td>Buy Enterprise Pro or Max with eligible card</td><td>1,000 Perplexity Computer Credits</td><td>perplexity.ai only</td></tr><tr><td>Curated Skills access</td><td>Eligible card + active Enterprise subscription</td><td>10 pre-built business Skills in Perplexity Computer</td><td>Inside Perplexity Computer</td></tr></tbody></table></div>
+<p>As of October 2026, the table reflects the three promotion parts described in Perplexity's help center. Prices for Enterprise Pro and Enterprise Max are not published in the announcement; check the official pricing page for current rates.</p>
+
+<h2>What the bonus credits cover in practice</h2>
+<p>Perplexity Computer Credits are used each time you run a Skill or a custom workflow. Typical business workflows use about 40 to 80 credits per run. Examples include cash flow forecasting with three scenarios, a marketing brief with audience research, or a hiring workflow that drafts a job description and interview questions.</p><p>The exact amount depends on data volume and connected tools. At that rate, the 1,000 bonus credits would cover roughly 12 to 25 full Skill runs.</p><p>If you run a cash flow Skill weekly (4 runs per month) and a marketing Skill every two weeks (2 runs per month), the bonus credits would last about 4 to 6 months before you need to buy more. Heavy users running daily hiring workflows during a recruiting push would use the bonus faster.</p><p>Occasional users running quarterly tax checklists could stretch the credits across a full year. Track your credit balance in the Perplexity Computer dashboard to see your actual usage.</p>
+
+<h2>How to access and use the Skills</h2>
+<p>Once eligible, the 10 Skills appear inside Perplexity Computer under a dedicated collection for American Express Business Card Members. Each Skill runs as a multi-step workflow. You give the business context — revenue figures, campaign goals, hiring needs. The Skill pulls data from your connected tools.</p><p>It returns a structured output: a cash flow projection, a marketing brief, a job description draft, or a tax checklist. You can run a Skill again with updated inputs as your business changes.</p>
+
+<div class="actions-box"><ol><li><strong>Verify card eligibility</strong> — Confirm your U.S. American Express Small Business Card is listed as eligible in the promotion terms.</li><li><strong>Buy Enterprise at perplexity.ai</strong> — Purchase Enterprise Pro or Max directly on the web site, not through an app store.</li><li><strong>Open Perplexity Computer</strong> — Go to the Skills section and find the American Express curated collection.</li><li><strong>Run a Skill</strong> — Pick a Skill, enter your business data when prompted, and review the generated output.</li></ol></div>
+
+<h2>What stays the same and what is unconfirmed</h2>
+<p>The core Perplexity Enterprise product — model access, search capabilities, and Computer Credits pricing — has not changed with this announcement. The partnership adds a promotional layer and a curated Skill set, but it does not alter Enterprise plan limits or model availability.</p><p>Perplexity has not published whether the 10 Skills will expand, whether the statement credit amount is fixed or capped, or whether the bonus Computer Credits expire. The help center notes each promotion part has separate requirements but does not detail the verification timeline for the statement credit posting.</p>
+
+<div class="risk-note"><span class="section-label">Watch out</span><p>Purchases through the Perplexity mobile app or any app store disqualify you from the statement credit and bonus credits — you must buy at perplexity.ai.</p></div>
+
+<h2>First-time failure points</h2>
+<ul>
+<li><strong>Cause: App store purchase</strong> — Buying Enterprise via iOS or Android app store blocks the statement credit and bonus credits. Fix: Cancel the app-store subscription and repurchase at perplexity.ai with the eligible card.</li>
+<li><strong>Cause: Wrong card type</strong> — Corporate, personal, or non-U.S. American Express cards do not qualify. Fix: Use a U.S. American Express Small Business Card for the purchase.</li>
+<li><strong>Cause: Inactive Enterprise subscription</strong> — The Skills collection only appears while an Enterprise Pro or Max plan is active. Fix: Renew or upgrade your plan at perplexity.ai before expecting Skills access.</li>
+<li><strong>Cause: Skills collection not visible after purchase</strong> — The curated collection only appears for accounts that meet both conditions at the same time: eligible card and active Enterprise. Fix: Confirm your card is linked to the Perplexity account used for the Enterprise purchase, then refresh Perplexity Computer. If the collection still does not appear, contact Perplexity support with your order confirmation and card details.</li>
+</ul>
+
+<h2>Frequently Asked Questions</h2>
+
+<h2>How the Skills fit into a weekly workflow</h2>
+<p>Most small-business owners do not run AI workflows in isolation. They fit them into existing weekly or monthly routines. A typical rhythm might look like this: Monday morning, run the cash flow forecasting Skill with the prior week's actual revenue and expense data to update the 13-week projection.</p><p>Tuesday, run the marketing campaign planning Skill with new product launch dates and budget allocations to generate a channel brief for the team. Wednesday, if hiring is active, run the hiring workflow for each open role to produce a job description, screening questions, and an interview scorecard.</p><p>Thursday, use the tax preparation checklist Skill to confirm quarterly estimated payment amounts and required documentation before the filing deadline. Friday, review all outputs, adjust assumptions, and share the structured results with your accountant, marketing lead, or HR partner.</p><p>Because each Skill returns a structured document rather than a chat transcript, you can version-control the outputs in Google Drive or Notion and track changes over time. The 10 Skills cover the four most common recurring business functions, so you can build a repeatable Monday-through-Friday AI-assisted cadence without writing new prompts each week.</p>
+
+<div class="who-for"><div class="who-for-cols">
+<div class="who-for-rec"><h3>Use this if</h3><ul><li>You already pay for Perplexity Enterprise Pro or Max and hold a U.S. American Express Small Business Card</li><li>You want ready-made AI workflows for cash flow, marketing, hiring, or tax tasks without building prompts</li><li>You can make a single $325+ purchase at perplexity.ai to claim the statement credit</li></ul></div>
+<div class="who-for-non"><h3>Skip it if</h3><ul><li>You use a corporate, personal, or non-U.S. American Express card</li><li>You prefer to buy subscriptions through the App Store or Google Play</li><li>You do not need pre-built business workflows and only use Perplexity for general search</li></ul></div>
+<div class="who-for-rec"><h3>Also consider if</h3><ul><li>You are evaluating Enterprise Pro versus Max and the 1,000 bonus credits would cover your first 3-6 months of Skills usage — the credit value effectively lowers your first-year cost</li><li>You manage multiple businesses under one American Express account — each eligible card can trigger the promotion separately, so you could unlock the Skills collection for each entity</li><li>Your accountant or tax preparer already uses Perplexity — shared access to the tax checklist Skill reduces back-and-forth during filing season</li></ul></div>
+<div class="who-for-non"><h3>Hold off if</h3><ul><li>You are on a monthly Enterprise plan that bills under $325 — you would not trigger the statement credit unless you prepay annually or add a Computer Credits top-up in the same transaction</li><li>You need Skills for functions outside the four covered areas (e.g., legal contract review, supply chain optimization, investor reporting) — the current 10 Skills do not address those</li><li>Your team relies on mobile app workflows — the curated Skills are only accessible inside Perplexity Computer on desktop web</li></ul></div>
+</div></div>
+
+<section class="yomi-faq" id="INTENT_ANSWER_BLOCK" data-yomi-engine="aeo">
+<article class="faq-item"><h3 class="faq-q">Does the $325 statement credit apply to monthly Enterprise payments or only annual?</h3><p class="faq-a">The help center states "spend $325 or more in a single Perplexity purchase" — a single annual Enterprise payment typically clears this threshold, while a monthly payment may not. Check your plan's billing amount at perplexity.ai before purchasing.</p></article>
+<article class="faq-item"><h3 class="faq-q">Can I get the 1,000 bonus Computer Credits if I already have an active Enterprise subscription?</h3><p class="faq-a">The promotion describes the bonus credits when you "buy Enterprise Pro or Enterprise Max with your U.S. American Express Card." Contact Perplexity support to confirm whether renewals or plan upgrades qualify before renewing.</p></article>
+<article class="faq-item"><h3 class="faq-q">Are the 10 curated Skills available to Enterprise users without an American Express card?</h3><p class="faq-a">No. The announcement specifies the curated collection is "specifically curated for U.S. American Express Business Card Members with a Perplexity Enterprise subscription." Both conditions must be met at the same time.</p></article>
+<div class="intent-qa-item"><p class="intent-q"><strong>Q. How does what the partnership includes actually work out?</strong></p><p>A. Perplexity and American Express picked 10 Skills inside Perplexity Computer for common business jobs. They cover cash flow forecasting, marketing campaign planning, hiring workflows, and tax prep help.</p></div><div class="intent-qa-item"><p class="intent-q"><strong>Q. Where does Eligibility and requirements land for you?</strong></p><p>A. Only U.S. American Express Small Business Card Members qualify. Corporate cards, personal cards, and cards issued outside the United States do not count. You must buy or pay for your Perplexity subscription directly at perplexity.ai.</p></div><div class="intent-qa-item"><p class="intent-q"><strong>Q. Where does the three-part promotion land for you?</strong></p><p>A. The program has three separate parts. You can benefit from one, two, or all three depending on what you qualify for. Part 1 gives a statement credit when you spend $325 or more in one qualifying Perplexity purchase with your eligible card.</p></div></section>
+<section id="ISSUE_CONTEXT_BLOCK" class="yomi-note"><h2>Why this landed now</h2><p>The background and real-world impact are covered below, based on confirmed facts.</p></section>
+<section id="AI_CITATION_SUMMARY" class="yomi-citation-summary"><p>10 curated Skills for cash flow, marketing, hiring, and tax launched October 1, 2026 for eligible U.S. American Express Business Card Members with Enterprise subscriptions. Statement credit requires a single $325+ purchase at perplexity.ai; app store purchases do not qualify. 1,000 bonus Computer Credits awarded when buying Enterprise Pro or Max with eligible card at perplexity.ai. The real question is what actually changes for you versus what's just chatter and holding the rest against your own account before you rely on it.</p></section>
+<section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">
+<div class="confirmed-section"><h3>Confirmed facts</h3><ul><li>10 curated Skills for cash flow, marketing, hiring, and tax launched October 1, 2026 for eligible U.S. American Express Business Card Members with Enterprise subscriptions</li><li>Statement credit requires a single $325+ purchase at perplexity.ai; app store purchases do not qualify</li><li>1,000 bonus Computer Credits awarded when buying Enterprise Pro or Max with eligible card at perplexity.ai</li></ul></div>
+<div class="check-needed-section"><h3>Check for yourself</h3><ul><li>Current Enterprise Pro and Max prices — check perplexity.ai/pricing</li><li>Whether your specific American Express card is listed as eligible — check the promotion terms at the help center</li><li>Statement credit posting timeline and any cap — contact American Express or Perplexity support</li></ul></div>
+</section>
+
+<div class="quality-checklist"><ul><li>Confirm your card is a U.S. American Express Small Business Card (not corporate or personal)</li><li>Purchase or renew Enterprise Pro or Max at perplexity.ai — not through any app store</li><li>Verify the 10 Skills appear in Perplexity Computer after purchase</li><li>Run a cash flow or marketing Skill with your actual business data to test the workflow</li><li>Monitor your American Express statement for the credit within two billing cycles</li></ul></div>
+  </div>
+<section id="SOURCE_TRUST_BLOCK" class="yomi-source"><h2>Checked against these</h2><p>Where a limit or a price appears, its source is named alongside it (as of 2026-10-08). Feature availability tracks the provider's rollout plan, not this article's publication date. Treat this as a starting point and let the vendor's own page settle any disagreement.</p>
+    <p class="source-trust-links-label"><strong>Sources</strong></p>
+    <ul class="source-trust-links">
+      <li><a href="https://www.perplexity.ai/hub/blog/perplexity-and-american-express-make-ai-easier-for-growing-businesses" rel="noopener nofollow" target="_blank">Perplexity and American Express: AI for growing businesses</a></li>
+      <li><a href="https://www.perplexity.ai/help-center/help-center/en/articles/20261002-perplexity-and-american-express-business-promotion" rel="noopener nofollow" target="_blank">Perplexity and American Express Business Promotion…</a></li>
+    </ul></section>
+<section class="yomi-hashtags" data-yomi-block="hashtags" aria-label="Related hashtags"><p>#AI #News #AITools #Perplexity</p></section>
+</article>

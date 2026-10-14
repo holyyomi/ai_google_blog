@@ -145,7 +145,7 @@ jobs:
           NEWS_EXCLUDED_QUERY_GROUPS: ""
           MIN_TOPIC_SCORE: "75"
           TOPIC_CANDIDATE_LIMIT: "120"
-          DEDUP_DAYS: "7"
+          DEDUP_DAYS: "30"
           TITLE_CANDIDATE_COUNT: "10"
           # 1등 후보가 발행 게이트에 막히면 다음 후보로 재시도 (news_blog.yml과 동일값).
           # 이 값이 없으면 기본 1 → 첫 후보가 막히는 순간 그날 발행 자체가 스킵됨 (실측 확인, 2026-07-10).
@@ -254,7 +254,7 @@ jobs:
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           BLOGSPOT_HOME_URL: "https://holyyomiai.blogspot.com/"
           BLOG_BRAND_NAME: "holyyomi AI"
-          BLOG_AUTHOR_NAME: "holyyomi AI"
+          BLOG_AUTHOR_NAME: "Yomi"
           RUNS_DIR: "runs"
         run: |
           PYTHONPATH=src python src/blogspot_automation/cli_ai.py

@@ -121,7 +121,20 @@ def audit_post_html(
         warnings.append("og_description_not_post_specific")
 
     coverage = answer_engine_coverage(content)
-    answer_engine_ready = (
+    from blogspot_automation.services.en_editorial_policy import lean_en_mode
+
+    # 2026-10-14 영어 lean 모드: 후처리 블록(intent/confirmed)과 FAQ 3개를 만들지
+    # 않으므로 여기서 요구하면 정상 글이 발행 직후 감사에 걸린다(감사 실패는 삭제로
+    # 이어질 수 있다). 요약·출처·BlogPosting 은 그대로 요구하고, 본문에 FAQ 가
+    # 있으면 FAQPage 도 요구한다.
+    _lean_has_faq = bool(re.search(r'class=["\'][^"\']*faq-q', content or "", flags=re.I))
+    lean_ready = (
+        bool(coverage.get("ai_overview_target_answer_present"))
+        and bool(coverage.get("source_trust_block_present"))
+        and bool(coverage.get("blogposting_json_ld_present"))
+        and (bool(coverage.get("faqpage_json_ld_present")) or not _lean_has_faq)
+    )
+    answer_engine_ready = lean_ready if lean_en_mode() else (
         bool(coverage.get("ai_overview_target_answer_present"))
         and bool(coverage.get("intent_answer_present"))
         and int(coverage.get("intent_qa_count") or 0) >= 3

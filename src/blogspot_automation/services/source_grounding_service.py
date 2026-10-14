@@ -147,6 +147,18 @@ def _quote_around(text: str, start: int, end: int, *, window: int = 60) -> str:
     return f"{prefix}{text[left:right].strip()}{suffix}"
 
 
+def _strict_numbers() -> bool:
+    """SOURCE_GROUNDING_STRICT_NUMBERS: on/off. 지정이 없으면 영어 lean 모드에서 on."""
+    raw = (os.getenv("SOURCE_GROUNDING_STRICT_NUMBERS", "") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    from blogspot_automation.services.en_editorial_policy import lean_en_mode
+
+    return lean_en_mode()
+
+
 class GroundingReport:
     """검사 결과. 차단 여부는 호출부(llm_content_service)가 재작성 후 판정한다."""
 
@@ -187,6 +199,12 @@ class GroundingReport:
         # 2026-09-27 추가: 없는 명령어·출처에 없는 모델 버전도 차단 대상이다.
         # 독자가 그대로 쳐 보고 실패하거나, 옛 모델을 현재 것으로 믿게 된다.
         dollars = [n for n in self.ungrounded_numbers if n.lstrip().startswith("$")]
+        # 2026-10-14: 영어 lean 모드에서는 퍼센트·요청/메시지 수·용량도 하드 위반이다.
+        # 10-14 라이브 글 "roughly 200 messages per day" 가 출처 없이 나갔다 —
+        # 재작성 1회 뒤에도 남으면 차단한다. "30 requests 라고 치면" 같은 가정 예시도
+        # 독자에게는 사실처럼 읽힌다.
+        if _strict_numbers():
+            dollars = list(self.ungrounded_numbers)
         return (
             list(self.ungrounded_absence)
             + dollars

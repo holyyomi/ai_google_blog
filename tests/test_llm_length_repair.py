@@ -43,8 +43,9 @@ def _en_article(sentence_count: int) -> str:
     )
 
 
-SHORT_DRAFT = _en_article(70)   # ≈1,380단어 — 하한 미달
-LONG_DRAFT = _en_article(110)   # ≈2,150단어 — 하한 통과
+# 2026-10-14: 하한 1500 → 800 에 맞춰 분량을 옮겼다.
+SHORT_DRAFT = _en_article(30)   # ≈620단어 — 하한 미달
+LONG_DRAFT = _en_article(50)    # ≈1,010단어 — 하한 통과
 
 
 class _FakeResponse:

@@ -108,7 +108,18 @@ def test_no_sentence_is_shared_by_a_third_of_articles():
     for i in range(30):
         counter.update(_sentences(_render(i)))
 
-    offenders = [(n, s) for s, n in counter.items() if n > 10]
+    # AI 공개 문구(2026-10-14)는 정책상 모든 글에 같은 문장으로 들어가야 한다 — 템플릿
+    # 보일러플레이트가 아니라 고지다. 그 한 줄만 예외로 둔다.
+    from blogspot_automation.services.en_editorial_policy import (
+        _DISCLOSURE_AUTO,
+        _DISCLOSURE_REVIEWED,
+    )
+
+    offenders = [
+        (n, s)
+        for s, n in counter.items()
+        if n > 10 and s not in {_DISCLOSURE_AUTO, _DISCLOSURE_REVIEWED}
+    ]
     assert not offenders, (
         "30편 중 10편 넘게 반복되는 문장이 있다 — 템플릿 보일러플레이트가 다시 늘었다:\n"
         + "\n".join(f"{n}/30  {s[:110]}" for n, s in sorted(offenders, reverse=True)[:10])
@@ -131,19 +142,23 @@ def test_two_articles_do_not_share_faq_questions():
     assert not shared, f"두 글이 같은 질문을 공유한다: {sorted(shared)}"
 
 
-def test_generic_intent_pool_prefers_article_headings():
-    """본문이 있으면 폴백 Q&A보다 **그 글의 소제목에서 만든 질문**이 앞선다."""
+def test_generic_intent_pool_does_not_derive_questions_from_headings_in_english():
+    """2026-10-14: 소제목→질문 변환을 영어 모드에서 끈다.
+
+    이 경로가 "How much does {소제목} really matter?" 같은 비문 질문을 만들고 답은
+    본문 첫 문단을 그대로 복사했다(라이브 실측). 영어 모드에선 소제목에서 질문을
+    만들지 않는다 — lean 경로는 이 풀 자체를 쓰지 않는다.
+    """
     from blogspot_automation.services.answer_engine_policy import (
         _en_generic_intent_pool,
+        _section_derived_intent_pool,
     )
 
     html = _article_html(5)
     pool = _en_generic_intent_pool("Grok agent mode", "ai_work_tip", html)
+    derived = {qa["Q"] for qa in _section_derived_intent_pool(html)}
     assert pool, "폴백 풀이 비면 안 된다"
-    # 첫 항목은 본문 소제목에서 왔어야 한다 — 그 글에만 있는 고유명사가 들어간다.
-    assert "Grok" in pool[0]["Q"], pool[0]["Q"]
-    # 그리고 그 답은 본문에서 온 실제 사실이어야 한다(숫자 포함).
-    assert re.search(r"\d", pool[0]["A"]), pool[0]["A"]
+    assert not derived & {qa["Q"] for qa in pool}
 
 
 def test_confirmed_block_uses_body_facts_not_template():

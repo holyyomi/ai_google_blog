@@ -237,9 +237,12 @@ _SYSTEM_PROMPT = """당신은 구글 블로그스팟에 매일 자동 업로드�
 # 참고: 발행 게이트(news_quality_gate)에는 영어 단어 수 검사가 없다 — 게이트의
 # 길이 조건은 `article_body_too_short`(plain text 800자)뿐이라 이 하한과 충돌하지
 # 않는다. 즉 이 값은 애드센스 thin-content 방어를 위한 자체 계약이다.
-EN_MIN_BODY_WORDS = 1500
-EN_TARGET_BODY_WORDS_MIN = 1700
-EN_TARGET_BODY_WORDS_MAX = 2200
+# 2026-10-14 개편: 1,500/1,700~2,200 → 800/1,100~1,400. 자료 7,500자로 2,000단어를
+# 요구하면 모델은 같은 사실을 반복하고 블록을 덧붙여 부풀린다(10-14 진단: 본문 35~50%가
+# 덧붙임, 문장 3~4회 반복). 해외 인기 AI 블로그의 실용 글은 800~1,400단어 구간이다.
+EN_MIN_BODY_WORDS = 800
+EN_TARGET_BODY_WORDS_MIN = 1100
+EN_TARGET_BODY_WORDS_MAX = 1400
 
 # 팩트 양에 따라 분량을 정한다 (2026-09-01).
 #
@@ -250,23 +253,63 @@ EN_TARGET_BODY_WORDS_MAX = 2200
 #
 # 그래서 확보한 팩트가 얇으면 짧게 쓰게 한다. 짧고 정확한 글은 thin content가
 # 아니다 — thin content는 할 말이 없는데 길게 쓴 글이다.
-EN_SHORT_MIN_BODY_WORDS = 700
+EN_SHORT_MIN_BODY_WORDS = 600
 EN_SHORT_TARGET_MIN = 800
-EN_SHORT_TARGET_MAX = 1200
+EN_SHORT_TARGET_MAX = 1000
+# 중간 자료(2026-10-14 추가) — 두 단계로는 1,800자와 7,000자 자료가 같은 길이를 받았다.
+EN_MID_MIN_BODY_WORDS = 700
+EN_MID_TARGET_MIN = 900
+EN_MID_TARGET_MAX = 1200
 # 이 글자 수 미만의 팩트만 모였으면 짧은 포맷으로 간다. 실측 기준: 정상적으로
 # 팩트가 모인 실행은 수천 자, 헤드라인만 긁힌 실행은 수백 자였다.
 EN_THIN_FACTS_CHARS = 1800
+# 이 글자 수 이상이면 긴 포맷(1,100~1,400). Exa 5건×1,500자 상한이 7,500자다.
+EN_RICH_FACTS_CHARS = 4500
 
 
 def _length_targets_for_facts(facts: str) -> tuple[int, int, int]:
-    """확보한 팩트 분량에 맞는 (최소, 목표하한, 목표상한) 단어 수.
+    """확보한 팩트 분량에 비례하는 (최소, 목표하한, 목표상한) 단어 수.
 
     할 말이 있으면 길게, 없으면 짧게. 분량을 고정하면 둘 중 하나가 된다 —
     얇은 주제를 부풀리거나, 두꺼운 주제를 자르거나.
     """
-    if len((facts or "").strip()) < EN_THIN_FACTS_CHARS:
+    chars = len((facts or "").strip())
+    if chars < EN_THIN_FACTS_CHARS:
         return EN_SHORT_MIN_BODY_WORDS, EN_SHORT_TARGET_MIN, EN_SHORT_TARGET_MAX
+    if chars < EN_RICH_FACTS_CHARS:
+        return EN_MID_MIN_BODY_WORDS, EN_MID_TARGET_MIN, EN_MID_TARGET_MAX
     return EN_MIN_BODY_WORDS, EN_TARGET_BODY_WORDS_MIN, EN_TARGET_BODY_WORDS_MAX
+
+
+def _source_links_block(citations: list[dict[str, str]] | None) -> str:
+    """프롬프트용 [SOURCE LINKS] — 이번 실행에서 실제로 수집한 인용 URL 만.
+
+    본문 링크는 발행 단계에서 이 URL 들과 정확히 일치할 때만 살아남는다
+    (seo_policy.strip_external_anchor_links). 목록에 없는 URL 은 벗겨진다.
+    """
+    lines: list[str] = []
+    seen: set[str] = set()
+    for c in citations or []:
+        if not isinstance(c, dict):
+            continue
+        url = str(c.get("url") or "").strip()
+        name = " ".join(str(c.get("name") or "").split())
+        if not url.lower().startswith(("http://", "https://")) or url in seen:
+            continue
+        seen.add(url)
+        lines.append(f"- {name or url}: {url}")
+        if len(lines) >= 8:
+            break
+    return "\n".join(lines) or "(none — do not add any external links)"
+
+
+def _length_targets_for_min(min_words: int) -> tuple[int, int]:
+    """검증기 하한으로부터 그 단계의 목표 구간을 되찾는다(보강 프롬프트용)."""
+    if min_words <= EN_SHORT_MIN_BODY_WORDS:
+        return EN_SHORT_TARGET_MIN, EN_SHORT_TARGET_MAX
+    if min_words <= EN_MID_MIN_BODY_WORDS:
+        return EN_MID_TARGET_MIN, EN_MID_TARGET_MAX
+    return EN_TARGET_BODY_WORDS_MIN, EN_TARGET_BODY_WORDS_MAX
 
 # 최후 수단 하한(2026-08-26). 전 provider가 길이 때문에 실패했을 때, 그날 발행을
 # 통째로 버리는 대신 "가장 긴 초안"이 이 값을 넘으면 채택한다.
@@ -285,7 +328,9 @@ def _length_targets_for_facts(facts: str) -> tuple[int, int, int]:
 #
 # 중요: 길이 미달(_WordCountShortfallError)에만 적용한다. 절단·한국어 혼입·FAQ
 # 마크업 파손 같은 다른 검증 실패는 그대로 폐기한다 — 그건 짧은 게 아니라 깨진 것이다.
-EN_ACCEPTABLE_BODY_WORDS = 1300
+# 2026-10-14: 1300 → 550. 목표 자체를 800~1,400으로 낮췄으니 최후 수단 하한도
+# 가장 얇은 단계(600)보다 조금 아래로 둔다. 짧고 정확한 글이 부풀린 글보다 낫다.
+EN_ACCEPTABLE_BODY_WORDS = 550
 
 
 def _acceptable_body_words() -> int:
@@ -332,7 +377,9 @@ Never state any of the following unless it appears in the provided [SEARCH FACTS
 - Write about the AI tools themselves — never about the websites, GitHub tracker repos, or listicles that collect data about them. If the facts mainly describe a price-tracker project or a "top tools" roundup, extract the underlying tool facts and write about the tools. A reader searching for prices wants prices, not a tour of tracking projects; tracker/roundup sites may only be named as a source, never treated as the topic.
 - NEVER invent product names, tool names, GitHub repositories, or URLs. Only name a specific tool, app, repo, or link if it appears in the provided [SEARCH FACTS]. If you want to point readers to a resource but have no verified URL, describe how to find it ("search GitHub for an open-source Etsy listing helper") instead of fabricating an owner/repo path or link — a made-up repo like "github.com/someuser/some-tool" that 404s destroys reader trust and will block publishing.
 - Statistics: name the source, the year, and the scope (who/where was surveyed) next to every statistic — "According to [source]'s [year] survey of [scope], ..." — and never merge numbers from different surveys or methodologies into one comparison as if they measured the same thing.
-- Never invent benchmarks, statistics, or survey results. NEVER write first-person testing claims — "I tested", "in my testing", "I personally used" — this publication cannot run hands-on tests, so any such sentence is fabricated. When a walkthrough helps, present it as a reproducible recipe the reader runs themselves: the exact prompt/settings, the expected output shape, and what to measure.
+- Never invent benchmarks, statistics, or survey results. NEVER write first-person or invented experience — "I tested", "we tested", "in our testing", "I personally used", "we found", "when we tried" — unless a [RUN DATA] block with real execution results is included in the input. Without it, any such sentence is fabricated. When a walkthrough helps, present it as a reproducible recipe the reader runs themselves: the exact prompt/settings, the expected output shape, and what to measure.
+- EVERY NUMBER NEEDS A SOURCE IN THE FACTS: every price, percentage, request/message count, limit, or quota you write must appear in [SEARCH FACTS]. No estimates ("roughly 200 messages"), no hypothetical examples with made-up numbers ("if you send 150 messages a day"), no arithmetic on numbers that are not in the facts. An automated check blocks the article if any such number is missing from the sources.
+- LINK THE SOURCE IN THE SENTENCE: when a sentence states a fact taken from a source in [SOURCE LINKS], link the key words of that sentence to that exact URL with <a href="URL">…</a>. Only use URLs listed in [SOURCE LINKS], copied exactly — never invent or shorten a URL. Prefer official vendor pages, docs, help centers, and official blogs; community threads and GitHub repos are never the source of a price, limit, or spec.
 - Version/generation numbers: only use them exactly as written in the facts. Never guess the next version up. Product naming must be identical in title and body.
 
 [BANNED — auto-publish gate will reject these]
@@ -347,14 +394,14 @@ Never state any of the following unless it appears in the provided [SEARCH FACTS
 1. English only. US blog register: short sentences, second person ("you"), active voice. No throat-clearing — never open with "In this article, we will..." or "AI is evolving rapidly". Start with the reader's situation or the direct answer.
 1-0. PLAIN LANGUAGE (readability is a ranking factor): write for a smart friend, not a boardroom — 8th-grade reading level, everyday words, contractions (you're, it's, don't) welcome. Say "costs $20 a month", never "is priced at a monthly rate of $20". Define any technical term in plain words the first time it appears — "per-seat pricing (you pay separately for each team member)". If the topic itself is built out of specialist jargon (architecture patterns, framework names, protocol names), do not assume the reader already works in that specialty — translate every such term into a one-clause plain-English gloss the first time it appears, or cut it if it cannot be made concrete for a general reader in one clause. No academic connectors ("thus", "moreover", "functions as", "constructs", "concentrates on") — use "so", "also", "works as", "builds", "focuses on". Facts are raw material, not quotes: never copy sentences from [SEARCH FACTS] verbatim or wrap them in quotation marks — rewrite every fact in your own plain words. Quotation marks are only for words an actual named person said.
 1-1. PARAGRAPH RHYTHM (readability contract): each paragraph is 2-3 sentences and at most 70 words; the opening paragraph stays under 60 words. NEVER write two consecutive <p> paragraphs on the same sub-idea without a visual break between them — a table, list, step card, callout box, or the who-for-cols block. If a section's content is a repeated pattern (multiple causes-and-fixes, multiple reader types, multiple tools) — not just a single flowing explanation — put it in a list or card block instead of stacking paragraphs; a section is not "explained better" by adding a second dense paragraph, it is explained better by breaking the second paragraph's content into scannable pieces. One idea per paragraph; when the idea grows, split the paragraph instead of stretching it. Never use <br> for line breaks inside prose.
-    SHORT PARAGRAPHS DO NOT MEAN A SHORT ARTICLE: keep total length at {target_min}-{target_max} words by writing MORE paragraphs and sections, not longer ones. A typical section runs 2-3 short paragraphs plus a visual element. If you feel the article getting thin, add depth (another first-time blocker, another concrete calculation, another reader profile in the judgment) — never re-inflate paragraph size.
-1-2. NO REPEATED FACTS: state each concrete fact (a name, number, date, or license/spec detail) only once in the whole article. The opening paragraphs, the Quick Verdict box (when present), and the closing confirmed-facts list must each contribute DIFFERENT facts — never restate a fact from an earlier section just to fill a required block. If you cannot find 3 genuinely new confirmed facts for the closing block that were not already stated, list fewer than 3 rather than repeating one.
-2. Opening = the direct answer. The first paragraph answers the title's question in 2-3 sentences WITH the key number(s). Write it so a search user — or an AI search system assembling an answer — can lift it accurately on its own. A clear, sourced, self-contained answer raises the chance of being cited; nothing guarantees it, so optimize for the reader first.
+    LENGTH FOLLOWS THE SOURCES: aim for {target_min}-{target_max} words, and stop when the sourced material is used up. A shorter article that only says verified things beats a longer one that repeats itself. Never pad: no restating, no generic tips, no "in summary" paragraph.
+1-2. NO REPEATED FACTS OR SENTENCES: state each concrete fact (a name, number, date, or spec) exactly once in the whole article. Never restate a fact in a later section, a summary box, or an FAQ answer. An automated check blocks any article in which the same sentence (40+ characters) appears twice.
+2. Opening: the FIRST SENTENCE is either the reader's concrete situation ("You hit the free limit on Gemini halfway through a batch job.") or your claim ("For most solo developers, the Codex app is the better default today."). Never open with background, a definition, a date, or "X has announced". The first paragraph then gives the direct answer with the key number(s) from the sources. Write it so a search user — or an AI search system assembling an answer — can lift it accurately on its own.
 2-1. THE FIRST SENTENCE MUST BE READABLE BY SOMEONE WHO HAS NEVER WRITTEN CODE. It answers the question in plain words a friend would use. NEVER open with an identifier, a version string, a repo path, a bug/issue number, a license, or a product-internal codename — a real published opening that failed this rule was "CC Switch issue 4627 (June 2026) confirms most NIM models fail in Claude Code", which loses every non-programmer on line one. Those details belong later in the article, after the plain answer, and only if the reader still needs them. If the honest answer genuinely cannot be said without one specialist term, define that term inside the same sentence.
 2-2. AUDIENCE CHECK: unless the topic is explicitly about writing code, assume the reader is a normal person using an AI app — a student, a small-business owner, an office worker — not a developer. They care what it costs, what the free plan gets them, why it stopped working, and which one to pick. They do not care about SDKs, endpoints, YAML, routers, or issue trackers. If a sentence would only make sense to someone who writes software, either rewrite it in everyday words or cut it.
 3. Depth duty: at least 2 things a knowledgeable reader would not already know — exact limits, price math with a concrete calculation, cause-and-effect ("turning on X cuts Y by ~Z because..."), order-of-operations that only applies to this tool. If a paragraph teaches nothing new, cut it or make it concrete.
-4. Judgment duty: never end on "it depends". Give explicit conditions: "Use it now if [plan/usage/job condition]. Skip it if [condition]." This is what separates the article from a press-release summary.
-5. Beginner blockers: name 1-3 places where a first-time user actually gets stuck WITH the cause and the fix — specific to this tool, not generic AI advice.
+4. VERDICT DUTY (required in every article): give exactly ONE clear verdict in plain words — which option wins for whom, whether the change matters, whether the fix works — e.g. "Verdict: stay on the free tier unless you run more than one batch a day." Never end on "it depends" without saying what it depends on and what you would pick. This is what separates the article from a press-release summary.
+5. Beginner blockers (fix and how-to articles only): name 1-3 places where a first-time user actually gets stuck WITH the cause and the fix — specific to this tool, not generic AI advice.
 6. Freshness: facts older than 12 months may only appear as background, never as the hook or the conclusion's basis.
 7. Topic specificity: if the topic names a tool/feature, every section must be about THAT tool. If you could swap the tool name and the article still reads fine, it has failed.
 
@@ -365,17 +412,17 @@ Never state any of the following unless it appears in the provided [SEARCH FACTS
 
 [SELF-REVIEW BEFORE OUTPUT]
 1) Any price/date/version/feature stated without support in the facts? Remove or soften it.
-2) Every number carries "as of {month_year}" + a named source?
-3) Any repeated paragraphs, truncated sentences, unfinished FAQ answers?
-3-1) Any two <p> in a row over 70 words each on the same sub-idea, or the same fact stated in the opening AND the Quick Verdict AND the closing confirmed list? Cut the repeat or convert the pair into a list/card.
+2) Every number is in [SEARCH FACTS], carries "as of {month_year}", and its sentence links the source URL?
+3) Any repeated sentence or fact, truncated sentence, unfinished FAQ answer? Cut the repeat.
+3-1) Any two <p> in a row over 70 words each on the same sub-idea? Convert the pair into a list or split it.
 3-2) Any jargon term (a framework name, protocol name, or specialist concept) used without a plain-English gloss in parentheses the first time it appears?
-4) At least 2 genuinely new concrete facts? A "use it / skip it" judgment with conditions?
-5) Any banned phrase, income claim, or invented anecdote left?
+4) At least 2 genuinely new concrete facts? Exactly one clear verdict?
+5) Any banned phrase, income claim, invented anecdote, or "we tested"-style claim left?
 
 [HTML — use exactly these classes; the publish CSS styles them]
 - No Markdown, no HTML entity codes (&#...;) — use unicode characters directly. No hashtags in the body (the system appends them).
 - Never expose internal jargon: "SEO", "GEO", "AEO", "SGE", "CTA", "AdSense" (unless AdSense itself is the article topic).
-- Allowed classes only: actions-box, risk-note, verdict-box, quick-decision-table, quality-checklist, faq-section/faq-item/faq-q/faq-a, confirmed-needed-box, who-for (see STRUCTURE section 5). Inventing other classes or inline styles leaves the article unstyled.
+- Allowed classes only: actions-box, risk-note, verdict-box, quick-decision-table, quality-checklist, faq-section/faq-item/faq-q/faq-a, who-for (see STRUCTURE). Inventing other classes or inline styles leaves the article unstyled.
 - DEBUG-LOOKING TEXT IS AUTO-BLOCKED: an automated scan rejects the article if the visible body contains the words "fallback", "raw", or "scoring" used as a label — i.e. immediately followed by ":" or "=" ("Fallback: Claude", "raw = the model output", "scoring: 90/100") — or wrapped in double quotes ("fallback", "raw", "scoring"). These read as leaked debug output. Write "Backup option: Claude", "the unedited model output", "how it scores" instead. Using the words inside ordinary prose ("the fallback model kicks in", "raw text files") is fine — it is the label form and the quoted form that are blocked."""
 
 _USER_PROMPT_TMPL_EN = """[Write one complete blog article]
@@ -388,34 +435,44 @@ Content family: {content_family}
 [SEARCH FACTS — collected from live web search today]
 {facts}
 
-[Questions real searchers ask (target for FAQ and headings)]
+[SOURCE LINKS — the only URLs you may link, copy them exactly]
+{source_links}
+
+[Questions real searchers ask (use only the ones the facts can actually answer)]
 {questions}
 
 ---
-One person found this through a Google search. Write one continuous article they read top to bottom — a flow, not a form.
+One person found this through a Google search. Write one continuous article they read top to bottom — a flow, not a form. There is NO fixed template: pick only the structure this article type needs.
 
-LENGTH CONTRACT (one number, no ambiguity): the body must be AT LEAST {min_words} words of plain text and should land between {target_min} and {target_max} words. Aim for {target_min}+ so you are never near the floor. How the automatic counter works: HTML tags do not count; everything else separated by spaces does, including numbers and prices ("$20 a month" = 4 words). Anything under {min_words} words is thin content and is sent back for expansion before it can be published.
+LENGTH: the body must be AT LEAST {min_words} words of plain text and should land between {target_min} and {target_max} words — the range is set from how much source material there is today. HTML tags do not count; numbers and prices do. Do not pad to reach the range: if the sources are used up, stop.
 
-[STRUCTURE]
-1) Opening paragraphs (plain <p>, no box — the system builds the top summary box from them):
-   the reader's concrete situation in 1-2 lines → the direct answer to the title's question in 2-3 sentences with the key numbers and "as of {month_year}". No greetings, no "AI is changing fast". Keep the opening paragraph under 60 words — a skimmer decides in 10 seconds.
-2) 4-6 <h2> sections. Each <h2> must come from this article's subject: a product name, plan, task, risk, limit, audience, number, or measured search intent. Do not use generic stock labels that could be moved unchanged to another article. If the facts include a [MEASURED GOOGLE AUTOCOMPLETE SEARCH DEMAND] block, at least 2 <h2> headings must turn those measured queries into section titles. AT MOST 2 headings in the whole article may be question-style (starting with How/What/Why or ending with "?"); the automated layout adds its own Q&A blocks and too many question headings blocks publishing. Each section goes one step deeper than the last.
-   - Cover, as fits the topic: what actually changed / how it works → real numbers (pricing, limits, quotas — only from facts, each with as-of + source) → what stays the same and what is still unconfirmed → what it means for the reader's time and money → first-time failure points (cause + fix) + at least one little-known tip.
+[ARTICLE TYPE — decide first, then build only what that type needs]
+- fix (an error, a limit hit, something broken): the exact symptom → the cause → numbered fix steps → how to confirm it worked. Verdict = the fix to try first.
+- pricing-limits (what it costs, what the free plan allows): the numbers from the sources, ideally in one table → what that means for a typical usage pattern stated in the sources. Verdict = which plan for whom.
+- comparison (A vs B): the 2-4 criteria that actually differ, ideally in one table → who should pick which. Verdict = the winner for the most common reader, named.
+- how-to (setting something up, using a feature): prerequisites → numbered steps → the first-time snag. Verdict = whether it is worth setting up.
+- news-analysis (something changed or was announced): what changed, in one paragraph → what it means for the reader's tools, money, or data → what is still unannounced. Verdict = whether the reader should act now. Never write a pure news summary.
+Content family hint for this title: {content_family}.
+
+[STRUCTURE — use only what the chosen type needs]
+1) Opening paragraph (plain <p>, under 60 words): the FIRST SENTENCE is the reader's situation or your claim; then the direct answer with the key sourced number(s) and "as of {month_year}". No greetings, no background lead-in, no "AI is changing fast".
+2) 3-6 <h2> sections. Each <h2> must come from this article's subject: a product name, plan, task, risk, limit, audience, number, or measured search intent. Do not use generic stock labels that could be moved unchanged to another article. If the facts include a [MEASURED GOOGLE AUTOCOMPLETE SEARCH DEMAND] block, turn the measured queries the facts can answer into section titles. AT MOST 2 headings in the whole article may be question-style (starting with How/What/Why or ending with "?"). Each section goes one step deeper than the last — never back over the same facts.
+   - The verdict: state it once, in plain words, where it helps the reader most (right after the opening, or as the closing section). You may put it in a box: <div class="verdict-box"><span class="section-label">Verdict</span><p>one or two sentences</p></div>. Do not repeat the verdict elsewhere.
    - Any time you cover 2+ repeated instances of the same pattern (multiple causes-and-fixes, multiple reader profiles, multiple gotchas) — write them as a plain <ul> with one <li> per instance, each opening with a bolded 2-4 word label (<li><strong>Cause: outdated file path</strong> — the one-sentence fix.</li>), never as a run of paragraphs. A list of 3 short items reads faster than one paragraph saying the same thing.
    - If a follow-along process has 3+ steps, use (numbers are auto-generated by CSS — do not write "1."):
      <div class="actions-box"><ol><li><strong>One-line step title</strong> — concrete instruction</li> ...</ol></div>
    - If there is one honest caveat worth isolating, use exactly one:
      <div class="risk-note"><span class="section-label">Watch out</span><p>1-2 sentences of the real risk</p></div>
-3) MANDATORY: one comparison/pricing/spec table inside the flow, wrapped exactly like this (the wrapper enables mobile scroll + first-column emphasis):
+3) OPTIONAL table — use one only when the type needs it (pricing-limits and comparison usually do; fix, how-to, and news-analysis usually do not). Wrap it exactly like this (the wrapper enables mobile scroll + first-column emphasis):
    <div class="quick-decision-table"><table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table></div>
-   Make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. NO empty cells, and at least half of the data cells must carry REAL verified values (a number, a limit, a plan name) from the facts. "check official page" / "n/a" may fill AT MOST 2 cells in the whole table — if you can't verify enough values, drop that column or shrink the table to the tools you CAN verify; a table of deferrals is a blocked article. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. Clean, sourced tables are what readers save and what answer engines most readily cite.
+   If you include one, make it worth saving: plans vs prices vs limits, tool-by-task comparison, before/after, cost math. Columns = the reader's decision criteria. NO empty cells, and at least half of the data cells must carry REAL verified values (a number, a limit, a plan name) from the facts. "check official page" / "n/a" may fill AT MOST 2 cells in the whole table — if you can't verify enough values, drop that column or shrink the table to the tools you CAN verify; a table of deferrals is a blocked article. Put one framing sentence before and after. Add "as of {month_year}" near the table when it contains prices/limits. Clean, sourced tables are what readers save and what answer engines most readily cite.
    PRICE-CELL RULE — checked mechanically, and failing it blocks publishing outright:
-   - It applies whenever the Title above contains any of: "pricing", "price", "prices", "cost", "costs", "subscription", "fee", "fees", or "/month".
+   - It applies only when you include a table AND the Title above contains any of: "pricing", "price", "prices", "cost", "costs", "subscription", "fee", "fees", or "/month".
    - When it applies, the FIRST quick-decision-table in the article must contain AT LEAST 2 data cells (<td>) whose text holds a real currency amount — "$20", "$0.50", "USD 20", "£16", "€18", "₹1,999" — or the single word "Free".
    - ONLY those two forms count. A cell reading "200K tokens", "Pro plan", "unlimited", "5 seats", "20 dollars", "check the official page", or "n/a" counts as ZERO. Limits and plan names are useful columns, but they are not prices.
    - So build the table with a dedicated price column and put the currency symbol inside each cell: <td>$20/month</td>, <td>Free</td>, <td>$0.003 per 1K input tokens</td>.
    - If the facts verify fewer than 2 real prices, do NOT fake them and do NOT fill the price column with deferrals — both fail. Write the article around what IS verified (limits, quotas, feature differences) and keep price framing out of the body. A price-promising title with no verifiable prices is the wrong article to write; the correct fix is a different title/topic, not a padded table.
-4) <h2>Frequently Asked Questions</h2> then EXACTLY this markup with EXACTLY 3 FAQs. Pick real search queries NOT already covered by the body — billing, limits, alternatives, data handling, cancellation — and never restate a body sentence:
+4) OPTIONAL FAQ — 0 to 3 questions. Add an FAQ only for real reader questions (from the list above or the facts) that the body has NOT already answered AND that the facts can answer with a sourced fact. If there are none, write no FAQ section at all — an FAQ is never required. When you do write one, use <h2>Frequently Asked Questions</h2> then exactly this markup:
 <section class="faq-section">
   <article class="faq-item"><h3 class="faq-q">Actual search question?</h3><p class="faq-a">Direct, complete answer.</p></article>
 </section>
@@ -423,30 +480,22 @@ LENGTH CONTRACT (one number, no ambiguity): the body must be AT LEAST {min_words
    - The question must be <h3 class="faq-q">…</h3> — never <h4>, <strong>, <dt>, <p>, or a heading wrapped in a <div>.
    - The answer must be the very next tag: <h3 class="faq-q">Question?</h3><p class="faq-a">Answer.</p>. Put NOTHING between them — no <div>, no <br>, no "A:" prefix, no <strong>Answer</strong> label, no comment, no extra wrapper around the <p>.
    - Answer length: 25-50 words (roughly 150-300 characters). The automatic check measures CHARACTERS and rejects anything under 20, so aim at the word range and you are never close to the floor. One-line fragments read as filler and get cut.
-   - Each of the 3 items is its own <article class="faq-item"> inside the single <section class="faq-section">.
+   - Each item is its own <article class="faq-item"> inside the single <section class="faq-section">.
    - The markup above is a SHAPE, not wording to copy. Never ship a question that would fit any other article — no "Where can you verify the current details?", no "What should you check before relying on it?", no "How can you try it safely?". Every question must name something specific to THIS topic (a plan name, a limit, a number, a step, a competitor) so that a reader searching that exact phrase would land here and nowhere else. Same for the answers: they must contain a fact from the source material, not a generic instruction to check the official page.
-5) Closing: no summary rehash. Give the who-should-use-this judgment as a scannable two-column block, not a paragraph — concrete conditions on each side, 2-4 short bullets per side, no restating facts already given above:
+5) Closing: no summary rehash and no "Confirmed facts / Check for yourself" lists. End on the verdict or on the one next step the reader should take. A who-for block is OPTIONAL — use it only for comparison or pricing articles, and only with conditions not already stated:
 <div class="who-for"><div class="who-for-cols">
-  <div class="who-for-rec"><h3>Use this if</h3><ul><li>concrete condition</li></ul></div>
-  <div class="who-for-non"><h3>Skip it if</h3><ul><li>concrete condition</li></ul></div>
+  <div class="who-for-rec"><h3>Pick this if</h3><ul><li>concrete condition</li></ul></div>
+  <div class="who-for-non"><h3>Look elsewhere if</h3><ul><li>concrete condition</li></ul></div>
 </div></div>
-Then output this block verbatim in structure (keep id and classes exactly; fill with topic-specific items only — facts NOT already stated earlier in the article):
-<section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">
-  <div class="confirmed-section"><h3>Confirmed facts</h3><ul><li>3 facts that are settled for this topic</li></ul></div>
-  <div class="check-needed-section"><h3>Check for yourself</h3><ul><li>3 things that change often (prices, limits, availability) with where to check</li></ul></div>
-</section>
-(The system appends related internal links after your article — do not add external links or a "read more" section yourself.)
-
-[REQUIRED — every article ends with something the reader can act on]
-- Pre-flight checklist: <div class="quality-checklist"><ul><li>topic-specific check item</li>...</ul></div>
-  3-5 items, each a check the reader runs THEMSELVES, each naming something from this
-  article (a setting, a number, a page). A check that would fit any other article is useless.
+(The system appends the dated source list and related internal links after your article — do not add a "Sources" or "read more" section yourself. Source links belong inside your sentences, as described in the rules.)
 {asset_directive}
 [DO NOT]
-- Use any class not listed above (plus verdict-box when the asset directive asks for it), or inline style attributes.
+- Use any class not listed above, or inline style attributes.
+- Add a section just because other articles have one — no mandatory checklist, no mandatory table, no mandatory FAQ.
 - Pad with generic "AI productivity tips" that fit any article.
-- Repeat the same guidance in multiple sections.
+- Repeat the same fact, sentence, or guidance in multiple sections.
 - Write filler FAQs that restate body paragraphs.
+- Write any number that is not in [SEARCH FACTS], or any "we tested" / "in our experience" claim.
 
 Output rules:
 - Output only the inner HTML (no div.post-content wrapper, no <html>/<head>). Complete every tag.
@@ -454,24 +503,15 @@ Output rules:
 - No Markdown, no &#...; entities, no hashtags.
 - Never use "fallback", "raw", or "scoring" as a label followed by ":" or "=", and never put those three words in double quotes — the publish scan reads that shape as leaked debug output and blocks the article. Write "Backup option:", "the unedited output", "how it scores" instead.
 
-FINAL LENGTH CHECK (do this before you output): count the words of plain text — HTML tags excluded, numbers and prices included. The body must be AT LEAST {min_words} words; target {target_min}-{target_max}. If your draft is short, do not pad with fluff; go deeper instead: expand the first-time failure section with one more concrete failure-and-fix, add a calculation walkthrough under the table, and extend the judgment section with one more reader profile."""
+FINAL CHECK (do this before you output): (1) the first sentence is the reader's situation or a claim; (2) there is exactly one clear verdict; (3) every number is in [SEARCH FACTS] and its sentence links a URL from [SOURCE LINKS]; (4) no sentence or fact appears twice; (5) the body is at least {min_words} words (target {target_min}-{target_max}). If it is short, go deeper on a sourced fact you already used — never pad."""
 
 # 영어 모드 '저장용 무기' 지시 — 비교·가격·비용계산·통계 유형에서 켠다.
 _ASSET_RICH_DIRECTIVE_EN = """
-[This is a comparison/pricing/cost-math article — load it with savable assets]
-Readers save this article to reuse its numbers. Fill 1-2 of these with REAL values from the facts (never all of them as empty scaffolding):
- - Quick Verdict box: place it right after the opening paragraphs, before the first <h2> — a skimmer should get the decision in 5 seconds:
-   <div class="verdict-box"><span class="section-label">Quick Verdict</span><ul>
-   <li><strong>Best for:</strong> [specific reader/job]</li>
-   <li><strong>Not ideal for:</strong> [specific reader/job]</li>
-   <li><strong>Free plan:</strong> [what it covers, or "check official page"]</li>
-   <li><strong>Main limitation:</strong> [the honest one]</li>
-   <li><strong>Last checked:</strong> {month_year}</li>
-   </ul></div>
-   Only include a price line when the facts verify it. Never leave placeholder brackets in the output.
- - Cost math: the formula (input/output tokens × model rate) plus one topic-specific calculation in a quick-decision-table. Add "as of {month_year}" and "check the official pricing page". If the rate is not in the facts, show the METHOD only — never invent a rate.
- - Comparison table: only the tools/plans this topic is about; columns are decision criteria (price, limits, speed, best-for). quick-decision-table wrapper.
- - Checklist: pre-purchase or pre-setup checks specific to this topic in a quality-checklist div.
+[This looks like a comparison/pricing article — readers save it for its numbers]
+Use at most ONE of these, and only with REAL values from the facts (never empty scaffolding):
+ - Comparison or pricing table: only the tools/plans this topic is about; columns are decision criteria (price, limits, best-for). quick-decision-table wrapper. "as of {month_year}" next to it.
+ - Cost math: only when the rate AND the usage figure are both in the facts. If either is missing, skip it — never invent a rate or a usage number.
+Put the verdict in a verdict-box if it helps the skimmer; never leave placeholder brackets in the output.
 [Honesty rule]
  - No first-person measured results ("I ran it and got X seconds"). Give the reader a reproducible recipe instead: the exact prompt/settings to run, under which condition, and what to measure — so they generate the evidence themselves.
 """
@@ -489,13 +529,13 @@ Your previous draft is below. It is good but TOO SHORT: it has about {word_count
 HOW TO REVISE (this is an expansion, not a rewrite):
 1. Keep every existing sentence, heading, table, FAQ, and block EXACTLY as written unless it is factually wrong. Do not reorder sections, do not re-phrase paragraphs you already wrote, do not "improve" wording. Anything you change costs quality that already passed review.
 2. Add the missing length as NEW material in these places, in this order of preference:
-   a. The beginner-blockers section: one more concrete place a first-time user gets stuck, with the cause and the fix.
-   b. Under the table: a concrete calculation that walks one number through the reader's real situation (e.g. what the plan costs for 40 hours of use a month).
-   c. The judgment section: one more reader profile with an explicit "use it if / skip it if" condition.
+   a. A sourced fact the draft mentions only briefly: explain what it means for the reader, citing the same source.
+   b. A first-time snag the facts describe, with the cause and the fix (fix/how-to articles).
+   c. The reasoning behind the verdict: one more reader situation it applies to, using only sourced numbers.
    d. One additional <h2> section that goes a step deeper on the topic — only if a-c are not enough.
 3. Do NOT pad. No filler sentences, no restating what the article already said, no generic "AI is useful" paragraphs, no repeated guidance. Every added sentence must carry a fact, a number, a cause-and-effect, or a decision rule. Repeated sentences are detected and rejected.
 4. Do NOT add new prices, dates, versions, limits, or product names that are not in the original [SEARCH FACTS]. If you need more length and have no more facts, go deeper on explaining and applying the facts you already used.
-5. Keep all the original constraints: same allowed HTML classes, EXACTLY 3 FAQs in <h3 class="faq-q">…</h3><p class="faq-a">…</p> pairs with the <p> immediately after the <h3>, the CONFIRMED_VS_CHECK_NEEDED_BLOCK unchanged at the end, no Markdown, no hashtags, no &#...; entities, English only, at most 3 deferral phrases in the whole article.
+5. Keep all the original constraints: same allowed HTML classes, any existing FAQ items unchanged (<h3 class="faq-q">…</h3><p class="faq-a">…</p> pairs, do not add new FAQs just for length), no Markdown, no hashtags, no &#...; entities, English only, at most 3 deferral phrases in the whole article, every number from [SEARCH FACTS], no sentence repeated.
 
 OUTPUT: the COMPLETE revised article as inner HTML — the original content plus your additions, from the first paragraph to the closing block. Do not output a diff, a fragment, a note, or a comment about what you changed. Output nothing but the article HTML.
 """
@@ -790,6 +830,9 @@ class LlmContentService:
         # 1. Google Search로 실제 정보 수집 (+ 실제 인용 URL도 함께 보관 —
         # 호출부가 SOURCE_TRUST_BLOCK에 실제 근거 링크를 걸 수 있게 한다)
         facts, self.last_source_citations = self.gather_facts_with_citations(topic)
+        # 2026-10-14: 발행 직전 최종 게이트(en_editorial_policy)가 본문 숫자를 같은
+        # 자료와 대조할 수 있게 보관한다. facts 는 이 함수 밖으로 나간 적이 없었다.
+        self.last_facts_text = facts or ""
 
         # 2. 독자 질문 목록 구성
         questions_raw = list(reader_questions or [])
@@ -825,6 +868,7 @@ class LlmContentService:
                 content_family=content_family_en(title, topic, category),
                 facts=facts or "(no live search results — write conservatively; do not state any specific price/date/version, direct readers to official pages instead)",
                 questions=questions_str,
+                source_links=_source_links_block(self.last_source_citations),
                 asset_directive=asset_directive,
                 month_year=month_year,
                 min_words=_min_w,
@@ -1420,7 +1464,8 @@ class LlmContentService:
                 ),
                 # 얇은 응답 조기 컷. 목표 분량에 비례시킨다 — 고정 4000자로 두면
                 # 짧은 포맷(800~1200단어)의 정상 초안이 컷되어 폴백 체인이 헛돈다.
-                min_chars=4000 if target_min >= EN_TARGET_BODY_WORDS_MIN else 2200,
+                # 2026-10-14: 긴 포맷 하한이 800단어(≈4,800자)로 내려가 4000 → 3000.
+                min_chars=3000 if target_min >= EN_TARGET_BODY_WORDS_MIN else 2200,
                 validator=_make_content_validator(min_words),
                 repair_builder=_build_length_repair_prompt,
                 acceptance_repair_builder=_build_readability_repair_prompt,
@@ -1961,10 +2006,7 @@ def _build_length_repair_prompt(draft: str, error: Exception) -> str | None:
     # 보강 목표는 그 초안에 실제로 적용된 하한을 따라간다. 상수를 쓰면 짧은
     # 포맷 글에 긴 포맷의 목표(1,700~2,200)를 들이대 다시 부풀리게 된다
     # (2026-09-01: 지시와 검사가 서로 다른 숫자를 보던 사고와 같은 뿌리).
-    if error.min_words <= EN_SHORT_MIN_BODY_WORDS:
-        target_min, target_max = EN_SHORT_TARGET_MIN, EN_SHORT_TARGET_MAX
-    else:
-        target_min, target_max = EN_TARGET_BODY_WORDS_MIN, EN_TARGET_BODY_WORDS_MAX
+    target_min, target_max = _length_targets_for_min(error.min_words)
     # 하한에 딱 맞추려다 또 미달하는 것을 막기 위해 목표 하단까지 요구한다.
     needed = max(150, target_min - error.word_count)
     head = _REPAIR_LENGTH_INSTRUCTIONS_EN.format(
@@ -2247,6 +2289,17 @@ def _validate_generated_content(html: str, *, min_words: int = EN_MIN_BODY_WORDS
     for s in [s.strip() for s in re.split(r"[.。!?]\s+", text) if len(s.strip()) >= 20][:8]:
         if text.count(s) >= 2:
             raise _ContentValidationError("문장 반복 — 반복 루프 의심")
+    # 5-1) 2026-10-14: 영어는 앞 8문장만이 아니라 글 전체를 본다. 발행 직전 최종
+    #      게이트(en_editorial_policy)와 같은 기준(40자 이상 정규화 문장 2회 이상)을
+    #      여기서 먼저 걸어, 차단 대신 재생성으로 회복하게 한다.
+    if english:
+        from blogspot_automation.services.en_editorial_policy import duplicate_sentences
+
+        _dups = duplicate_sentences(raw)
+        if _dups:
+            raise _ContentValidationError(
+                f"문장 반복 {len(_dups)}건 — 예: {next(iter(_dups))[:60]}"
+            )
 
     # 6) AI 상투 문구(2026-07-16): 시스템 프롬프트가 명시적으로 금지한 대표 필러
     #    표현. 금지 지시를 무시한 출력은 나머지 본문도 일반론 채우기일 가능성이

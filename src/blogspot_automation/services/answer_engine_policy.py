@@ -196,6 +196,19 @@ def ensure_answer_engine_optimized_html(
     creating more pages; it strengthens the one article around the user's
     likely question, answer need, source trust, and follow-up questions.
     """
+    # 2026-10-14: 영어 모드 기본값은 후처리 블록 없는 lean 경로다
+    # (en_editorial_policy 참고). 한국어 경로와 EN_LEGACY_GEO_BLOCKS=on 은 아래 기존 흐름.
+    from blogspot_automation.services.en_editorial_policy import lean_en_mode
+
+    if lean_en_mode():
+        return _ensure_lean_en_html(
+            html,
+            title=title,
+            topic=topic,
+            today=today,
+            faq_items=faq_items,
+            source_citations=source_citations,
+        )
     content = html or ""
     # 2026-09-11: 본문 문단 리듬 교정. 생성 프롬프트에 "문단 70단어 이하" 계약이
     # 있는데 검증기도 게이트도 확인하지 않아 지켜지지 않았다(최근 12편 중 8편에
@@ -584,6 +597,179 @@ def ensure_answer_engine_optimized_html(
     return content
 
 
+# ── 영어 lean 경로 (2026-10-14) ──────────────────────────────────────────────
+# 후처리로 본문을 다시 말하는 블록(INTENT/ISSUE_CONTEXT/CITATION_SUMMARY/CONFIRMED)은
+# 붙이지 않는다. 남기는 것: 요약 1개(본문 자체의 요약에 id 만 부여 — 동의어 바꿔치기
+# 금지), 날짜 찍힌 출처 목록, AI 공개 문구 1줄, 구조화 데이터.
+_LEAN_SUMMARY_CLASS_RE = re.compile(
+    r'<(?P<tag>div|section|aside)\b(?P<attrs>[^>]*\bclass=["\'][^"\']*\b'
+    r'(?:verdict-box|tldr|key-takeaways|summary-box)\b[^"\']*["\'][^>]*)>',
+    re.IGNORECASE,
+)
+
+
+def _strip_sections_by_id(html: str, section_ids: tuple[str, ...]) -> str:
+    content = html or ""
+    for section_id in section_ids:
+        content = re.sub(
+            rf'\s*<section\b[^>]*\bid=["\']{re.escape(section_id)}["\'][^>]*>.*?</section>',
+            "",
+            content,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    return content
+
+
+def _mark_lean_overview(content: str) -> str:
+    """본문에 이미 있는 요약(verdict-box 등) 또는 첫 문단에 AI_OVERVIEW id 를 단다.
+
+    새 요약 문장을 만들지 않는다 — 본문 요약을 동의어로 다시 쓴 박스가 글마다
+    같은 모양의 중복을 만든 것이 2026-10-14 진단의 핵심이었다.
+    """
+    if 'id="AI_OVERVIEW_TARGET_ANSWER"' in content:
+        return content
+    summary = _LEAN_SUMMARY_CLASS_RE.search(content)
+    if summary and " id=" not in summary.group("attrs").lower():
+        start, end = summary.span()
+        # 레이아웃 계약(lede 정확히 1개)을 위해 yomi-lede 클래스를 함께 단다.
+        attrs = re.sub(
+            r'class=(["\'])', r'class=\1yomi-lede ', summary.group("attrs"), count=1, flags=re.I
+        )
+        return (
+            content[:start]
+            + f'<{summary.group("tag")} id="AI_OVERVIEW_TARGET_ANSWER"{attrs}>'
+            + content[end:]
+        )
+    body_start = 0
+    h1 = re.search(r"</h1>", content, flags=re.IGNORECASE)
+    if h1:
+        body_start = h1.end()
+    for match in re.finditer(r"<p\b(?P<attrs>[^>]*)>(?P<inner>.*?)</p>", content[body_start:], flags=re.IGNORECASE | re.DOTALL):
+        attrs = match.group("attrs") or ""
+        if " id=" in attrs.lower() or "class=" in attrs.lower():
+            continue
+        if len(_plain_text(match.group("inner"))) < 60:
+            continue
+        pos = body_start + match.start()
+        return (
+            content[:pos]
+            + f'<p id="AI_OVERVIEW_TARGET_ANSWER" class="yomi-lede"{attrs}>'
+            + content[pos + len(f"<p{attrs}>"):]
+        )
+    return content
+
+
+def _lean_source_block(citations: list[dict[str, str]] | None, *, today: str) -> str:
+    from blogspot_automation.services.en_editorial_policy import classify_source_url
+
+    seen: set[str] = set()
+    safe: list[dict[str, str]] = []
+    for c in citations or []:
+        if not isinstance(c, dict):
+            continue
+        url = str(c.get("url") or "").strip()
+        name = " ".join(str(c.get("name") or "").split())
+        if not url.lower().startswith(("http://", "https://")) or not name or url in seen:
+            continue
+        seen.add(url)
+        safe.append({"name": name, "url": url})
+    if not safe:
+        return ""
+    # 공식 출처를 앞으로. 커뮤니티 링크는 공식 출처가 있으면 뺀다.
+    official = [c for c in safe if classify_source_url(c["url"]) == "official"]
+    others = [c for c in safe if classify_source_url(c["url"]) == "other"]
+    community = [c for c in safe if classify_source_url(c["url"]) == "community"]
+    ordered = official + others + ([] if official else community)
+    items = "".join(
+        f'<li><a href="{escape(c["url"], quote=True)}" rel="noopener nofollow" target="_blank">'
+        f'{escape(c["name"])}</a></li>'
+        for c in ordered[:6]
+    )
+    return (
+        '<section id="SOURCE_TRUST_BLOCK" class="yomi-source">'
+        f"<h2>Sources (last verified {escape(today)})</h2>"
+        f'<ul class="source-trust-links">{items}</ul>'
+        "</section>"
+    )
+
+
+def _lean_faq_pairs(content: str, faq_items: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    """본문 FAQ(있을 때만)를 JSON-LD 용으로 뽑는다. 없으면 빈 목록 — FAQ 는 강제가 아니다."""
+    pairs: list[dict[str, str]] = []
+    for match in re.finditer(
+        r'<h3\b[^>]*class=["\'][^"\']*faq-q[^"\']*["\'][^>]*>(.*?)</h3>\s*<p\b[^>]*>(.*?)</p>',
+        content or "",
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        q = _plain_text(match.group(1)).strip()
+        a = _plain_text(match.group(2)).strip()
+        if q and a:
+            pairs.append({"Q": q, "A": a})
+    if not pairs:
+        return []
+    llm_pairs = _normalize_llm_faq_pairs(faq_items)
+    return _dedupe_qa_pairs(pairs or llm_pairs)[:3]
+
+
+def _ensure_lean_en_html(
+    html: str,
+    *,
+    title: str,
+    topic: str = "",
+    today: str = "",
+    faq_items: list[dict[str, str]] | None = None,
+    source_citations: list[dict[str, str]] | None = None,
+) -> str:
+    from blogspot_automation.services.en_editorial_policy import (
+        LEAN_DISABLED_BLOCK_IDS,
+        ai_disclosure_text,
+    )
+
+    content = split_dense_paragraphs(html or "")
+    if not content.strip():
+        return content
+    today = today or kst_today("%Y-%m-%d")
+    topic_text = " ".join((topic or title or "").split()).strip()
+
+    # 이 함수는 생성 직후와 발행 직전에 두 번 불린다 — 멱등이어야 한다.
+    content = _strip_sections_by_id(content, LEAN_DISABLED_BLOCK_IDS)
+    content = _relocate_body_faq_to_tail(content)
+    content = _mark_lean_overview(content)
+
+    tail: list[str] = []
+    if 'id="SOURCE_TRUST_BLOCK"' not in content:
+        block = _lean_source_block(source_citations, today=today)
+        if block:
+            tail.append(block)
+    disclosure = ai_disclosure_text()
+    if disclosure and 'class="ai-disclosure"' not in content:
+        tail.append(f'<p class="ai-disclosure"><em>{escape(disclosure)}</em></p>')
+    if tail:
+        content = _insert_before_internal_links_or_body_end(content, "\n".join(tail))
+
+    content = _drop_invalid_json_ld_scripts(content)
+    if '"@type": "FAQPage"' not in content and '"@type":"FAQPage"' not in content:
+        pairs = _lean_faq_pairs(content, faq_items)
+        if pairs:
+            content = _insert_json_ld(content, _faq_json_ld(pairs, max_items=3))
+    if '"@type": "BlogPosting"' not in content and '"@type":"BlogPosting"' not in content:
+        content = _insert_json_ld(content, _blogposting_json_ld(title=title, topic=topic_text, today=today))
+    else:
+        content = _sync_blogposting_headline(content, title=title)
+    content = _demote_excess_question_headings(content, max_count=5)
+    content = _relocate_hashtags_to_tail(content)
+    try:
+        from blogspot_automation.services.seo_policy import ensure_yomi_clean_article_layout
+
+        content = ensure_yomi_clean_article_layout(content)
+    except Exception:
+        pass
+    content = re.sub(
+        r'(class=["\'][^"\']*?)\bfaq-card\b', r"\1faq-item", content, flags=re.IGNORECASE
+    )
+    return content
+
+
 _SYSTEM_BLOCK_HEADINGS_LOWER: frozenset[str] = frozenset(
     label.lower().rstrip(".:")
     for pool in (_LABEL_VARIANTS_EN, _LABEL_VARIANTS)
@@ -714,7 +900,9 @@ def _en_generic_intent_pool(
     쓰고, 모자란 자리만 아래 템플릿으로 채운다. 템플릿 문장도 seed(주제)로
     변주해, 같은 갈래에 떨어진 두 글이 같은 문장을 받지 않게 한다.
     """
-    derived = _section_derived_intent_pool(html) if html else []
+    # 2026-10-14: 영어 모드에서 끈다. 소제목을 "How much does {소제목} really matter?"
+    # 같은 비문 질문으로 바꾸고 답은 본문 첫 문단을 복사했다(라이브 실측).
+    derived = _section_derived_intent_pool(html) if html and not is_english_mode() else []
     generic = _en_generic_intent_template_pool(topic, content_type)
     if not derived:
         return generic
@@ -817,7 +1005,7 @@ def _en_generic_intent_template_pool(topic: str, content_type: str) -> list[dict
              "Does this alter how you work?", "What's the practical difference?",
              "How much of this reaches everyday use?"), seed),
          "A": _varied_sentence(
-            ("The article separates what is confirmed from what is still marketing — start with the confirmed list before changing your workflow.",
+            (  # 2026-10-14: "The article separates what is confirmed…" 삭제(33편 반복 상투문)
              "Most of the announcement is positioning; the confirmed list above is the part worth acting on.",
              "Start from the confirmed facts above and leave the roadmap talk out of your decision.",
              "The practical delta is smaller than the announcement suggests — the confirmed section marks it.",
@@ -827,7 +1015,7 @@ def _en_generic_intent_template_pool(topic: str, content_type: str) -> list[dict
              "How should you trial this?", "What's a sensible first test?",
              "How do you try it without betting anything on it?"), seed),
          "A": _varied_sentence(
-            ("Test it on one low-stakes task first, review the output yourself, and only then fold it into real work.",
+            (  # 2026-10-14: "Test it on one low-stakes task first…" 삭제(33편 반복 상투문)
              "Pick a job you already know the right answer to, and see whether it gets there.",
              "Start on work that nobody sees, check the output line by line, then widen it.",
              "Trial it on something reversible — the review pass matters more than the trial itself.",
@@ -1811,6 +1999,15 @@ _ABOUT_PAGE_URL = "https://holyyomiai.blogspot.com/p/about.html"
 _SITE_URL = "https://holyyomiai.blogspot.com/"
 
 
+def _speakable_selectors() -> list[str]:
+    from blogspot_automation.services.en_editorial_policy import lean_en_mode
+
+    if lean_en_mode():
+        # lean 경로엔 intent 블록이 없다 — 요약 id 를 가리킨다.
+        return ["#AI_OVERVIEW_TARGET_ANSWER"]
+    return [".yomi-lede", ".intent-qa-item"]
+
+
 def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any]:
     author_description = (
         "Editor covering AI tools, pricing, and automation with a practical, numbers-first approach."
@@ -1845,7 +2042,7 @@ def _blogposting_json_ld(*, title: str, topic: str, today: str) -> dict[str, Any
         # 음성 어시스턴트·AI 요약이 읽어갈 핵심 답변 위치 (SGE/AEO 신호)
         "speakable": {
             "@type": "SpeakableSpecification",
-            "cssSelector": [".yomi-lede", ".intent-qa-item"],
+            "cssSelector": _speakable_selectors(),
         },
     }
 
