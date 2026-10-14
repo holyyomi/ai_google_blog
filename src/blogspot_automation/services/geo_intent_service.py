@@ -1299,7 +1299,7 @@ class GeoIntentService:
                 (
                     "Free-tier limits, paid pricing, and feature availability change often with provider policy.",
                     "Plan limits and feature availability move with provider policy, sometimes weekly.",
-                    "Pricing tiers and feature rollouts change on the provider's schedule, not this article's.",
+                    # 2026-10-14: "Pricing tiers and feature rollouts change…" 삭제(33편 반복 상투문)
                     "Quotas, prices, and which features reach which tier are all subject to change without notice.",
                     "Providers revise free limits and paid tiers on their own timetable, often quietly.",
                     "What a plan includes this month is not what it included last month.",

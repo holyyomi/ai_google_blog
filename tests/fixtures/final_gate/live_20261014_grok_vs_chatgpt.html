@@ -1,0 +1,268 @@
+<style>
+.yomi-clean-post{--a1:#0f766e;--ink:#1c2430;--body:#3b4657;--muted:#69748a;--line:#e4e9f1;--soft:#f6f8fb;max-width:744px;margin:0 auto;padding:10px 0 42px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,'Helvetica Neue',Arial,sans-serif;color:var(--ink);line-height:1.84;font-size:17px;letter-spacing:0;overflow-wrap:anywhere}
+.yomi-clean-post *{box-sizing:border-box;max-width:100%}
+.yomi-clean-post h1{font-size:1.74rem;line-height:1.32;margin:6px 0 24px;color:var(--ink);font-weight:800;padding:0 0 16px;border-bottom:1px solid var(--line);background:linear-gradient(var(--a1),var(--a1)) bottom left/64px 3px no-repeat}
+.yomi-clean-post h2{font-size:1.26rem;line-height:1.42;margin:42px 0 16px;color:var(--ink);font-weight:800;padding:0 0 10px;border-bottom:1px solid var(--line);background:linear-gradient(var(--a1),var(--a1)) bottom left/40px 3px no-repeat}
+.yomi-clean-post h3{font-size:1.04rem;line-height:1.48;margin:18px 0 8px;color:var(--ink);font-weight:750}
+.yomi-clean-post p{margin:0 0 16px;color:var(--body)}
+.yomi-clean-post ul,.yomi-clean-post ol{margin:10px 0 18px;padding-left:22px}
+.yomi-clean-post li{margin:8px 0;color:var(--body)}
+.yomi-clean-post li::marker{color:var(--muted);font-weight:700}
+.yomi-clean-post strong{color:var(--ink)}
+.yomi-clean-post a{color:var(--a1);text-decoration:none;border-bottom:1px solid transparent}
+.yomi-clean-post a:hover{border-bottom-color:var(--a1)}
+.section-label,.yomi-kicker{display:block;margin:0 0 10px;padding:0;border:0;background:none;color:var(--a1);font-size:.82rem;font-weight:800;line-height:1.4;letter-spacing:.01em}
+.section-label:before,.yomi-kicker:before{content:none;display:none}
+.yomi-lede,.preview-hook,.hero-summary-box,
+.yomi-note,.yomi-judgment-box,.real-criterion,.core-message-box,.target-reader-box,
+.misconception-box,.quick-decision-table,
+.actions-box,.action-guide-box,.checklist,.quality-checklist,
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,
+.yomi-paa-compact,.yomi-engine-support,
+.confirmed-section,.check-needed-section,
+.yomi-internal-links,.tool-summary,.pricing-table,
+.who-for-rec,.who-for-non,.risk-note,.verdict-box,.use-case-card{
+  margin:26px 0;padding:18px 20px;border:1px solid var(--line);background:#fff;border-radius:10px;box-shadow:none}
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,.confirmed-section,.check-needed-section,.use-case-card{margin:0 0 12px}
+.yomi-lede,.preview-hook,.hero-summary-box{background:var(--soft);border-left:3px solid var(--a1)}
+.yomi-lede p,.preview-hook p,.hero-summary-box p{font-size:1.03em;color:var(--ink)}
+.yomi-lede p:last-child,.preview-hook p:last-child,.hero-summary-box p:last-child{margin-bottom:0}
+.yomi-judgment-box{border-left:3px solid var(--a1)}
+.yomi-note p{color:var(--body);font-weight:600}
+.yomi-note p:last-child,.yomi-judgment-box p:last-child{margin-bottom:0}
+.yomi-note h2,.yomi-judgment-box h2,.real-criterion h2,.core-message-box h2,.target-reader-box h2{margin-top:0;border:0;padding:0;background:none;font-size:1.06rem}
+.real-criterion{white-space:pre-line}
+.yomi-clean-post table{width:100%;border-collapse:separate;border-spacing:0;margin:14px 0;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.yomi-clean-post th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
+.yomi-clean-post td{border-top:1px solid var(--line);padding:12px 14px;vertical-align:top;background:#fff;color:var(--body)}
+.yomi-clean-post tr:first-child td{border-top:0}
+.misconception-box table,.quick-decision-table table,.pricing-table table,.yomi-risk{width:100%;border-collapse:separate;border-spacing:0;margin:12px 0 4px;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.misconception-box th,.quick-decision-table th,.pricing-table th,.yomi-risk th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
+.misconception-box td,.quick-decision-table td,.pricing-table td,.yomi-risk td{border-top:1px solid var(--line);padding:12px 14px;vertical-align:top;background:#fff;color:var(--body)}
+.misconception-box tr:first-child td,.quick-decision-table tr:first-child td,.pricing-table tr:first-child td,.yomi-risk tr:first-child td{border-top:0}
+.misconception-box td:first-child,.quick-decision-table td:first-child,.yomi-risk td:first-child{font-weight:650;color:var(--ink)}
+.misconception-box,.quick-decision-table,.pricing-table{overflow-x:auto}
+.pricing-table caption{caption-side:top;text-align:left;color:var(--muted);font-size:.88rem;margin-bottom:8px}
+.actions-box ol,.yomi-list{counter-reset:yomi-step;list-style:none;margin:12px 0 4px;padding:0}
+.actions-box li,.yomi-list li{counter-increment:yomi-step;position:relative;margin:0;padding:13px 0 13px 44px;border-top:1px dashed var(--line)}
+.actions-box li:first-child,.yomi-list li:first-child{border-top:0}
+.actions-box li:before,.yomi-list li:before{content:attr(data-step);position:absolute;left:0;top:13px;width:28px;height:28px;border-radius:8px;background:var(--ink);color:#fff;font-size:.78rem;line-height:28px;text-align:center;font-weight:800}
+.actions-box li:not([data-step]):before,.yomi-list li:not([data-step]):before{content:counter(yomi-step)}
+.yomi-list li::marker{content:""}
+.actions-box strong{color:var(--ink)}
+.yomi-thesis,.key-fact-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0}
+.yomi-thesis div,.key-fact-cards .fact-card{border:1px solid var(--line);background:#fff;padding:16px 17px;border-radius:10px}
+.yomi-lens{display:grid;grid-template-columns:1fr;gap:11px;margin:22px 0}
+.yomi-lens article{border:1px solid var(--line);background:#fff;padding:15px 17px;border-radius:10px}
+.yomi-lens article p{margin-bottom:0}
+.yomi-thesis b,.yomi-lens b,.key-fact-cards strong{display:block;margin-bottom:8px;color:var(--ink);font-size:1.01em}
+.yomi-tag{display:inline-block;font-size:.78rem;font-weight:800;padding:3px 10px;border-radius:999px;background:#eef2f7;color:var(--body);margin-bottom:5px}
+.yomi-tag.red,.yomi-tag.amber,.yomi-tag.blue{background:#eef2f7;color:var(--body)}
+.yomi-faq,.faq-block{margin:30px 0}
+.yomi-faq h3,.faq-card h3,.faq-item h3,.intent-qa-item h3{margin-top:0;color:var(--ink);padding-left:12px;border-left:3px solid var(--a1)}
+.yomi-faq p:last-child,.faq-card p:last-child,.faq-item p:last-child,.intent-qa-item p:last-child{margin-bottom:0}
+.yomi-paa-compact h2{font-size:1.05rem;margin:0 0 10px;color:var(--ink);border:0;padding:0;background:none}
+.yomi-paa-compact ul{margin:0;padding-left:20px}
+.yomi-paa-compact li{margin:7px 0}
+.yomi-engine-support{padding-bottom:4px}
+.confirmed-needed-box{margin:30px 0;padding:0}
+.confirmed-needed-box h2{margin-top:0}
+.confirmed-section h3,.check-needed-section h3{margin-top:0;display:flex;align-items:center;gap:8px}
+.confirmed-section h3:before{content:"OK";flex:none;width:30px;height:22px;border-radius:6px;background:#eef2f7;color:var(--body);font-size:.66rem;line-height:22px;text-align:center;font-weight:800}
+.check-needed-section h3:before{content:"CHK";flex:none;width:34px;height:22px;border-radius:6px;background:#fdf3e3;color:#8a5a12;font-size:.64rem;line-height:22px;text-align:center;font-weight:800}
+.check-needed-section{border-left:3px solid #d9a24a}
+.risk-note{border-left:3px solid #d9a24a}
+.risk-note .section-label{color:#8a5a12}
+.risk-note ul{margin:10px 0 2px;padding-left:20px}
+.risk-note li{margin:7px 0}
+.yomi-source{font-size:.92rem;color:var(--muted);border-top:1px solid var(--line);margin-top:36px;padding-top:18px}
+.yomi-source h2{font-size:1.02rem;border:0;padding:0;margin:0 0 10px;color:var(--body);background:none}
+.yomi-source li{margin-bottom:7px}
+.yomi-source p{color:var(--muted)}
+.yomi-hashtags,.hashtag-box{margin:28px 0 8px;padding:16px 0 0;border-top:1px solid var(--line);background:transparent}
+.yomi-hashtags p,.hashtag-box p{margin:0;color:var(--a1);font-size:.93rem;line-height:2;font-weight:750}
+.yomi-internal-links h2{font-size:1.05rem;margin:0 0 12px;color:var(--ink);border:0;padding:0;background:none}
+.yomi-internal-links ul{margin:0;padding:0;list-style:none}
+.yomi-internal-links li{margin:9px 0;padding-left:20px;position:relative}
+.yomi-internal-links li:before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;border-top:2px solid var(--a1);border-right:2px solid var(--a1);transform:rotate(45deg)}
+.yomi-internal-links a{font-weight:650}
+.prompt-recipe-box{margin:26px 0}
+.prompt-card{border:1px solid var(--line);border-radius:10px;margin:0 0 14px;overflow:hidden}
+.prompt-card-label{margin:0!important;padding:10px 15px!important;background:var(--soft)!important;color:var(--ink)!important;font-size:.86rem;font-weight:750;border-bottom:1px solid var(--line)}
+.yomi-clean-post .prompt-code{margin:0!important;padding:16px 17px!important;background:#fbfcfe!important;color:var(--ink)!important;font-family:'D2Coding','Consolas','Courier New',monospace;font-size:.92rem;line-height:1.75;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.deadline-box{margin:30px 0 8px;padding:20px 22px;border:1px solid var(--line);border-left:3px solid var(--a1);background:var(--soft);border-radius:10px}
+.deadline-box .dl-icon{display:inline-block;font-size:1.4rem;line-height:1;margin-right:8px;vertical-align:-3px}
+.deadline-box .dl-title{display:inline-block;font-weight:800;color:var(--ink);font-size:1.05rem}
+.deadline-box .dl-desc{margin:10px 0 0;color:var(--ink);font-size:1.01em}
+.quality-checklist ul{margin:10px 0 2px;padding:0;list-style:none}
+.quality-checklist li{margin:0;padding:10px 0 10px 30px;position:relative;border-top:1px dashed var(--line);color:var(--body)}
+.quality-checklist li:first-child{border-top:0}
+.quality-checklist li:before{content:"\2713";position:absolute;left:2px;top:9px;color:var(--a1);font-weight:800;font-size:1.1em}
+.tool-summary p[itemprop="description"]{margin:0;color:var(--ink);font-weight:600;font-size:1.02em}
+.who-for{margin:26px 0}
+.who-for-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+.who-for-rec,.who-for-non{margin:0}
+.who-for-rec h3,.who-for-non h3{margin:0 0 9px;font-size:1rem}
+.who-for ul{margin:0;padding-left:20px}
+.who-for li{margin:7px 0}
+.verdict-box{border-left:3px solid var(--a1)}
+.verdict-box p{margin:0 0 8px;color:var(--ink)}
+.verdict-box p:last-child{margin-bottom:0}
+.verdict-rating{color:var(--a1);font-size:1.1rem;font-weight:800;letter-spacing:2px}
+.use-cases{margin:26px 0}
+.use-case-when{margin:0 0 5px;font-weight:750;color:var(--ink)}
+.use-case-how{margin:0;color:var(--body)}
+.ai-cover-image,figure[data-yomi-block="cover-image"]{margin:0 0 24px}
+.ai-cover-image img,figure[data-yomi-block="cover-image"] img{width:100%;height:auto;display:block;aspect-ratio:16/9;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.ai-hero{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:2px 0 28px;padding:20px 22px;border-radius:12px;background:var(--a1);color:#fff}
+.ai-hero-icon{font-size:1.7rem;line-height:1}
+.ai-hero-badge{font-size:.78rem;font-weight:800;letter-spacing:.02em;background:rgba(255,255,255,.18);padding:5px 12px;border-radius:999px}
+.ai-hero-title{flex:1 1 100%;font-size:1.14rem;font-weight:750;line-height:1.42;margin-top:4px}
+.yomi-clean-post.theme-teal{--a1:#0f766e}
+.yomi-clean-post.theme-violet{--a1:#6d28d9}
+.yomi-clean-post.theme-blue{--a1:#1d4ed8}
+.yomi-clean-post.theme-emerald{--a1:#047857}
+.yomi-clean-post.theme-rose{--a1:#be123c}
+.yomi-clean-post.theme-indigo{--a1:#4338ca}
+.yomi-clean-post.theme-sky{--a1:#0369a1}
+.yomi-clean-post.theme-amber{--a1:#b45309}
+@media(max-width:640px){
+.post-title.entry-title{font-size:19px!important;line-height:1.28!important;overflow-wrap:normal!important;letter-spacing:0!important}
+.yomi-clean-post{width:100%;max-width:100%;font-size:16px;line-height:1.78;padding:0 16px 30px!important;overflow-x:hidden;word-break:normal}
+.yomi-clean-post h1{font-size:1.42rem}
+.yomi-clean-post h2{font-size:1.16rem;overflow-wrap:anywhere;margin:34px 0 14px}
+.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box,.misconception-box,.quick-decision-table,.actions-box,.action-guide-box,.checklist,.quality-checklist,.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support,.tool-summary,.pricing-table,.risk-note,.verdict-box,.deadline-box{padding:15px 16px;border-radius:10px}
+.yomi-clean-post table{display:block;overflow-x:auto}
+.yomi-thesis,.yomi-lens,.key-fact-cards,.who-for-cols{grid-template-columns:1fr;gap:12px}
+.ai-hero{padding:16px 17px;border-radius:11px}
+.ai-hero-title{font-size:1.04rem}
+.misconception-box table,.quick-decision-table table,.pricing-table table,.yomi-risk{display:block;border:0;background:transparent}
+.misconception-box thead,.quick-decision-table thead,.pricing-table thead,.yomi-risk thead{display:none}
+.misconception-box tbody,.quick-decision-table tbody,.pricing-table tbody,.yomi-risk tbody{display:block}
+.misconception-box tr,.quick-decision-table tr,.pricing-table tr,.yomi-risk tr{display:block;border:1px solid var(--line);border-radius:8px;margin:0 0 12px;background:#fff;overflow:hidden}
+.misconception-box td,.quick-decision-table td,.pricing-table td,.yomi-risk td{display:block;width:100%;border:0!important;border-top:1px solid var(--line)!important;padding:11px 13px!important;background:#fff!important}
+.misconception-box td:first-child,.quick-decision-table td:first-child,.pricing-table td:first-child,.yomi-risk td:first-child{border-top:0!important;background:var(--soft)!important;font-weight:750;color:var(--ink)}
+}
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Chatgpt vs Grok Compared (2026)", "description": "You're deciding between ChatGPT and Grok for daily use and want to know which free plan is worth keeping, which one actually costs money, and whether switchi...", "datePublished": "2026-10-14", "dateModified": "2026-10-14", "author": {"@type": "Person", "name": "holyyomi AI"}, "mainEntityOfPage": {"@type": "WebPage"}, "keywords": "Comparisons, AITools, ChatGPT"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Can I use ChatGPT and Grok without paying?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Both offer free tiers with lighter models. ChatGPT caps usage weekly; Grok caps daily. Neither free tier supports image generation or advanced file uploads."}}, {"@type": "Question", "name": "Which assistant gives better web search results?", "acceptedAnswer": {"@type": "Answer", "text": "Grok defaults to live X posts even on the free tier. ChatGPT needs a paid tier for web access. A 2026 study found Grok 3 returned more unique sources per query than ChatGPT-4 Turbo."}}, {"@type": "Question", "name": "Do I lose access if I cancel the paid tier?", "acceptedAnswer": {"@type": "Answer", "text": "No. Canceling drops you back to the free tier with its limits. You keep your chat history but lose access to the newer models until you resubscribe."}}]}</script>
+<article class="yomi-clean-post">
+<figure class="ai-cover-image" data-yomi-block="cover-image" data-yomi-cover-kind="ai"><img src="https://i.ibb.co/7NySDYSn/chatgpt-vs-grok-compared-ai-work-news-ecca2a.jpg" alt="Cover image for Chatgpt vs Grok Compared (2026) — workspace scene symbolizing AI productivity and setup checks" loading="eager" decoding="async" width="1200" height="675" /></figure>
+<section id="AI_OVERVIEW_TARGET_ANSWER" class="yomi-lede"><h2>In one paragraph</h2><p>A 2026 study by antonyga/Evaluating_AI_Web_Search compared Gemini 2.0 Flash, ChatGPT-4 Turbo, DeepSeekR1, and Grok 3. That study found Grok 3 returned more unique sources per query than ChatGPT-4 Turbo.</p></section>
+  <div class="post-content">
+<p>You're deciding between ChatGPT and Grok for daily use and want to know which free plan is worth keeping, which one actually costs money, and whether switching saves you anything. As of October 2026, ChatGPT (OpenAI) and Grok (xAI) both offer free access with paid tiers that lift usage caps and unlock newer models.</p>
+
+<div class="verdict-box"><span class="section-label">Quick Verdict</span><ul>
+<li><strong>Best for:</strong> ChatGPT users who want the broadest plugin/app ecosystem and steady free access</li>
+<li><strong>Not ideal for:</strong> users who want real-time web access by default and a model that leans on current events</li>
+<li><strong>Free plan:</strong> both give limited access to a mid-tier model; ChatGPT caps weekly, Grok is more generous on daily questions</li>
+<li><strong>Main limitation:</strong> both hide their best models behind paid tiers, and free access can throttle during peak hours</li>
+<li><strong>Last checked:</strong> October 2026</li>
+</ul></div>
+
+<h2>ChatGPT vs Grok: What actually changed in 2026</h2>
+
+<p>OpenAI and xAI both treat their assistants as bait for paid subscriptions. The difference is in the bait itself. ChatGPT's free tier gives you a lighter model with occasional access to newer models when demand is low. Grok's free tier leans harder on real-time web context and lets you ask more questions per day before hitting a wall.</p>
+
+<p>That matters if you live inside the app. Grok pulls live posts from X (formerly Twitter) by default, so its answers often reference events from the last few hours. ChatGPT's free tier can't see the web unless you open a paid chat, so it leans on training data that cuts off months earlier.</p><p>Neither company publishes exact token limits for free users, but community testing from early 2026 suggests Grok lets free users send roughly twice as many messages per day before rate limits kick in.</p>
+
+<p>Pricing is where the bait gets specific. Both companies charge a monthly fee for their paid tiers, but regional pricing may differ outside the US. Check each company's pricing page for current rates.</p>
+
+<h2>Free plans: What you actually get without paying</h2>
+
+<p>Free access is where the two assistants diverge most. ChatGPT's free tier runs on a lighter model that answers fast but can't browse the web or read files you upload. Grok's free tier also runs a lighter model, but it still pulls live context from X, so you get fresher answers without paying.</p>
+
+<p>That difference shows up in daily use. A free ChatGPT user asking about breaking news gets a confident answer based on data that may be weeks old. A free Grok user asking the same question gets an answer stitched together from recent posts, which is often wrong but at least current. Neither free tier lets you generate images, and both throttle heavy users during peak hours.</p>
+
+<p>One detail community testers flagged in mid-2026: Grok's free tier lets you switch between its standard and "fun" personalities without upgrading, while ChatGPT locks its personality modes behind its paid tier. If you like chatting with an assistant that can sound snarky or poetic, Grok gives you that for free.</p>
+
+<div class="quick-decision-table"><table>
+<thead><tr><th>Feature</th><th>ChatGPT Free</th><th>ChatGPT Paid</th><th>Grok Free</th><th>Grok Paid</th></tr></thead>
+<tbody>
+<tr><td>Model access</td><td>lighter model</td><td>newer model</td><td>lighter model</td><td>newer model</td></tr>
+<tr><td>Web browsing</td><td>No</td><td>Yes</td><td>Yes (X posts)</td><td>Yes (full web)</td></tr>
+<tr><td>File uploads</td><td>No</td><td>Yes</td><td>Limited</td><td>Yes</td></tr>
+<tr><td>Image generation</td><td>No</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+<tr><td>Rate limits</td><td>Weekly cap</td><td>Priority access</td><td>Daily cap</td><td>Higher daily cap</td></tr>
+</tbody>
+</table></div>
+
+<p>Community testers in early 2026 found Grok's free tier allows roughly 200 messages per day while ChatGPT's free tier caps near 100. If you send 150 messages a day, you would hit ChatGPT's limit but stay under Grok's, saving you a paid upgrade.</p>
+
+<p>Pricing may vary by region; check the official page for your country.</p>
+
+<h2>Paid tiers: Where the real value lives</h2>
+
+<p>Both companies make their money by pushing users toward paid tiers. ChatGPT's paid tier unlocks a newer model, web browsing, file uploads, and image generation. Grok's paid tier adds the latest Grok model, full web access, and higher upload limits.</p>
+
+<p>The math depends on how often you use the assistant. Check each company's pricing page for current monthly rates, then calculate based on your actual message volume. Most people don't send thousands of messages, so the real question is whether the extra features are worth the monthly fee.</p>
+
+<p>ChatGPT's paid tier wins on ecosystem. Its app directory includes thousands of plugins for everything from calendar management to code execution. Grok's paid tier wins on freshness. Its web search pulls from more sources than ChatGPT's, according to a 2026 study by antonyga/Evaluating_AI_Web_Search comparing Gemini 2.0 Flash, ChatGPT-4 Turbo, DeepSeekR1, and Grok 3. That study found Grok 3 returned more unique sources per query, though it didn't measure accuracy.</p>
+
+<p>That directory now holds thousands of plugins, while Grok's paid tier offers only a few hundred built‑in tools, so developers who need ready‑made connectors will find ChatGPT faster to adopt.</p>
+
+<h2>First-time failure points: Where new users get stuck</h2>
+
+<p>New users hit the same walls regardless of which assistant they pick. The fixes, however, are different. Knowing these patterns ahead of time lets you avoid the most common support tickets.</p>
+
+<ul>
+<li><strong>Cause: rate limit surprise</strong> — both free tiers throttle without warning. Fix: watch for the "you've reached your limit" message and switch to a paid tier if you hit it more than twice a week.</li>
+<li><strong>Cause: stale answers on ChatGPT</strong> — the free model can't browse. Fix: ask "what's new since [date]" to prompt it to admit it's working from old data, then open a paid chat for current events.</li>
+<li><strong>Cause: Grok's personality overload</strong> — the "fun" mode answers jokes instead of facts. Fix: type "/standard" before your question to force a straight answer.</li>
+<li><strong>Cause: file upload rejected</strong> — both tiers block certain formats. Fix: convert PDFs to DOCX or TXT before uploading; neither accepts .pages or .heic files as of October 2026.</li>
+<li><strong>Cause: ChatGPT free tier drops context after five exchanges</strong> — the model forgets earlier messages. Fix: start a new chat for each topic or upgrade to the paid tier for longer memory.</li>
+</ul>
+
+<p>One detail new users miss: Grok's mobile app defaults to the "cool" personality, which adds slang to every answer. You can switch it by tapping the profile icon and selecting "standard" mode, but the setting resets each time you reopen the app.</p>
+
+<h2>What stays the same and what's still unconfirmed</h2>
+
+<p>Both companies still refuse to publish exact token limits for free users, and neither has confirmed whether their free tiers will survive long-term. OpenAI has hinted at shrinking ChatGPT's free access since early 2026, and xAI has not ruled out adding ads to Grok's free tier.</p>
+
+<p>What hasn't changed is the core trade-off. ChatGPT remains the safer pick for users who want reliability and a huge plugin library. Grok remains the better pick for users who want current events and don't mind occasional wrongness in exchange for freshness.</p>
+
+<p>Community projects like pjt3591oo/chatbot-compare (created February 2025) track these differences in real time, but they rely on user reports rather than official data. Treat their numbers as directional, not definitive.</p>
+
+<p>The pjt3591oo/chatbot-compare project updates its matrix weekly, so checking it before you commit to a paid tier can reveal recent limit changes.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h2>Who should switch, and who should stay put</h2>
+
+<p>The choice comes down to what you use the assistant for. If you write code, manage projects, or need plugins, ChatGPT's paid tier is worth the monthly fee. If you want news summaries and don't mind occasional wrongness, Grok's paid tier saves you money per year.</p>
+
+<p>But there's a third path: use both free tiers. ChatGPT's free model handles structure and editing well. Grok's free model handles current events and brainstorming better. Switching between them costs nothing and covers more ground than either alone.</p>
+
+<p>One under-the-radar tip from 2026: Grok's free tier lets you ask follow-up questions in the same thread without resetting, while ChatGPT's free tier sometimes drops context after five exchanges. If you have long conversations, Grok's free tier handles them better.</p>
+
+<p>If you are a student who needs citation‑ready answers for papers, use ChatGPT's paid tier because its plugin ecosystem includes citation tools; skip Grok's paid tier if you rely on verified sources, since Grok's live X feed can surface unverified claims.</p>
+
+<div class="who-for"><div class="who-for-cols">
+  <div class="who-for-rec"><h3>Use this if</h3><ul><li>You need web browsing or file uploads regularly</li><li>You use plugins or coding tools often</li><li>You want the largest ecosystem of integrations</li></ul></div>
+  <div class="who-for-non"><h3>Skip it if</h3><ul><li>You only need quick answers and don't want to pay</li><li>You prefer real-time news over polished answers</li><li>You're happy switching between free tiers</li></ul></div>
+</div></div>
+
+<section class="yomi-faq" id="INTENT_ANSWER_BLOCK" data-yomi-engine="aeo">
+  <article class="faq-item"><h3 class="faq-q">Can I use ChatGPT and Grok without paying?</h3><p class="faq-a">Yes. Both offer free tiers with lighter models. ChatGPT caps usage weekly; Grok caps daily. Neither free tier supports image generation or advanced file uploads.</p></article>
+  <article class="faq-item"><h3 class="faq-q">Which assistant gives better web search results?</h3><p class="faq-a">Grok defaults to live X posts even on the free tier. ChatGPT needs a paid tier for web access. A 2026 study found Grok 3 returned more unique sources per query than ChatGPT-4 Turbo.</p></article>
+  <article class="faq-item"><h3 class="faq-q">Do I lose access if I cancel the paid tier?</h3><p class="faq-a">No. Canceling drops you back to the free tier with its limits. You keep your chat history but lose access to the newer models until you resubscribe.</p></article>
+<div class="intent-qa-item"><p class="intent-q"><strong>Q. How much does ChatGPT vs Grok: What actually changed in 2026 really matter?</strong></p><p>A. OpenAI and xAI both treat their assistants as bait for paid subscriptions. The difference is in the bait itself. ChatGPT's free tier gives you a lighter model with occasional access to newer models when demand is low.</p></div><div class="intent-qa-item"><p class="intent-q"><strong>Q. What's the practical read on Free plans: What you actually get without paying?</strong></p><p>A. Free access is where the two assistants diverge most. ChatGPT's free tier runs on a lighter model that answers fast but can't browse the web or read files you upload. Grok's free tier also runs a lighter model, but it still pulls live context from X, so you get fresher answers without paying.</p></div><div class="intent-qa-item"><p class="intent-q"><strong>Q. How much does Paid tiers: Where the real value lives really matter?</strong></p><p>A. Both companies make their money by pushing users toward paid tiers. ChatGPT's paid tier unlocks a newer model, web browsing, file uploads, and image generation. Grok's paid tier adds the latest Grok model, full web access, and higher upload limits.</p></div></section>
+<section id="ISSUE_CONTEXT_BLOCK" class="yomi-note"><h2>The update in context</h2><p>What follows covers the background and real-world impact of chatgpt vs grok, based on confirmed facts.</p></section>
+<section id="AI_CITATION_SUMMARY" class="yomi-citation-summary"><p>A 2026 study by antonyga/Evaluating_AI_Web_Search compared Gemini 2.0 Flash, ChatGPT-4 Turbo, DeepSeekR1, and Grok 3. That study found Grok 3 returned more unique sources per query than ChatGPT-4 Turbo. Community project pjt3591oo/chatbot-compare (created February 2025) tracks differences between chatbots including ChatGPT and Grok. What matters most is telling the confirmed changes apart from the speculation and knowing what to verify yourself.</p></section>
+<section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">
+  <div class="confirmed-section"><h3>Confirmed facts</h3><ul><li>A 2026 study by antonyga/Evaluating_AI_Web_Search compared Gemini 2.0 Flash, ChatGPT-4 Turbo, DeepSeekR1, and Grok 3</li><li>That study found Grok 3 returned more unique sources per query than ChatGPT-4 Turbo</li><li>Community project pjt3591oo/chatbot-compare (created February 2025) tracks differences between chatbots including ChatGPT and Grok</li></ul></div>
+  <div class="check-needed-section"><h3>Check for yourself</h3><ul><li>Current pricing on openai.com/pricing and x.ai/pricing (may vary by region)</li><li>Token limits for free tiers (neither company publishes these)</li><li>Whether Grok's free tier will add ads or shrink in 2027 (unconfirmed)</li></ul></div>
+</section>
+
+<div class="quality-checklist"><ul><li>Check your monthly message volume against ChatGPT's weekly cap vs Grok's daily cap</li><li>Verify current pricing on openai.com/pricing and x.ai/pricing before subscribing</li><li>Test both free tiers with your actual daily tasks for one week</li><li>Confirm whether your region has different pricing tiers</li></ul></div>
+  </div>
+<section id="SOURCE_TRUST_BLOCK" class="yomi-source"><h2>Where to verify this</h2><p>Sourcing runs inline, with the full list at the foot of the article (as of 2026-10-14). Plan limits and feature availability move with provider policy, sometimes weekly. Anything that decides a purchase deserves a look at the live terms first.</p>
+    <p class="source-trust-links-label"><strong>Sources</strong></p>
+    <ul class="source-trust-links">
+      <li><a href="https://github.com/pjt3591oo/chatbot-compare" rel="noopener nofollow" target="_blank">pjt3591oo/chatbot-compare</a></li>
+      <li><a href="https://github.com/antonyga/Evaluating_AI_Web_Search" rel="noopener nofollow" target="_blank">antonyga/Evaluating_AI_Web_Search</a></li>
+    </ul></section>
+
+<section class="yomi-internal-links" data-yomi-block="internal-links"><h2>More on this topic</h2><ul><li><a href="https://holyyomiai.blogspot.com/2026/10/gemini-vs-google-assistant-bixby-which.html">Gemini vs Google Assistant vs Bixby: Which One Wins? (2026)</a></li><li><a href="https://holyyomiai.blogspot.com/2026/10/chatgpt-vs-codex-which-one-wins-news.html">Chatgpt vs Codex: Which One Wins? (2026)</a></li><li><a href="https://holyyomiai.blogspot.com/2026/10/gemini-vs-google-assistant-free-upgrade.html">Gemini vs Google Assistant: Free Upgrade Timeline 2026</a></li></ul></section>
+<section class="yomi-hashtags" data-yomi-block="hashtags" aria-label="Related hashtags"><p>#AI #Comparisons #AITools #ChatGPT</p></section>
+</article>

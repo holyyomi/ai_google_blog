@@ -75,9 +75,22 @@ def test_repair_that_keeps_fake_price_is_blocked(monkeypatch):
 
 
 def test_soft_numbers_only_are_not_blocked(monkeypatch):
+    # 2026-10-14: 영어 lean 모드 기본값은 퍼센트·요청 수도 하드 위반(strict)이다.
+    # strict 를 끈 예전 계약은 그대로 지켜져야 한다.
+    monkeypatch.setenv("SOURCE_GROUNDING_STRICT_NUMBERS", "off")
     soft = _html("If one session uses 30 requests, you get a few sessions.")
     svc, _, _ = _run(monkeypatch, [soft, soft])
     assert svc.last_grounding_report["blocked"] is False
+
+
+def test_soft_numbers_are_blocked_in_lean_english_mode(monkeypatch):
+    """10-14 'roughly 200 messages per day' 유형: 재작성 뒤에도 남으면 차단."""
+    monkeypatch.delenv("SOURCE_GROUNDING_STRICT_NUMBERS", raising=False)
+    monkeypatch.delenv("EN_LEGACY_GEO_BLOCKS", raising=False)
+    monkeypatch.setenv("BLOG_LANGUAGE", "en")
+    soft = _html("If one session uses 30 requests, you get a few sessions.")
+    svc, _, _ = _run(monkeypatch, [soft, soft])
+    assert svc.last_grounding_report["blocked"] is True
 
 
 def test_observe_mode_does_not_rewrite_or_block(monkeypatch):

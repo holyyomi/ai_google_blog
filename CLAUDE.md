@@ -22,6 +22,27 @@ holyyomiai.blogspot.com은 영어권(미국·영국·캐나다·인도) 대상 *
 
 ---
 
+## 🔴 애드센스 기준 (2026-10-14, PR #84) — 아래 옛 절과 충돌하면 이 절이 이긴다
+
+근거(공식 원문, 2026-10-14 확인): "Don't place ads on automatically generated content without
+manual review or curation"(support.google.com/publisherpolicies/answer/11112688), "original, rich
+content … of value to users"(adsense/answer/81904), 비슷한 페이지는 합치거나 확장(adsense/answer/10015918),
+Search 스팸 정책 scaled content abuse. 글 수·단어 수·Contact 필수는 통설이다.
+
+- **스케줄 발행은 초안까지만**(`NEWS_PUBLISH_AS_DRAFT`). 요미님이 Blogger에서 읽고 발행한다. 라이브 직행은
+  수동 `publish_mode=publish`뿐. "How We Use AI" 페이지가 이걸 약속하니 되돌리면 그 페이지도 고친다.
+- **골격 강제 금지.** 영어 lean 모드: 후처리 블록 INTENT/ISSUE_CONTEXT/CITATION_SUMMARY/CONFIRMED 끔,
+  소제목→질문 자동 Q&A 끔, FAQ·표·Use/Skip 의무 없음. 글 유형(fix·pricing-limits·comparison·how-to·
+  news-analysis)에 필요한 구조만. 되돌리기 `EN_LEGACY_GEO_BLOCKS=on`.
+- **글의 값 = 1차 정보 한 조각 + 판정 하나.** 공식 문서 원문 인용·공개 데이터·실제 실행 결과. 첫 문장은
+  독자 상황이나 주장. 지어낸 체험("we tested") 금지. 출처는 본문 링크 + "Sources (last verified 날짜)".
+- **최종 HTML 게이트**(`services/en_editorial_policy.py`, `FINAL_QUALITY_GATE`): 40자+ 문장 2회 반복,
+  공식 출처 0개(GitHub 개인·포럼·뉴스만), 자료에 없는 숫자 → 차단. 분량 800~1,400(자료 비례).
+- **같은 대상+의도 30일 쿨다운**, `DEDUP_DAYS=30`, AI 무관 뉴스 차단, 제목 엉킴("X How to Use <사건>") 차단.
+- **비공개로 돌린 글**은 `config/retracted_posts.json` — 내부링크에서 빠진다. 다시 공개하면 거기서 지운다.
+- 주제 우선순위(**코드 미반영, 다음 과제**): 속보 단독보다 그 뉴스가 만드는 검색어(에러·한도/가격·A vs B·
+  설치법)가 이긴다(해외 인기 블로그 13곳 분석). 지금 선정 코드는 여전히 큰 이슈 우선이다.
+
 ## 운영 브랜치
 현재 운영 브랜치: `main`
 Phase 3 + Completion Patch 1 (GoldenPattern, SlotFiller, TitleCandidate, GEO layer, AI_CITATION_SUMMARY, corporate_issue_decode 등) 모두 main에 머지 완료, 실제 스케줄 워크플로우에서 가동 중.
@@ -300,6 +321,27 @@ chats"라고 말한다. 아무도 숫자를 준 적이 없으니 모델이 "비�
 실측: 2026-09-01 원문에 거짓 주장 4건을 전부 잡았고, **사람이 손으로 고친 뒤에도
 남아 있던 5번째**(같은 거짓 전제로 쓰인 문단 하나)를 추가로 잡았다.
 
+## 영어 lean 경로 + 최종 HTML 게이트 (2026-10-14, AdSense 품질 개편)
+
+진단: 라이브 71편이 같은 골격이었고 본문 35~50%가 후처리 블록이었다. 블록을 걷어내면
+문장 중복이 0이 됐다(10-08·10-13·10-14 실측 11개 → 0개). 정본은 `services/en_editorial_policy.py`.
+- **영어 모드 기본값**: INTENT_ANSWER / ISSUE_CONTEXT / AI_CITATION_SUMMARY / CONFIRMED_VS_CHECK_NEEDED
+  블록을 붙이지 않는다. 요약은 본문 자체 요약(verdict-box 또는 첫 문단)에 id만 단다. 출처는
+  "Sources (last verified YYYY-MM-DD)", 글 끝 AI 공개 문구 1줄(`NEWS_PUBLISH_AS_DRAFT=true`면
+  "…then reviewed before publishing.", 아니면 자동 문구, `AI_DISCLOSURE_MODE`로 덮어씀).
+  되돌리기: `EN_LEGACY_GEO_BLOCKS=on`. 한국어 경로는 무관.
+- **게이트 요건 정합**: lean 모드에선 FAQ 0~3개(있을 때만 답 길이·FAQPage 요구), 블록 4종·
+  모듈 2개·표 의무를 요구하지 않는다(news_quality_gate·final_html_audit·scorecard·post_publish_audit 같은 기준).
+- **최종 HTML 게이트**(`FINAL_QUALITY_GATE=block|observe|off`, news_pipeline 발행 직전, 출처 대조 차단 바로 뒤):
+  (a) 40자 이상 정규화 문장 2회 이상 (b) 공식 출처 0개(GitHub·포럼·커뮤니티·뉴스 매체만이면 0)
+  (c) 출처 자료(`last_facts_text`)에 없는 가격·퍼센트·요청/메시지 수·용량. 생성 단계 출처 대조도
+  lean 모드에선 (c)를 하드 위반으로 보고 재작성 1회 뒤 차단한다(`SOURCE_GROUNDING_STRICT_NUMBERS`).
+  눈금: `tests/test_final_publish_quality_gate.py` — 10-08·10-13(블록 제거본) 통과, 10-14 차단.
+- **분량**: 자료 비례 800~1,000 / 900~1,200 / 1,100~1,400단어(하한 600/700/800, 최후 하한 550).
+- **중복**: `DEDUP_DAYS=30`, 같은 제품+의도 30일 쿨다운(`ENTITY_INTENT_COOLDOWN_DAYS`), AI 신호어 없는
+  뉴스 후보 차단(`AI_SIGNAL_FILTER`). 제목: 사건 헤드라인엔 기본 의도 결합 안 함, "<제품> How to Use …"는
+  어순 교정 또는 차단, 브랜드 대소문자 교정, 고정 꼬리 폐기.
+
 ## 도입부 답변 게이트 (2026-09-01, **관찰 모드**)
 
 `AI_OVERVIEW_TARGET_ANSWER` 블록(=AI 검색이 인용해가는 구간)이 제목의 질문에
@@ -412,7 +454,7 @@ Library limit")에 off_topic 판정을 냈고, 재시도 중 버려진 초안을
   검색수요)로 새 AI·이슈 AI 후보를 찾는 것이 1순위. 에버그린 뱅크는 신선 후보가
   전멸했을 때의 폴백일 뿐이다 (`ALLOW_EVERGREEN_AUTO_PUBLISH=true`는 그 폴백의
   자동발행 허용이지 우선순위 역전이 아님).
-- **중복 금지 창**: 주제 dedup `DEDUP_DAYS=7` (요구 최소치 3일보다 강함) + 같은 회사
+- **중복 금지 창**: 주제 dedup `DEDUP_DAYS=30`(2026-10-14, 7→30) + 제품+의도 30일 쿨다운 + 같은 회사
   엔티티 쿨다운 3일(PR #57). 에버그린 폴백도 소프트 엔티티 다양성 랭킹으로 직전에
   다룬 AI와 다른 AI를 우선한다.
 - **품질 우선**: 발행 게이트(구체성/원문보존/헤지 포화/가격표/제목-본문 정합 등)를

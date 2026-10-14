@@ -524,6 +524,24 @@ def _product_priority(product: str) -> int:
 # 그때는 검색 수요가 가장 두꺼운 두 축(가격·사용법)을 기본값으로 쓴다.
 _DEFAULT_INTENTS: tuple[str, ...] = ("pricing", "how to use")
 
+# 2026-10-14: 기본 의도는 "제품을 다룬 헤드라인"에만 붙인다. 소송·인수·유출 같은
+# 사건 헤드라인에 붙이면 "openai how to use" 시드의 자동완성이 사건 제목 앞에 그대로
+# 실려 "OpenAI How to Use ChatGPT Lawsuit Briefs Unsealed" 같은 엉킨 제목이 나왔다.
+# 사건형 후보는 제품명 시드만 쓴다.
+_EVENT_HEADLINE_RE = re.compile(
+    r"\b(?:lawsuits?|sued|sues|suing|court|courts|judge|jury|trial|verdict|unsealed|"
+    r"subpoena\w*|testimony|antitrust|settle(?:s|d|ment)?|regulators?|"
+    r"acquisitions?|acquires?|acquired|merger|mergers|buyout|takeover|"
+    r"leaks?|leaked|layoffs?|laid\s+off|fired|fined|probe|investigation|"
+    r"earnings|ipo|valuation|funding|raises|resigns?|resigned|ousted|"
+    r"indicted|charged|banned|ban|bans|deal|partnership|ceo)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_event_headline(text: str) -> bool:
+    return bool(_EVENT_HEADLINE_RE.search(text or ""))
+
 
 def _intent_mentions(text: str) -> list[str]:
     intents: list[str] = []
@@ -532,7 +550,7 @@ def _intent_mentions(text: str) -> list[str]:
         if pattern.search(text or "") and intent not in seen:
             seen.add(intent)
             intents.append(intent)
-    if not intents:
+    if not intents and not _looks_like_event_headline(text):
         intents.extend(_DEFAULT_INTENTS)
     return intents
 

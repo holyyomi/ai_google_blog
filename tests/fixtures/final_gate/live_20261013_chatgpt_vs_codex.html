@@ -1,0 +1,270 @@
+<style>
+.yomi-clean-post{--a1:#0f766e;--ink:#1c2430;--body:#3b4657;--muted:#69748a;--line:#e4e9f1;--soft:#f6f8fb;max-width:744px;margin:0 auto;padding:10px 0 42px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,'Helvetica Neue',Arial,sans-serif;color:var(--ink);line-height:1.84;font-size:17px;letter-spacing:0;overflow-wrap:anywhere}
+.yomi-clean-post *{box-sizing:border-box;max-width:100%}
+.yomi-clean-post h1{font-size:1.74rem;line-height:1.32;margin:6px 0 24px;color:var(--ink);font-weight:800;padding:0 0 16px;border-bottom:1px solid var(--line);background:linear-gradient(var(--a1),var(--a1)) bottom left/64px 3px no-repeat}
+.yomi-clean-post h2{font-size:1.26rem;line-height:1.42;margin:42px 0 16px;color:var(--ink);font-weight:800;padding:0 0 10px;border-bottom:1px solid var(--line);background:linear-gradient(var(--a1),var(--a1)) bottom left/40px 3px no-repeat}
+.yomi-clean-post h3{font-size:1.04rem;line-height:1.48;margin:18px 0 8px;color:var(--ink);font-weight:750}
+.yomi-clean-post p{margin:0 0 16px;color:var(--body)}
+.yomi-clean-post ul,.yomi-clean-post ol{margin:10px 0 18px;padding-left:22px}
+.yomi-clean-post li{margin:8px 0;color:var(--body)}
+.yomi-clean-post li::marker{color:var(--muted);font-weight:700}
+.yomi-clean-post strong{color:var(--ink)}
+.yomi-clean-post a{color:var(--a1);text-decoration:none;border-bottom:1px solid transparent}
+.yomi-clean-post a:hover{border-bottom-color:var(--a1)}
+.section-label,.yomi-kicker{display:block;margin:0 0 10px;padding:0;border:0;background:none;color:var(--a1);font-size:.82rem;font-weight:800;line-height:1.4;letter-spacing:.01em}
+.section-label:before,.yomi-kicker:before{content:none;display:none}
+.yomi-lede,.preview-hook,.hero-summary-box,
+.yomi-note,.yomi-judgment-box,.real-criterion,.core-message-box,.target-reader-box,
+.misconception-box,.quick-decision-table,
+.actions-box,.action-guide-box,.checklist,.quality-checklist,
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,
+.yomi-paa-compact,.yomi-engine-support,
+.confirmed-section,.check-needed-section,
+.yomi-internal-links,.tool-summary,.pricing-table,
+.who-for-rec,.who-for-non,.risk-note,.verdict-box,.use-case-card{
+  margin:26px 0;padding:18px 20px;border:1px solid var(--line);background:#fff;border-radius:10px;box-shadow:none}
+.yomi-faq .intent-qa-item,.faq-card,.faq-item,.intent-qa-item,.confirmed-section,.check-needed-section,.use-case-card{margin:0 0 12px}
+.yomi-lede,.preview-hook,.hero-summary-box{background:var(--soft);border-left:3px solid var(--a1)}
+.yomi-lede p,.preview-hook p,.hero-summary-box p{font-size:1.03em;color:var(--ink)}
+.yomi-lede p:last-child,.preview-hook p:last-child,.hero-summary-box p:last-child{margin-bottom:0}
+.yomi-judgment-box{border-left:3px solid var(--a1)}
+.yomi-note p{color:var(--body);font-weight:600}
+.yomi-note p:last-child,.yomi-judgment-box p:last-child{margin-bottom:0}
+.yomi-note h2,.yomi-judgment-box h2,.real-criterion h2,.core-message-box h2,.target-reader-box h2{margin-top:0;border:0;padding:0;background:none;font-size:1.06rem}
+.real-criterion{white-space:pre-line}
+.yomi-clean-post table{width:100%;border-collapse:separate;border-spacing:0;margin:14px 0;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.yomi-clean-post th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
+.yomi-clean-post td{border-top:1px solid var(--line);padding:12px 14px;vertical-align:top;background:#fff;color:var(--body)}
+.yomi-clean-post tr:first-child td{border-top:0}
+.misconception-box table,.quick-decision-table table,.pricing-table table,.yomi-risk{width:100%;border-collapse:separate;border-spacing:0;margin:12px 0 4px;font-size:.95rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.misconception-box th,.quick-decision-table th,.pricing-table th,.yomi-risk th{background:var(--soft);color:var(--ink);text-align:left;padding:12px 14px;font-weight:750;vertical-align:top;font-size:.92rem;border-bottom:1px solid var(--line)}
+.misconception-box td,.quick-decision-table td,.pricing-table td,.yomi-risk td{border-top:1px solid var(--line);padding:12px 14px;vertical-align:top;background:#fff;color:var(--body)}
+.misconception-box tr:first-child td,.quick-decision-table tr:first-child td,.pricing-table tr:first-child td,.yomi-risk tr:first-child td{border-top:0}
+.misconception-box td:first-child,.quick-decision-table td:first-child,.yomi-risk td:first-child{font-weight:650;color:var(--ink)}
+.misconception-box,.quick-decision-table,.pricing-table{overflow-x:auto}
+.pricing-table caption{caption-side:top;text-align:left;color:var(--muted);font-size:.88rem;margin-bottom:8px}
+.actions-box ol,.yomi-list{counter-reset:yomi-step;list-style:none;margin:12px 0 4px;padding:0}
+.actions-box li,.yomi-list li{counter-increment:yomi-step;position:relative;margin:0;padding:13px 0 13px 44px;border-top:1px dashed var(--line)}
+.actions-box li:first-child,.yomi-list li:first-child{border-top:0}
+.actions-box li:before,.yomi-list li:before{content:attr(data-step);position:absolute;left:0;top:13px;width:28px;height:28px;border-radius:8px;background:var(--ink);color:#fff;font-size:.78rem;line-height:28px;text-align:center;font-weight:800}
+.actions-box li:not([data-step]):before,.yomi-list li:not([data-step]):before{content:counter(yomi-step)}
+.yomi-list li::marker{content:""}
+.actions-box strong{color:var(--ink)}
+.yomi-thesis,.key-fact-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0}
+.yomi-thesis div,.key-fact-cards .fact-card{border:1px solid var(--line);background:#fff;padding:16px 17px;border-radius:10px}
+.yomi-lens{display:grid;grid-template-columns:1fr;gap:11px;margin:22px 0}
+.yomi-lens article{border:1px solid var(--line);background:#fff;padding:15px 17px;border-radius:10px}
+.yomi-lens article p{margin-bottom:0}
+.yomi-thesis b,.yomi-lens b,.key-fact-cards strong{display:block;margin-bottom:8px;color:var(--ink);font-size:1.01em}
+.yomi-tag{display:inline-block;font-size:.78rem;font-weight:800;padding:3px 10px;border-radius:999px;background:#eef2f7;color:var(--body);margin-bottom:5px}
+.yomi-tag.red,.yomi-tag.amber,.yomi-tag.blue{background:#eef2f7;color:var(--body)}
+.yomi-faq,.faq-block{margin:30px 0}
+.yomi-faq h3,.faq-card h3,.faq-item h3,.intent-qa-item h3{margin-top:0;color:var(--ink);padding-left:12px;border-left:3px solid var(--a1)}
+.yomi-faq p:last-child,.faq-card p:last-child,.faq-item p:last-child,.intent-qa-item p:last-child{margin-bottom:0}
+.yomi-paa-compact h2{font-size:1.05rem;margin:0 0 10px;color:var(--ink);border:0;padding:0;background:none}
+.yomi-paa-compact ul{margin:0;padding-left:20px}
+.yomi-paa-compact li{margin:7px 0}
+.yomi-engine-support{padding-bottom:4px}
+.confirmed-needed-box{margin:30px 0;padding:0}
+.confirmed-needed-box h2{margin-top:0}
+.confirmed-section h3,.check-needed-section h3{margin-top:0;display:flex;align-items:center;gap:8px}
+.confirmed-section h3:before{content:"OK";flex:none;width:30px;height:22px;border-radius:6px;background:#eef2f7;color:var(--body);font-size:.66rem;line-height:22px;text-align:center;font-weight:800}
+.check-needed-section h3:before{content:"CHK";flex:none;width:34px;height:22px;border-radius:6px;background:#fdf3e3;color:#8a5a12;font-size:.64rem;line-height:22px;text-align:center;font-weight:800}
+.check-needed-section{border-left:3px solid #d9a24a}
+.risk-note{border-left:3px solid #d9a24a}
+.risk-note .section-label{color:#8a5a12}
+.risk-note ul{margin:10px 0 2px;padding-left:20px}
+.risk-note li{margin:7px 0}
+.yomi-source{font-size:.92rem;color:var(--muted);border-top:1px solid var(--line);margin-top:36px;padding-top:18px}
+.yomi-source h2{font-size:1.02rem;border:0;padding:0;margin:0 0 10px;color:var(--body);background:none}
+.yomi-source li{margin-bottom:7px}
+.yomi-source p{color:var(--muted)}
+.yomi-hashtags,.hashtag-box{margin:28px 0 8px;padding:16px 0 0;border-top:1px solid var(--line);background:transparent}
+.yomi-hashtags p,.hashtag-box p{margin:0;color:var(--a1);font-size:.93rem;line-height:2;font-weight:750}
+.yomi-internal-links h2{font-size:1.05rem;margin:0 0 12px;color:var(--ink);border:0;padding:0;background:none}
+.yomi-internal-links ul{margin:0;padding:0;list-style:none}
+.yomi-internal-links li{margin:9px 0;padding-left:20px;position:relative}
+.yomi-internal-links li:before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;border-top:2px solid var(--a1);border-right:2px solid var(--a1);transform:rotate(45deg)}
+.yomi-internal-links a{font-weight:650}
+.prompt-recipe-box{margin:26px 0}
+.prompt-card{border:1px solid var(--line);border-radius:10px;margin:0 0 14px;overflow:hidden}
+.prompt-card-label{margin:0!important;padding:10px 15px!important;background:var(--soft)!important;color:var(--ink)!important;font-size:.86rem;font-weight:750;border-bottom:1px solid var(--line)}
+.yomi-clean-post .prompt-code{margin:0!important;padding:16px 17px!important;background:#fbfcfe!important;color:var(--ink)!important;font-family:'D2Coding','Consolas','Courier New',monospace;font-size:.92rem;line-height:1.75;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.deadline-box{margin:30px 0 8px;padding:20px 22px;border:1px solid var(--line);border-left:3px solid var(--a1);background:var(--soft);border-radius:10px}
+.deadline-box .dl-icon{display:inline-block;font-size:1.4rem;line-height:1;margin-right:8px;vertical-align:-3px}
+.deadline-box .dl-title{display:inline-block;font-weight:800;color:var(--ink);font-size:1.05rem}
+.deadline-box .dl-desc{margin:10px 0 0;color:var(--ink);font-size:1.01em}
+.quality-checklist ul{margin:10px 0 2px;padding:0;list-style:none}
+.quality-checklist li{margin:0;padding:10px 0 10px 30px;position:relative;border-top:1px dashed var(--line);color:var(--body)}
+.quality-checklist li:first-child{border-top:0}
+.quality-checklist li:before{content:"\2713";position:absolute;left:2px;top:9px;color:var(--a1);font-weight:800;font-size:1.1em}
+.tool-summary p[itemprop="description"]{margin:0;color:var(--ink);font-weight:600;font-size:1.02em}
+.who-for{margin:26px 0}
+.who-for-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+.who-for-rec,.who-for-non{margin:0}
+.who-for-rec h3,.who-for-non h3{margin:0 0 9px;font-size:1rem}
+.who-for ul{margin:0;padding-left:20px}
+.who-for li{margin:7px 0}
+.verdict-box{border-left:3px solid var(--a1)}
+.verdict-box p{margin:0 0 8px;color:var(--ink)}
+.verdict-box p:last-child{margin-bottom:0}
+.verdict-rating{color:var(--a1);font-size:1.1rem;font-weight:800;letter-spacing:2px}
+.use-cases{margin:26px 0}
+.use-case-when{margin:0 0 5px;font-weight:750;color:var(--ink)}
+.use-case-how{margin:0;color:var(--body)}
+.ai-cover-image,figure[data-yomi-block="cover-image"]{margin:0 0 24px}
+.ai-cover-image img,figure[data-yomi-block="cover-image"] img{width:100%;height:auto;display:block;aspect-ratio:16/9;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.ai-hero{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:2px 0 28px;padding:20px 22px;border-radius:12px;background:var(--a1);color:#fff}
+.ai-hero-icon{font-size:1.7rem;line-height:1}
+.ai-hero-badge{font-size:.78rem;font-weight:800;letter-spacing:.02em;background:rgba(255,255,255,.18);padding:5px 12px;border-radius:999px}
+.ai-hero-title{flex:1 1 100%;font-size:1.14rem;font-weight:750;line-height:1.42;margin-top:4px}
+.yomi-clean-post.theme-teal{--a1:#0f766e}
+.yomi-clean-post.theme-violet{--a1:#6d28d9}
+.yomi-clean-post.theme-blue{--a1:#1d4ed8}
+.yomi-clean-post.theme-emerald{--a1:#047857}
+.yomi-clean-post.theme-rose{--a1:#be123c}
+.yomi-clean-post.theme-indigo{--a1:#4338ca}
+.yomi-clean-post.theme-sky{--a1:#0369a1}
+.yomi-clean-post.theme-amber{--a1:#b45309}
+@media(max-width:640px){
+.post-title.entry-title{font-size:19px!important;line-height:1.28!important;overflow-wrap:normal!important;letter-spacing:0!important}
+.yomi-clean-post{width:100%;max-width:100%;font-size:16px;line-height:1.78;padding:0 16px 30px!important;overflow-x:hidden;word-break:normal}
+.yomi-clean-post h1{font-size:1.42rem}
+.yomi-clean-post h2{font-size:1.16rem;overflow-wrap:anywhere;margin:34px 0 14px}
+.yomi-lede,.preview-hook,.hero-summary-box,.yomi-note,.yomi-judgment-box,.misconception-box,.quick-decision-table,.actions-box,.action-guide-box,.checklist,.quality-checklist,.yomi-paa-compact,.confirmed-section,.check-needed-section,.yomi-internal-links,.yomi-engine-support,.tool-summary,.pricing-table,.risk-note,.verdict-box,.deadline-box{padding:15px 16px;border-radius:10px}
+.yomi-clean-post table{display:block;overflow-x:auto}
+.yomi-thesis,.yomi-lens,.key-fact-cards,.who-for-cols{grid-template-columns:1fr;gap:12px}
+.ai-hero{padding:16px 17px;border-radius:11px}
+.ai-hero-title{font-size:1.04rem}
+.misconception-box table,.quick-decision-table table,.pricing-table table,.yomi-risk{display:block;border:0;background:transparent}
+.misconception-box thead,.quick-decision-table thead,.pricing-table thead,.yomi-risk thead{display:none}
+.misconception-box tbody,.quick-decision-table tbody,.pricing-table tbody,.yomi-risk tbody{display:block}
+.misconception-box tr,.quick-decision-table tr,.pricing-table tr,.yomi-risk tr{display:block;border:1px solid var(--line);border-radius:8px;margin:0 0 12px;background:#fff;overflow:hidden}
+.misconception-box td,.quick-decision-table td,.pricing-table td,.yomi-risk td{display:block;width:100%;border:0!important;border-top:1px solid var(--line)!important;padding:11px 13px!important;background:#fff!important}
+.misconception-box td:first-child,.quick-decision-table td:first-child,.pricing-table td:first-child,.yomi-risk td:first-child{border-top:0!important;background:var(--soft)!important;font-weight:750;color:var(--ink)}
+}
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Chatgpt vs Chatgpt Classic Compared (2026)", "description": "If you updated the Windows desktop app and found yourself inside a Codex workspace instead of the familiar chat window, you are not alone. As of October 2026...", "datePublished": "2026-10-13", "dateModified": "2026-10-13", "author": {"@type": "Person", "name": "holyyomi AI"}, "mainEntityOfPage": {"@type": "WebPage"}, "keywords": "Comparisons, AITools, ChatGPT"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Does ChatGPT Classic get the same model updates as the new app?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. The OpenAI Help Center confirms ChatGPT Classic continues to receive model updates, bug fixes, and security patches alongside the new unified app."}}, {"@type": "Question", "name": "Can I use Codex in ChatGPT Classic if I have a Plus subscription?", "acceptedAnswer": {"@type": "Answer", "text": "No. Codex is only available in the new unified desktop app and on the web at chatgpt.com. Classic is limited to the Chat interface."}}, {"@type": "Question", "name": "Will my chat history disappear if I uninstall ChatGPT Classic?", "acceptedAnswer": {"@type": "Answer", "text": "No. Conversations are stored in your ChatGPT account on OpenAI's servers. Uninstalling either desktop app only removes the local client; history remains accessible in the other app or on the web."}}]}</script>
+<article class="yomi-clean-post">
+<figure class="ai-cover-image" data-yomi-block="cover-image" data-yomi-cover-kind="ai"><img src="https://i.ibb.co/QVdTt9n/chatgpt-vs-classic-compared-ai-work-news-58d48d.jpg" alt="Cover image for Chatgpt vs Chatgpt Classic Compared (2026) — workspace scene symbolizing AI productivity and setup checks" loading="eager" decoding="async" width="1200" height="675" /></figure>
+<section id="AI_OVERVIEW_TARGET_ANSWER" class="yomi-lede"><h2>The short answer</h2><p>Two desktop apps coexist: &quot;ChatGPT&quot; (unified) and &quot;ChatGPT Classic&quot; (legacy chat-only). ChatGPT Classic receives ongoing model updates and security patches with no published sunset date.</p></section>
+  <div class="post-content">
+<p>If you updated the Windows desktop app and found yourself inside a Codex workspace instead of the familiar chat window, you are not alone. As of October 2026, OpenAI ships two separate desktop apps: the new unified ChatGPT app (which bundles Chat, Work, and Codex) and ChatGPT Classic (the previous standalone chat app).</p><p>Both can stay installed at the same time, and Classic continues to receive model updates and security fixes.</p>
+
+<div class="verdict-box"><span class="section-label">Quick Verdict</span><ul>
+<li><strong>Best for:</strong> Users who want the new Work canvas and Codex coding tools in one window</li>
+<li><strong>Not ideal for:</strong> Anyone who only wants the classic chat interface without extra tabs</li>
+<li><strong>Free plan:</strong> Both apps respect your existing ChatGPT account tier (Free, Plus, Pro, Team, Enterprise)</li>
+<li><strong>Main limitation:</strong> The new app opens to Codex by default for existing Codex users; Chat is one click deeper</li>
+<li><strong>Last checked:</strong> October 2026</li>
+</ul></div>
+
+<h2>What Changed in the Desktop App Migration</h2>
+<p>OpenAI replaced the original ChatGPT desktop app with a unified client that merges three experiences: Chat (the conversational interface), Work (a canvas for documents and projects), and Codex (the coding agent). The rollout began on macOS and Windows in late September 2026.</p><p>If you already had the Codex app installed, updating it converts it into the new unified app. If you had the original ChatGPT desktop app, a prompt appears inviting you to download the new version. The old version is not removed automatically; it is renamed to ChatGPT Classic and remains on your system.</p>
+<p>According to the OpenAI Help Center article updated 16 days ago, no migration is required at launch. You can keep using ChatGPT Classic indefinitely. It will still receive model updates, bug fixes, and security patches. The new app installs side by side, so you end up with two entries in your Start menu or Applications folder: "ChatGPT" (the unified app) and "ChatGPT Classic" (the legacy chat-only app).</p>
+
+<h2>ChatGPT vs ChatGPT Classic: Core Differences</h2>
+<p>The new ChatGPT app is a multi-mode workspace. Its left-hand selector lets you switch between Chat, Work, and Codex. ChatGPT Classic is a single-mode app: it opens directly to the conversation list and has no Work or Codex tabs.</p><p>Both apps sign in with the same ChatGPT account, so your subscription tier, custom instructions, and memory settings apply in either one. Chat history syncs across both because it lives on the server, not locally.</p>
+<p>A key practical difference is the default landing view. The community forum post from July 11, 2026 notes that the Microsoft Store version of the new "ChatGPT" app installs the <code>OpenAI.Codex</code> package and launches straight into the Codex experience. Users who expect the chat window often cannot find it at first.</p><p>In ChatGPT Classic, the chat list is the only view. If your workflow is purely conversational, Classic removes the extra navigation step.</p>
+
+<div class="quick-decision-table"><table><thead><tr><th>Feature</th><th>ChatGPT (new unified app)</th><th>ChatGPT Classic</th></tr></thead><tbody>
+<tr><td>Interface modes</td><td>Chat, Work, Codex</td><td>Chat only</td></tr>
+<tr><td>Default launch view</td><td>Codex for existing Codex users; Chat otherwise</td><td>Chat conversation list</td></tr>
+<tr><td>Work canvas (documents, projects)</td><td>Yes</td><td>No</td></tr>
+<tr><td>Codex coding agent</td><td>Integrated tab</td><td>Not available</td></tr>
+<tr><td>Model updates & security patches</td><td>Yes</td><td>Yes (per OpenAI Help Center)</td></tr>
+<tr><td>Account & history sync</td><td>Shared via ChatGPT account</td><td>Shared via ChatGPT account</td></tr>
+<tr><td>Installation source (Windows)</td><td>Microsoft Store (OpenAI.Codex package)</td><td>Previous installer / remains after update</td></tr>
+<tr><td>Can run simultaneously</td><td>Yes</td><td>Yes</td></tr>
+</tbody></table></div>
+<p>As of October 2026, the table reflects the confirmed differences from the OpenAI Help Center migration guide and the community migration thread. Both apps honor the same subscription limits — Free, Plus, Pro, Team, and Enterprise tiers work identically in either client.</p>
+
+<h2>Where Codex Fits In</h2>
+<p>Codex is OpenAI's coding agent that can read, write, and run code in a sandboxed environment. In the new unified app, it appears as a dedicated tab alongside Chat and Work. If you never used Codex before, the new app still installs the Codex runtime, but the Chat tab is the default.</p><p>Existing Codex users see Codex first because the updated app preserves their last-used mode. You can change the default launch mode in Settings → General → Default view.</p>
+<p>ChatGPT Classic does not include Codex. If you want the coding agent, you must use the new unified app or the web version at chatgpt.com. The web version also surfaces Codex under the same account, so you are not locked to the desktop client for coding tasks.</p>
+
+<h2>First-Time User Blockers: Cause and Fix</h2>
+<ul>
+<li><strong>Cause: App opens to Codex instead of Chat</strong> — The new app remembers the last used mode; Codex users land in the coding agent. <strong>Fix:</strong> Click the Chat icon in the left sidebar or press <kbd>Ctrl</kbd>+<kbd>1</kbd> (Windows) / <kbd>Cmd</kbd>+<kbd>1</kbd> (Mac) to jump to Chat.</li>
+<li><strong>Cause: Two "ChatGPT" entries in Start menu</strong> — The update leaves Classic installed alongside the new app. <strong>Fix:</strong> Pin the one you prefer; uninstall Classic only if you no longer want the single-mode experience.</li>
+<li><strong>Cause: Missing Work or Codex tabs in Classic</strong> — Classic is chat-only by design. <strong>Fix:</strong> Switch to the new unified app for those features; your history and settings carry over automatically.</li>
+<li><strong>Cause: Microsoft Store listing shows "ChatGPT" but installs Codex package</strong> — The store entry name matches the new unified app, not Classic. <strong>Fix:</strong> Expect the unified app from the Store; download Classic only from the OpenAI help page if you specifically want the legacy client.</li>
+<li><strong>Cause: Keyboard shortcuts differ between apps</strong> — Classic has no mode-switch shortcuts because it only runs Chat. <strong>Fix:</strong> In the new app, use <kbd>Ctrl</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> (Windows) or <kbd>Cmd</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> (Mac) for Chat, Work, Codex; stay in Classic if you never switch modes.</li>
+<li><strong>Cause: New chat button hidden in collapsed sidebar</strong> — In the new app, the conversation list collapses when the window is narrow, hiding the New chat button. <strong>Fix:</strong> Widen the window until the sidebar expands, or click the hamburger menu (☰) to reveal the conversation list and the New chat button.</li>
+</ul>
+
+<div class="risk-note"><span class="section-label">Watch out</span><p>Uninstalling ChatGPT Classic removes the chat-only shortcut but does not delete your conversations — those stay in your ChatGPT account. Reinstalling Classic later is possible from the OpenAI help center download link.</p></div>
+
+<h2>What Stays the Same and What Is Still Unconfirmed</h2>
+<p>Your subscription tier, API usage limits, and data controls are identical across both desktop apps and the web. The model selector (GPT-4o, o1-preview, etc.) behaves the same way. Custom instructions, memory, and shared links work interchangeably. OpenAI has not published a sunset date for ChatGPT Classic; the help center states it "continues to receive model updates, bug fixes, security updates" with no end timeline.</p>
+<p>Unconfirmed areas include whether future features like advanced voice mode or screen-sharing will land in Classic, and whether the unified app will eventually become the only supported desktop client. The help center wording "no migration is required at launch" implies a future migration may be encouraged. Check the OpenAI Help Center article "Moving to the new ChatGPT desktop app" for the latest stance.</p>
+
+<h2>Frequently Asked Questions</h2>
+
+<h2>Choose by Workflow: Three Reader Profiles</h2>
+<div class="who-for"><div class="who-for-cols">
+<div class="who-for-rec"><h3>Use the new unified ChatGPT app if</h3><ul>
+<li>You want Work canvas for documents and projects</li>
+<li>You use Codex for coding tasks</li>
+<li>You prefer a single window for chat, writing, and code</li>
+</ul></div>
+<div class="who-for-non"><h3>Stick with ChatGPT Classic if</h3><ul>
+<li>You only need the conversational chat interface</li>
+<li>You want the app to open directly to your conversation list</li>
+<li>You dislike extra sidebar navigation</li>
+</ul></div>
+<div class="who-for-rec"><h3>Consider the web version at chatgpt.com if</h3><ul>
+<li>You switch between devices and don't want to install apps everywhere</li>
+<li>Your IT policy blocks Microsoft Store installs (the unified app uses the OpenAI.Codex package)</li>
+<li>You want Codex without the desktop footprint — the web version includes it under the same account</li>
+</ul></div>
+<div class="who-for-non"><h3>Skip the new unified app if</h3><ul>
+<li>You only need chat and never use Work canvas or Codex</li>
+<li>You want the app to open instantly to your conversation list</li>
+<li>You prefer a minimal interface without a sidebar</li>
+</ul></div>
+</div></div>
+
+<h2>Managing Both Apps Day to Day</h2>
+<p>If you keep both apps installed, you can assign each a distinct role. For example, pin ChatGPT Classic to the taskbar for quick chat access, and use the new unified app only when you need Work canvas or Codex. Both apps share the same account, so you won't lose context when switching.</p><p>The new app's settings let you set Chat as the startup mode, eliminating the extra click to reach conversations.</p>
+<p>Updates arrive independently: the Microsoft Store handles the unified app, while Classic updates via its own mechanism (check the OpenAI help center for the latest installer). If your IT department manages software, note that the unified app installs as a Microsoft Store package; Classic uses the older installer.</p><p>You can run both simultaneously without conflict, but only one can hold the system-wide shortcut for the <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Space</kbd> hotkey (if enabled). Assign the hotkey to the app you use most.</p>
+
+<section class="yomi-faq" id="INTENT_ANSWER_BLOCK" data-yomi-engine="aeo">
+<article class="faq-item"><h3 class="faq-q">Does ChatGPT Classic get the same model updates as the new app?</h3><p class="faq-a">Yes. The OpenAI Help Center confirms ChatGPT Classic continues to receive model updates, bug fixes, and security patches alongside the new unified app.</p></article>
+<article class="faq-item"><h3 class="faq-q">Can I use Codex in ChatGPT Classic if I have a Plus subscription?</h3><p class="faq-a">No. Codex is only available in the new unified desktop app and on the web at chatgpt.com. Classic is limited to the Chat interface.</p></article>
+<article class="faq-item"><h3 class="faq-q">Will my chat history disappear if I uninstall ChatGPT Classic?</h3><p class="faq-a">No. Conversations are stored in your ChatGPT account on OpenAI's servers. Uninstalling either desktop app only removes the local client; history remains accessible in the other app or on the web.</p></article>
+<div class="intent-qa-item"><p class="intent-q"><strong>Q. What's the practical read on what Changed in the Desktop App Migration?</strong></p><p>A. OpenAI replaced the original ChatGPT desktop app with a unified client that merges three experiences: Chat (the conversational interface), Work (a canvas for documents and projects), and Codex (the coding agent). The rollout began on macOS and Windows in late September 2026.</p></div><div class="intent-qa-item"><p class="intent-q"><strong>Q. What does ChatGPT vs ChatGPT Classic: Core Differences mean in day-to-day use?</strong></p><p>A. The new ChatGPT app is a multi-mode workspace. Its left-hand selector lets you switch between Chat, Work, and Codex. ChatGPT Classic is a single-mode app: it opens directly to the conversation list and has no Work or Codex tabs.</p></div><div class="intent-qa-item"><p class="intent-q"><strong>Q. What does where Codex Fits In mean in day-to-day use?</strong></p><p>A. Codex is OpenAI's coding agent that can read, write, and run code in a sandboxed environment. In the new unified app, it appears as a dedicated tab alongside Chat and Work. If you never used Codex before, the new app still installs the Codex runtime, but the Chat tab is the default.</p></div></section>
+<section id="ISSUE_CONTEXT_BLOCK" class="yomi-note"><h2>Putting the update in context</h2><p>What follows covers the background and real-world impact of chatgpt vs chatgpt classic, based on confirmed facts.</p></section>
+<section id="AI_CITATION_SUMMARY" class="yomi-citation-summary"><p>Two desktop apps coexist: &quot;ChatGPT&quot; (unified) and &quot;ChatGPT Classic&quot; (legacy chat-only). ChatGPT Classic receives ongoing model updates and security patches with no published sunset date. Both apps share the same account, subscription tier, history, and settings. Cutting through the hype means sorting what's confirmed from what's still guesswork and treating anything undated as provisional.</p></section>
+<section id="CONFIRMED_VS_CHECK_NEEDED_BLOCK" class="confirmed-needed-box">
+<div class="confirmed-section"><h3>Confirmed facts</h3><ul>
+<li>Two desktop apps coexist: "ChatGPT" (unified) and "ChatGPT Classic" (legacy chat-only)</li>
+<li>ChatGPT Classic receives ongoing model updates and security patches with no published sunset date</li>
+<li>Both apps share the same account, subscription tier, history, and settings</li>
+</ul></div>
+<div class="check-needed-section"><h3>Check for yourself</h3><ul>
+<li>Default launch mode in the new app — Settings → General → Default view (changes per user)</li>
+<li>Whether your organization's IT policy allows the Microsoft Store package (OpenAI.Codex)</li>
+<li>Future feature parity — monitor the OpenAI Help Center migration article for Classic support updates</li>
+</ul></div>
+</section>
+
+<div class="quality-checklist"><ul>
+<li>Open both apps and verify which one launches to Chat vs Codex</li>
+<li>Confirm your subscription tier shows correctly in each app's account menu</li>
+<li>Test that a conversation started in Classic appears in the new app's Chat tab</li>
+<li>Set your preferred default view in the new app if you use it regularly</li>
+<li>Bookmark the OpenAI Help Center migration page for future policy changes</li>
+</ul></div>
+  </div>
+<section id="SOURCE_TRUST_BLOCK" class="yomi-source"><h2>Source notes</h2><p>Everything asserted here points to a source you can open (as of 2026-10-13). Pricing tiers and feature rollouts change on the provider's schedule, not this article's. Read the current plan page before you assume a figure here still holds.</p>
+    <p class="source-trust-links-label"><strong>Sources</strong></p>
+    <ul class="source-trust-links">
+      <li><a href="https://help.openai.com/en/articles/20001276" rel="noopener nofollow" target="_blank">Moving to the new ChatGPT desktop app | OpenAI Help Center</a></li>
+      <li><a href="https://community.openai.com/t/windows-desktop-app-migration-is-confusing-chatgpt-vs-chatgpt-classic/1386432" rel="noopener nofollow" target="_blank">Windows desktop app migration is confusing (ChatGPT vs…</a></li>
+    </ul></section>
+
+<section class="yomi-internal-links" data-yomi-block="internal-links"><h2>Related reading</h2><ul><li><a href="https://holyyomiai.blogspot.com/2026/10/gemini-vs-google-assistant-bixby-which.html">Gemini vs Google Assistant vs Bixby: Which One Wins? (2026)</a></li><li><a href="https://holyyomiai.blogspot.com/2026/10/chatgpt-vs-codex-which-one-wins-news.html">Chatgpt vs Codex: Which One Wins? (2026)</a></li><li><a href="https://holyyomiai.blogspot.com/2026/10/gemini-vs-google-assistant-free-upgrade.html">Gemini vs Google Assistant: Free Upgrade Timeline 2026</a></li></ul></section>
+<section class="yomi-hashtags" data-yomi-block="hashtags" aria-label="Related hashtags"><p>#AI #Comparisons #AITools #ChatGPT</p></section>
+</article>

@@ -8,6 +8,23 @@ def build_publish_preview_scorecard(quality_gate: dict[str, Any]) -> dict[str, A
     final_audit = final_audit if isinstance(final_audit, dict) else {}
     clean_layout = (final_audit.get("metrics") or {}).get("yomi_clean_layout") or {}
     answer_coverage = quality_gate.get("answer_engine_coverage") or {}
+    from blogspot_automation.services.en_editorial_policy import lean_en_mode
+
+    # 2026-10-14 영어 lean 모드: 후처리 블록·FAQ 3개·모듈 2개를 요구하지 않는다
+    # (en_editorial_policy). 같은 기준을 게이트와 점수표가 함께 봐야 한다.
+    lean = lean_en_mode()
+    answer_keys = (
+        ("ai_overview_target_answer_present", "source_trust_block_present", "blogposting_json_ld_present")
+        if lean
+        else (
+            "ai_overview_target_answer_present",
+            "issue_context_present",
+            "intent_answer_present",
+            "source_trust_block_present",
+            "blogposting_json_ld_present",
+        )
+    )
+    faq_count = int(quality_gate.get("faq_count") or 0)
 
     checks = [
         _check("quality_gate_passed", bool(quality_gate.get("passed")), "Quality gate passed"),
@@ -15,7 +32,7 @@ def build_publish_preview_scorecard(quality_gate: dict[str, Any]) -> dict[str, A
         _check("single_lede", clean_layout.get("lede_count") == 1, "Exactly one first-answer lede"),
         _check(
             "adaptive_modules",
-            int(clean_layout.get("adaptive_module_count") or 0) >= 2,
+            lean or int(clean_layout.get("adaptive_module_count") or 0) >= 2,
             "At least two 63-cj style adaptive modules",
             value=clean_layout.get("adaptive_module_count", 0),
         ),
@@ -33,21 +50,13 @@ def build_publish_preview_scorecard(quality_gate: dict[str, Any]) -> dict[str, A
         ),
         _check(
             "answer_engine_blocks",
-            all(
-                bool(answer_coverage.get(key))
-                for key in (
-                    "ai_overview_target_answer_present",
-                    "issue_context_present",
-                    "intent_answer_present",
-                    "source_trust_block_present",
-                    "blogposting_json_ld_present",
-                )
-            ),
+            all(bool(answer_coverage.get(key)) for key in answer_keys),
             "AEO/GEO support blocks present",
         ),
         _check(
             "faq_depth",
-            int(quality_gate.get("faq_count") or 0) >= 3,
+            # lean: FAQ 0~3개(실제 독자 질문이 있을 때만) — 상한만 본다.
+            faq_count <= 3 if lean else faq_count >= 3,
             "FAQ has at least 3 questions",
             value=quality_gate.get("faq_count", 0),
         ),

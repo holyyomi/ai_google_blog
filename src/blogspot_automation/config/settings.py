@@ -165,7 +165,7 @@ class Settings:
             news_excluded_query_groups=os.getenv("NEWS_EXCLUDED_QUERY_GROUPS", "").strip(),
             min_topic_score=int(os.getenv("MIN_TOPIC_SCORE", "75")),
             topic_candidate_limit=int(os.getenv("TOPIC_CANDIDATE_LIMIT", "20")),
-            dedup_days=int(os.getenv("DEDUP_DAYS", "7")),
+            dedup_days=int(os.getenv("DEDUP_DAYS", "30")),
             title_candidate_count=int(os.getenv("TITLE_CANDIDATE_COUNT", "7")),
             runs_dir=os.getenv("RUNS_DIR", "runs"),
             naver_blog_url=os.getenv("NAVER_BLOG_URL", "https://holyyomiai.blogspot.com/"),

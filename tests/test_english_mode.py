@@ -169,14 +169,34 @@ def test_en_geo_layer_no_hangul_leak(en_mode):
     )
     leaked = sorted(set(re.findall(r"[가-힣]+", out)))
     assert not leaked, f"영어 모드 GEO 출력에 한글 누출: {leaked[:10]}"
-    # 필수 GEO 블록 ID는 그대로 있어야 한다 (스코어카드 계약)
+    # 2026-10-14 lean 기본값: 요약 id 는 남고(본문 첫 문단에 부여), 후처리 블록 4종은
+    # 붙지 않는다. SOURCE_TRUST_BLOCK 은 인용 URL 이 있을 때만 생긴다(여기선 없음).
+    assert "AI_OVERVIEW_TARGET_ANSWER" in out
+    for block_id in ("ISSUE_CONTEXT_BLOCK", "INTENT_ANSWER_BLOCK", "CONFIRMED_VS_CHECK_NEEDED_BLOCK"):
+        assert block_id not in out, f"lean 모드에 후처리 블록이 남음: {block_id}"
+    # 예전 동작은 EN_LEGACY_GEO_BLOCKS=on 으로 그대로 돌아와야 한다(스코어카드 계약).
+    import os
+
+    os.environ["EN_LEGACY_GEO_BLOCKS"] = "on"
+    try:
+        legacy = ensure_answer_engine_optimized_html(
+            body,
+            title="Claude vs ChatGPT for Excel Work (2026)",
+            topic="Claude vs ChatGPT for Excel work",
+            content_type="ai_work_tip",
+            topic_group="ai_work",
+            reader_questions=["Is Claude or ChatGPT better for Excel?"],
+        )
+    finally:
+        os.environ.pop("EN_LEGACY_GEO_BLOCKS", None)
+    assert not re.findall(r"[가-힣]+", legacy)
     for block_id in (
         "AI_OVERVIEW_TARGET_ANSWER",
         "ISSUE_CONTEXT_BLOCK",
         "INTENT_ANSWER_BLOCK",
         "SOURCE_TRUST_BLOCK",
     ):
-        assert block_id in out, f"영어 모드에서 GEO 블록 누락: {block_id}"
+        assert block_id in legacy, f"legacy 영어 모드에서 GEO 블록 누락: {block_id}"
 
 
 def test_en_overview_long_slots_do_not_truncate_mid_word(en_mode):

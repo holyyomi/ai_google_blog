@@ -31,8 +31,9 @@ def _shortfall_validator(text: str) -> None:
         raise L._WordCountShortfallError(count, L.EN_MIN_BODY_WORDS)
 
 
+# 2026-10-14: 하한 800 / 최후 하한 550 으로 낮춘 뒤 숫자를 그 사이로 옮겼다.
 def test_long_enough_best_effort_is_published_instead_of_nothing(monkeypatch):
-    draft = _body(1400)
+    draft = _body(700)
     monkeypatch.setattr(L.LlmContentService, "_call_provider", lambda *a, **k: draft)
 
     result = L.LlmContentService().call_with_fallback(
@@ -43,7 +44,7 @@ def test_long_enough_best_effort_is_published_instead_of_nothing(monkeypatch):
 
 def test_too_short_best_effort_is_still_rejected(monkeypatch):
     """예전 사고 재발 방지: 아무거나 채택하는 게 아니라 하한이 있다."""
-    draft = _body(900)
+    draft = _body(400)
     monkeypatch.setattr(L.LlmContentService, "_call_provider", lambda *a, **k: draft)
 
     assert L.LlmContentService().call_with_fallback(
@@ -65,8 +66,8 @@ def test_non_length_failures_are_never_accepted(monkeypatch):
 
 
 def test_floor_is_env_tunable(monkeypatch):
-    monkeypatch.setenv("EN_ACCEPTABLE_BODY_WORDS", "1450")
-    draft = _body(1400)
+    monkeypatch.setenv("EN_ACCEPTABLE_BODY_WORDS", "750")
+    draft = _body(700)
     monkeypatch.setattr(L.LlmContentService, "_call_provider", lambda *a, **k: draft)
 
     assert L.LlmContentService().call_with_fallback(
@@ -85,7 +86,7 @@ def test_a_passing_draft_still_wins_over_the_last_resort(monkeypatch):
 
 
 def test_longest_draft_across_providers_is_kept(monkeypatch):
-    drafts = [_body(1310), _body(1480), _body(1200)]
+    drafts = [_body(600), _body(760), _body(560)]
     calls = {"n": 0}
 
     def fake(self, provider, api_key, user_prompt, system_prompt=None):

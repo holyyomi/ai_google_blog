@@ -313,7 +313,8 @@ class TestAiBlogYml(unittest.TestCase):
         self.assertIn("publish_draft", content)
         self.assertIn("NEWS_PUBLISH_AS_DRAFT", content)
         # 초안 플래그는 수동 publish_draft일 때만 true
-        self.assertIn("github.event.inputs.publish_mode == 'publish_draft' && 'true' || 'false'", content)
+        # 2026-10-14: 스케줄도 초안(사람 검토 후 발행). 라이브 직행은 수동 publish 뿐.
+        self.assertIn("github.event.inputs.publish_mode == 'publish' && 'false' || 'true'", content)
 
     def test_persists_dedup_state(self):
         content = self._yml_content()

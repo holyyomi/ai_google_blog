@@ -46,7 +46,13 @@ def audit_final_html_quality(
         if clean_layout["lede_count"] != 1:
             issues.append(f"yomi_clean_layout_lede_count:{clean_layout['lede_count']}")
         if clean_layout["adaptive_module_count"] < 2:
-            issues.append(
+            from blogspot_automation.services.en_editorial_policy import lean_en_mode
+
+            # 2026-10-14 영어 lean 모드: 모듈 2개는 후처리 블록(ISSUE_CONTEXT=yomi-note,
+            # CONFIRMED=confirmed-needed-box)이 채워 주던 요건이다. 블록을 끈 뒤에도
+            # 요구하면 모든 글에 같은 상자를 다시 끼워 넣게 된다 — 경고로만 남긴다.
+            _sink = warnings if lean_en_mode() else issues
+            _sink.append(
                 f"yomi_clean_layout_lacks_adaptive_modules:{clean_layout['adaptive_module_count']}"
             )
         if clean_layout["inline_style_count"]:

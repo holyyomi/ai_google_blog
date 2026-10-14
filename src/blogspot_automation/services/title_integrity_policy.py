@@ -68,6 +68,39 @@ FOREIGN_SCRIPT_RE = re.compile(
 )
 
 
+# 검색어 시드("openai how to use")가 다른 사건 헤드라인 앞에 그대로 붙은 제목 차단
+# (2026-10-14 실측: "OpenAI How to Use ChatGPT Lawsuit Briefs Unsealed").
+# "How to Use"가 제목 맨 앞이 아니고 콜론·대시 같은 구분 없이 중간에 끼어 있으며,
+# 뒤쪽이 소송·인수·유출 같은 사건 서술이면 사용법 글이 아니라 엉킨 제목이다.
+SPLICED_HOW_TO_USE_RE = re.compile(
+    r"^(?P<head>[^:|\-–—]{1,40}?)\s+how\s+to\s+use\s+(?P<tail>.+)$",
+    re.IGNORECASE,
+)
+EVENT_HEADLINE_TERM_RE = re.compile(
+    r"\b(?:lawsuits?|sued|sues|suing|court|courts|judge|jury|trial|verdict|unsealed|"
+    r"subpoena\w*|testimony|antitrust|settle(?:s|d|ment)?|"
+    r"acquisitions?|acquires?|acquired|merger|mergers|buyout|takeover|"
+    r"leaks?|leaked|layoffs?|laid\s+off|fined|probe|investigation|"
+    r"earnings|ipo|valuation|funding|raises|resigns?|resigned|ousted|"
+    r"indicted|charged|ban|banned|bans)\b",
+    re.IGNORECASE,
+)
+
+
+def has_spliced_how_to_use_event(title: str) -> bool:
+    """'<제품> How to Use <다른 사건>' 형태의 엉킨 제목인지 판정한다."""
+    text = " ".join(str(title or "").split()).strip()
+    match = SPLICED_HOW_TO_USE_RE.match(text)
+    if not match:
+        return False
+    # 제품명 1~3단어 바로 뒤에 구분 없이 "How to Use"가 오면 그 자체로 비문이다
+    # (라이브 실측: "Claude How to Use Agents: Frontier Academy $100M ...",
+    # "Grok How to Use Free in Morocco Tesla Update"). 사건어가 없어도 차단한다.
+    if len(match.group("head").split()) <= 3:
+        return True
+    return bool(EVENT_HEADLINE_TERM_RE.search(match.group("tail")))
+
+
 def contains_foreign_script(text: str) -> bool:
     return bool(FOREIGN_SCRIPT_RE.search(text or ""))
 
@@ -114,6 +147,8 @@ def audit_title_integrity(
         issues.append("bad_subject_particle")
     if contains_foreign_script(text):
         issues.append("foreign_script_in_title")
+    if has_spliced_how_to_use_event(text):
+        issues.append("spliced_how_to_use_event_title")
     if _is_viral_context(content_type=content_type, topic_group=topic_group, pattern_id=pattern_id):
         if "평점보다 먼저 볼 포인트" in text:
             issues.append("low_value_viral_rating_title")
