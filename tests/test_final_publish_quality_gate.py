@@ -251,6 +251,24 @@ def test_blogposting_author_is_person_yomi():
     assert posting["author"] == {**posting["author"], "@type": "Person", "name": "Yomi"}
 
 
+def test_llm_render_path_author_is_yomi():
+    """실제 LLM 발행 경로의 BlogPosting 은 render_full_post 가 만든다(드라이런 실측)."""
+    from blogspot_automation.templates.blog_post_template import render_full_post
+
+    html = render_full_post(
+        title="Gemini Free API Limits",
+        content_html="<p>Body.</p>",
+        category="AI",
+        content_type="ai_work_tip",
+        labels=["Pricing"],
+        hashtags=[],
+        meta_description="m",
+        today="October 14, 2026",
+        schema_faq=[],
+    )
+    assert '"name": "Yomi"' in html and "holyyomi AI\"}" not in html
+
+
 def test_workflow_author_env_is_yomi():
     yml = (Path(__file__).parents[1] / ".github" / "workflows" / "ai_blog.yml").read_text(encoding="utf-8")
     assert 'BLOG_AUTHOR_NAME: "Yomi"' in yml

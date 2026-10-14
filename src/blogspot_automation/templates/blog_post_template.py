@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from html import escape
 import json
+import os
 from typing import Any
 
 from blogspot_automation.services.blog_language import is_english_mode
@@ -172,7 +173,13 @@ def render_full_post(
         "description": meta_description or title,
         "datePublished": kst_today("%Y-%m-%d"),
         "dateModified": kst_today("%Y-%m-%d"),
-        "author": {"@type": "Person", "name": "holyyomi AI" if is_english_mode() else "요미"},
+        # 2026-10-14: 영어 글의 저자는 사람 이름 "Yomi"(BLOG_AUTHOR_NAME). 실제 LLM 발행
+        # 경로의 BlogPosting 은 여기서 만들어지고, 이미 있으면 answer_engine_policy 는
+        # 새로 넣지 않는다 — 그래서 라이브 글 저자가 계속 "holyyomi AI"였다.
+        "author": {
+            "@type": "Person",
+            "name": (os.getenv("BLOG_AUTHOR_NAME", "").strip() or "Yomi") if is_english_mode() else "요미",
+        },
         "mainEntityOfPage": {"@type": "WebPage"},
         "keywords": ", ".join(normalized_labels),
     }
