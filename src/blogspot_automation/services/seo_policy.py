@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
+from functools import lru_cache
 from hashlib import sha1
+from pathlib import Path
 from html import escape, unescape
 import os
 from urllib.parse import unquote, urlsplit
@@ -661,6 +664,19 @@ _INTERNAL_LINK_STOP_TOKENS: frozenset[str] = frozenset(
 )
 
 
+_RETRACTED_POSTS_PATH = Path(__file__).resolve().parents[3] / "config" / "retracted_posts.json"
+
+
+@lru_cache(maxsize=1)
+def _retracted_post_urls() -> frozenset[str]:
+    """임시글로 되돌린(비공개) 글 URL. 파일이 없거나 깨지면 빈 집합."""
+    try:
+        data = json.loads(_RETRACTED_POSTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(str(item.get("url") or "") for item in data.get("posts", []) if isinstance(item, dict))
+
+
 def build_internal_links_from_history(
     records: list[dict] | tuple[dict, ...],
     *,
@@ -696,6 +712,10 @@ def build_internal_links_from_history(
         if current_title and title == current_title:
             continue
         if not _record_is_published(record):
+            continue
+        # 2026-10-14 애드센스 정비로 임시글로 되돌린 글. 원장은 published=true 그대로라
+        # 걸러내지 않으면 새 글이 404 링크를 단다.
+        if url in _retracted_post_urls():
             continue
         if record.get("post_publish_audit_passed") is False:
             continue
