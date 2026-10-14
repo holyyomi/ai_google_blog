@@ -22,6 +22,27 @@ holyyomiai.blogspot.com은 영어권(미국·영국·캐나다·인도) 대상 *
 
 ---
 
+## 🔴 애드센스 기준 (2026-10-14, PR #84) — 아래 옛 절과 충돌하면 이 절이 이긴다
+
+근거(공식 원문, 2026-10-14 확인): "Don't place ads on automatically generated content without
+manual review or curation"(support.google.com/publisherpolicies/answer/11112688), "original, rich
+content … of value to users"(adsense/answer/81904), 비슷한 페이지는 합치거나 확장(adsense/answer/10015918),
+Search 스팸 정책 scaled content abuse. 글 수·단어 수·Contact 필수는 통설이다.
+
+- **스케줄 발행은 초안까지만**(`NEWS_PUBLISH_AS_DRAFT`). 요미님이 Blogger에서 읽고 발행한다. 라이브 직행은
+  수동 `publish_mode=publish`뿐. "How We Use AI" 페이지가 이걸 약속하니 되돌리면 그 페이지도 고친다.
+- **골격 강제 금지.** 영어 lean 모드: 후처리 블록 INTENT/ISSUE_CONTEXT/CITATION_SUMMARY/CONFIRMED 끔,
+  소제목→질문 자동 Q&A 끔, FAQ·표·Use/Skip 의무 없음. 글 유형(fix·pricing-limits·comparison·how-to·
+  news-analysis)에 필요한 구조만. 되돌리기 `EN_LEGACY_GEO_BLOCKS=on`.
+- **글의 값 = 1차 정보 한 조각 + 판정 하나.** 공식 문서 원문 인용·공개 데이터·실제 실행 결과. 첫 문장은
+  독자 상황이나 주장. 지어낸 체험("we tested") 금지. 출처는 본문 링크 + "Sources (last verified 날짜)".
+- **최종 HTML 게이트**(`services/en_editorial_policy.py`, `FINAL_QUALITY_GATE`): 40자+ 문장 2회 반복,
+  공식 출처 0개(GitHub 개인·포럼·뉴스만), 자료에 없는 숫자 → 차단. 분량 800~1,400(자료 비례).
+- **같은 대상+의도 30일 쿨다운**, `DEDUP_DAYS=30`, AI 무관 뉴스 차단, 제목 엉킴("X How to Use <사건>") 차단.
+- **비공개로 돌린 글**은 `config/retracted_posts.json` — 내부링크에서 빠진다. 다시 공개하면 거기서 지운다.
+- 주제 우선순위(**코드 미반영, 다음 과제**): 속보 단독보다 그 뉴스가 만드는 검색어(에러·한도/가격·A vs B·
+  설치법)가 이긴다(해외 인기 블로그 13곳 분석). 지금 선정 코드는 여전히 큰 이슈 우선이다.
+
 ## 운영 브랜치
 현재 운영 브랜치: `main`
 Phase 3 + Completion Patch 1 (GoldenPattern, SlotFiller, TitleCandidate, GEO layer, AI_CITATION_SUMMARY, corporate_issue_decode 등) 모두 main에 머지 완료, 실제 스케줄 워크플로우에서 가동 중.
