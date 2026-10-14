@@ -351,6 +351,21 @@ def evaluate_news_focus(
             reason="foreign_admin_topic_blocked_for_news_focus",
             matched_terms=foreign_admin_matches,
         )
+    # 2026-10-14: 영어 AI 블로그 뉴스 후보는 메타데이터(topic_group=ai_work)만으로
+    # 통과시키지 않는다. 이 모드 후보는 사실상 전부 ai_work로 분류돼 아래 검사가
+    # 무력했고, "Volvo EX40 …"·"Splunk earnings …" 같은 비AI 기사가 발행됐다.
+    # 제목·요약·주제 자체에 AI 신호어가 하나도 없으면 막는다. 에버그린·클러스터·
+    # 질문발굴 후보는 실측 검색어라 대상이 아니다.
+    if (
+        ai_blog_mode_from_env()
+        and _requires_strict_ai_signal(payload)
+        and not _has_strict_ai_signal(ai_match_text)
+    ):
+        return NewsFocusDecision(
+            allowed=False,
+            reason="non_ai_topic_blocked_no_ai_signal",
+            matched_terms=(),
+        )
     # In AI blog mode, the source query group alone is not enough. Broad search
     # APIs often return unrelated articles for an AI query, so require actual
     # AI terms or downstream AI taxonomy metadata.
@@ -367,6 +382,42 @@ def evaluate_news_focus(
             matched_terms=matched,
         )
     return NewsFocusDecision(allowed=True)
+
+
+# 영어 AI 블로그 후보의 AI 신호어(2026-10-14). _AI_TOPIC_TERMS에 더해 회사·도구·
+# 개념어를 넓게 받는다 — 넓을수록 덜 막는다. 단 "model" 단독은 자동차 기사
+# ("new EX40 model")에 흔해 AI 문맥 복합어로만 받는다.
+_STRICT_AI_SIGNAL_RE = re.compile(
+    r"(?<![a-z0-9])(?:a\.i\.|artificial intelligence|machine learning|deep learning|"
+    r"neural (?:network|net)s?|llms?|large language models?|language models?|"
+    r"(?:ai|foundation|frontier|reasoning|open[- ]weights?|open[- ]source|diffusion|vision|video|image|voice|coding)\s+models?|"
+    r"agents?|agentic|chatbots?|generative|genai|gen ai|inference|transformers?|"
+    r"prompts?|prompting|fine[- ]tun\w*|hallucinat\w*|context window|"
+    r"anthropic|codex|hugging ?face|openrouter|ollama|langchain|qwen|windsurf|"
+    r"stable diffusion|suno|runway ?ml|kimi|moonshot|agi|superintelligence)(?![a-z0-9])",
+    flags=re.IGNORECASE,
+)
+
+
+def _requires_strict_ai_signal(payload: dict[str, Any]) -> bool:
+    if os.getenv("AI_SIGNAL_FILTER", "on").strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    try:
+        from blogspot_automation.services.blog_language import is_english_mode
+    except Exception:  # noqa: BLE001
+        return False
+    if not is_english_mode():
+        return False  # 한국어 모드 동작은 그대로 둔다.
+    if payload.get("evergreen_fallback") or payload.get("topic_cluster"):
+        return False
+    return True
+
+
+def _has_strict_ai_signal(text: str) -> bool:
+    value = " ".join((text or "").split())
+    if not value:
+        return True  # 판정 근거가 없으면 막지 않는다.
+    return bool(_matched_ai_terms(value)) or bool(_STRICT_AI_SIGNAL_RE.search(value))
 
 
 def _is_broad_today_issue_candidate(payload: dict[str, Any]) -> bool:

@@ -227,6 +227,107 @@ DRAFT_SOFT_CONSUME_HOURS = 48
 # CLUSTER_MAX_CONSECUTIVE env로 조정, 0이면 상한 없음(종전 동작).
 _DEFAULT_CLUSTER_MAX_CONSECUTIVE = 2
 
+# ─── 같은 엔티티+의도 쿨다운 (2026-10-14) ───────────────────────────────────
+# 실측: "ChatGPT vs Codex"가 8일 만에 재발행, "Gemini Free API Limits" 류 3편.
+# 제목 문구가 조금씩 달라 근접중복(norm) 검사를 빠져나갔고, 회사 단위 엔티티
+# 쿨다운(3일)은 짧았다. 그래서 "제품 집합 + 의도" 키가 같으면 30일 동안 막는다.
+# 예: "ChatGPT vs Codex …" == "Codex vs ChatGPT: migration …" → (chatgpt+codex, comparison).
+# 큰 이슈 면제(_is_big_issue)는 여기에 적용하지 않는다.
+# 제품 단위로 본다 — 회사 단위(openai)로 묶으면 "ChatGPT vs Codex"와
+# "ChatGPT pricing"이 구분되지 않는다. 자식 제품이 있으면 부모 회사는 키에서 뺀다.
+_PRODUCT_KEY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (name, re.compile(pattern))
+    for name, pattern in (
+        ("chatgpt", r"(?<![a-z0-9])(?:chatgpt|chat gpt|gpt(?:-?\d[\w.]*)?)(?![a-z0-9])"),
+        ("codex", r"(?<![a-z0-9])codex(?![a-z0-9])"),
+        ("sora", r"(?<![a-z0-9])sora(?![a-z0-9])"),
+        ("openai", r"(?<![a-z0-9])openai(?![a-z0-9])"),
+        ("claude_code", r"(?<![a-z0-9])claude code(?![a-z0-9])"),
+        ("claude", r"(?<![a-z0-9])claude(?! code)(?![a-z0-9])"),
+        ("anthropic", r"(?<![a-z0-9])anthropic(?![a-z0-9])"),
+        ("notebooklm", r"(?<![a-z0-9])notebook ?lm(?![a-z0-9])"),
+        ("gemini", r"(?<![a-z0-9])gemini(?![a-z0-9])"),
+        ("google", r"(?<![a-z0-9])google(?![a-z0-9])"),
+        ("copilot", r"(?<![a-z0-9])copilot(?![a-z0-9])"),
+        ("microsoft", r"(?<![a-z0-9])microsoft(?![a-z0-9])"),
+        ("grok", r"(?<![a-z0-9])grok(?![a-z0-9])"),
+        ("xai", r"(?<![a-z0-9])xai(?![a-z0-9])"),
+        ("llama", r"(?<![a-z0-9])llama(?![a-z0-9])"),
+        ("meta", r"(?<![a-z0-9])meta(?![a-z0-9])"),
+        ("cursor", r"(?<![a-z0-9])cursor(?![a-z0-9])"),
+        ("windsurf", r"(?<![a-z0-9])windsurf(?![a-z0-9])"),
+        ("perplexity", r"(?<![a-z0-9])perplexity(?![a-z0-9])"),
+        ("deepseek", r"(?<![a-z0-9])deepseek(?![a-z0-9])"),
+        ("mistral", r"(?<![a-z0-9])mistral(?![a-z0-9])"),
+        ("qwen", r"(?<![a-z0-9])qwen(?![a-z0-9])"),
+        ("midjourney", r"(?<![a-z0-9])midjourney(?![a-z0-9])"),
+        ("elevenlabs", r"(?<![a-z0-9])eleven ?labs(?![a-z0-9])"),
+        ("suno", r"(?<![a-z0-9])suno(?![a-z0-9])"),
+        ("runway", r"(?<![a-z0-9])runway(?: ?ml)?(?![a-z0-9])"),
+        ("ollama", r"(?<![a-z0-9])ollama(?![a-z0-9])"),
+        ("openrouter", r"(?<![a-z0-9])openrouter(?![a-z0-9])"),
+        ("huggingface", r"(?<![a-z0-9])hugging ?face(?![a-z0-9])"),
+        ("langchain", r"(?<![a-z0-9])langchain(?![a-z0-9])"),
+    )
+)
+_PRODUCT_PARENTS: dict[str, frozenset[str]] = {
+    "openai": frozenset({"chatgpt", "codex", "sora"}),
+    "anthropic": frozenset({"claude", "claude_code"}),
+    "google": frozenset({"gemini", "notebooklm"}),
+    "microsoft": frozenset({"copilot"}),
+    "xai": frozenset({"grok"}),
+    "meta": frozenset({"llama"}),
+}
+_INTENT_KEY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("comparison", re.compile(
+        r"(?<![a-z0-9])(?:vs\.?|versus|compared?|comparison|alternatives?|migrat\w*|switch(?:ing)? from)(?![a-z0-9])"
+    )),
+    ("fix", re.compile(
+        r"(?<![a-z0-9])(?:errors?|not working|fix(?:es|ed|ing)?|broken|fail(?:ed|ing|s)?|troubleshoot\w*)(?![a-z0-9])"
+    )),
+    ("pricing-limits", re.compile(
+        r"(?<![a-z0-9])(?:pric\w*|costs?|free|limits?|quotas?|pricing plans?|subscriptions?|tiers?|worth it|cheap\w*|usage cap)(?![a-z0-9])|\$\d"
+    )),
+    ("how-to", re.compile(
+        r"(?<![a-z0-9])(?:how to|how do i|guide|tutorial|set ?up|install\w*|step[- ]by[- ]step|walkthrough)(?![a-z0-9])"
+    )),
+)
+_DEFAULT_ENTITY_INTENT_COOLDOWN_INTENTS = "comparison,pricing-limits,how-to,fix"
+
+
+def entity_intent_products(text: str) -> frozenset[str]:
+    lowered = " ".join(re.sub(r"[^0-9a-z.\-\s]", " ", str(text or "").lower()).split())
+    if not lowered:
+        return frozenset()
+    found = {name for name, pattern in _PRODUCT_KEY_PATTERNS if pattern.search(lowered)}
+    for parent, children in _PRODUCT_PARENTS.items():
+        if parent in found and found & children:
+            found.discard(parent)
+    return frozenset(found)
+
+
+def entity_intent_of(text: str) -> str:
+    lowered = " ".join(str(text or "").lower().split())
+    for intent, pattern in _INTENT_KEY_PATTERNS:
+        if pattern.search(lowered):
+            return intent
+    return "news"
+
+
+def entity_intent_key(text: str) -> tuple[frozenset[str], str] | None:
+    """제목·주제 문자열의 (제품 집합, 의도) 키. 제품이 없으면 None."""
+    products = entity_intent_products(text)
+    if not products:
+        return None
+    return products, entity_intent_of(text)
+
+
+def entity_intent_cooldown_intents() -> frozenset[str]:
+    """쿨다운을 거는 의도 목록. 기본은 news 제외 — 서로 다른 뉴스 사건까지
+    30일 막으면 그날의 큰 이슈가 회사 이름 하나로 전부 잘린다."""
+    raw = os.getenv("ENTITY_INTENT_COOLDOWN_INTENTS", _DEFAULT_ENTITY_INTENT_COOLDOWN_INTENTS)
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
 
 def big_issue_buzz_min() -> int:
     """큰 이슈 문턱(today_buzz_score). 8 = HN 언급점수 800 이상(news_pipeline 환산).
@@ -253,11 +354,18 @@ class TopicDedupService:
         self,
         *,
         state_dir: str | Path = "state",
-        dedup_days: int = 7,
+        dedup_days: int = 30,
         entity_cooldown_days: int | None = None,
+        entity_intent_cooldown_days: int | None = None,
     ) -> None:
         self.state_dir = Path(state_dir)
+        # 2026-10-14: 7 → 30. "ChatGPT vs Codex"가 8일 만에 재발행됐다.
         self.dedup_days = max(0, dedup_days)
+        # 같은 엔티티+의도 쿨다운(2026-10-14). ENTITY_INTENT_COOLDOWN_DAYS env, 0이면 비활성.
+        if entity_intent_cooldown_days is None:
+            raw_intent = (os.getenv("ENTITY_INTENT_COOLDOWN_DAYS", "") or "").strip()
+            entity_intent_cooldown_days = int(raw_intent) if raw_intent.isdigit() else 30
+        self.entity_intent_cooldown_days = max(0, entity_intent_cooldown_days)
         # 회사/소재 쿨다운 창. 기본 3일(2026-07-22 사용자 지시로 7→3 단축 —
         # AI 전문 블로그에서는 ChatGPT/OpenAI/Google 같은 상시 엔티티가 거의 모든
         # 주제에 등장해, 7일 창이 에버그린 뱅크 전체를 차단하고 발행 0건 슬롯을
@@ -351,7 +459,19 @@ class TopicDedupService:
             if cap > 0 and self._cluster_publish_streak(history_records) >= cap:
                 return True
 
+        # 엔티티+의도 30일 쿨다운 키 (영어 모드만 — 한국어 모드 동작은 그대로).
+        # 클러스터·큰 이슈도 면제하지 않는다("Gemini Free API Limits" 3편이 클러스터였다).
+        candidate_intent_keys = self.candidate_entity_intent_keys(candidate)
+
         for record in history_records:
+            if (
+                candidate_intent_keys
+                and self.record_blocks_duplicate(record)
+                and self._is_within_window(record, self.entity_intent_cooldown_days)
+                and candidate_intent_keys & self.record_entity_intent_keys(record)
+            ):
+                return True
+
             if not self.record_blocks_duplicate(record):
                 # 초안(draft_saved_for_review)은 발행이 아니므로 영구 dedup·엔티티
                 # 쿨다운에는 넣지 않지만, 검토 대기 48시간 동안은 같은 주제
@@ -512,6 +632,45 @@ class TopicDedupService:
         }:
             return False
         return (os.getenv("AI_BLOG_MODE", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _entity_intent_cooldown_active(self) -> bool:
+        if self.entity_intent_cooldown_days <= 0:
+            return False
+        from blogspot_automation.services.blog_language import is_english_mode
+
+        return is_english_mode()
+
+    @staticmethod
+    def _entity_intent_keys_from(values: tuple[Any, ...]) -> set[tuple[frozenset[str], str]]:
+        allowed = entity_intent_cooldown_intents()
+        keys: set[tuple[frozenset[str], str]] = set()
+        for value in values:
+            text = str(value or "").strip()
+            if not text:
+                continue
+            key = entity_intent_key(text)
+            if key is not None and key[1] in allowed:
+                keys.add(key)
+        return keys
+
+    def candidate_entity_intent_keys(
+        self, candidate: ScoredNewsCandidate
+    ) -> set[tuple[frozenset[str], str]]:
+        if not self._entity_intent_cooldown_active():
+            return set()
+        raw = candidate.candidate.raw if isinstance(candidate.candidate.raw, dict) else {}
+        return self._entity_intent_keys_from((
+            candidate.candidate.topic,
+            raw.get("search_demand_topic"),
+            raw.get("title"),
+            raw.get("selected_title"),
+        ))
+
+    def record_entity_intent_keys(self, record: dict[str, Any]) -> set[tuple[frozenset[str], str]]:
+        return self._entity_intent_keys_from(tuple(
+            record.get(field)
+            for field in ("title", "selected_title", "topic", "selected_topic", "search_demand_topic")
+        ))
 
     def candidate_entities(self, candidate: ScoredNewsCandidate) -> set[str]:
         return self.extract_entities(self._candidate_subject_text(candidate))

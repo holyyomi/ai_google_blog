@@ -143,6 +143,56 @@ _EN_TITLE_BRANDS: dict[str, str] = {
 
 _HANGUL_RE = re.compile(r"[가-힣]")
 
+# 최종 제목 브랜드 대소문자 교정표 (2026-10-14). 내부 대문자가 있는 브랜드만 둔다 —
+# "cursor"·"chatbot" 같은 일반어와 겹치는 이름은 Title Case에 맡긴다.
+_BRAND_CASING_FIXES: dict[str, str] = {
+    "chatgpt": "ChatGPT", "openai": "OpenAI", "github": "GitHub",
+    "deepseek": "DeepSeek", "notebooklm": "NotebookLM", "elevenlabs": "ElevenLabs",
+    "openrouter": "OpenRouter", "gitlab": "GitLab", "youtube": "YouTube",
+    "midjourney": "Midjourney", "perplexity": "Perplexity",
+    "llm": "LLM", "llms": "LLMs", "api": "API", "apis": "APIs", "ai": "AI",
+    "gpt": "GPT",
+}
+_BRAND_CASING_RE = re.compile(
+    r"(?<![\w.-])(" + "|".join(sorted(map(re.escape, _BRAND_CASING_FIXES), key=len, reverse=True)) + r")(?![\w-])",
+    re.IGNORECASE,
+)
+_GPT_VERSION_RE = re.compile(r"(?<![\w.-])gpt-(?=\d)", re.IGNORECASE)
+
+
+def fix_brand_casing(title: str) -> str:
+    """제목 속 브랜드·약어 대소문자를 정식 표기로 맞춘다(단어 경계 기준).
+
+    Chatgpt→ChatGPT, Openai→OpenAI, Gpt-5→GPT-5, Api→API, Ai→AI.
+    이미 맞는 표기는 그대로 둔다. 한글이 섞인 제목은 손대지 않는다(한국어 모드 보존).
+    """
+    text = str(title or "")
+    if not text or _HANGUL_RE.search(text):
+        return text
+    text = _GPT_VERSION_RE.sub("GPT-", text)
+    return _BRAND_CASING_RE.sub(lambda m: _BRAND_CASING_FIXES[m.group(1).lower()], text)
+
+
+def _reorder_spliced_how_to_use(text: str) -> str:
+    """'<제품> how to use <X>' 검색어 어순을 'How to Use <제품> <X>' 로 바로잡는다.
+
+    2026-10-14: 자동완성 검색구("copilot how to use agents")를 그대로 제목에 실어
+    "Copilot How to Use Agents: …" 같은 비문 제목이 나갔다. 뒤쪽이 소송·인수 같은
+    사건 서술이면 어순을 고쳐도 엉킨 제목이라 그대로 두고, 무결성 검사
+    (spliced_how_to_use_event_title)가 차단하게 한다.
+    """
+    from blogspot_automation.services.title_integrity_policy import (
+        EVENT_HEADLINE_TERM_RE,
+        SPLICED_HOW_TO_USE_RE,
+    )
+
+    match = SPLICED_HOW_TO_USE_RE.match(text)
+    if not match or len(match.group("head").split()) > 3:
+        return text
+    if EVENT_HEADLINE_TERM_RE.search(match.group("tail")):
+        return text
+    return f"How to Use {match.group('head').strip()} {match.group('tail').strip()}"
+
 
 def normalize_english_title(title: str) -> str:
     """영문 제목의 최종 표기 통일 (2026-09-10 신설).
@@ -160,6 +210,7 @@ def normalize_english_title(title: str) -> str:
     text = " ".join(str(title or "").split())
     if not text or _HANGUL_RE.search(text) or not re.search(r"[A-Za-z]", text):
         return text
+    text = _reorder_spliced_how_to_use(text)
 
     def _cased(chunk: str) -> str:
         cased = _en_title_case(chunk)
@@ -176,8 +227,8 @@ def normalize_english_title(title: str) -> str:
     if ":" in text:
         parts = [p.strip() for p in text.split(":")]
         if all(parts):
-            return ": ".join(_cased(p) for p in parts)
-    return _cased(text)
+            return fix_brand_casing(": ".join(_cased(p) for p in parts))
+    return fix_brand_casing(_cased(text))
 
 
 def _build_english_titles(*, topic: str, raw: dict) -> list[tuple[str, str]]:
@@ -201,11 +252,13 @@ def _build_english_titles(*, topic: str, raw: dict) -> list[tuple[str, str]]:
             titles.append((_with_year(tc), "search"))  # 원 헤드라인 우선 후보
             tc = tc_head
 
+    # 2026-10-14: 고정 꼬리 "Which One Wins?"·"The Real Numbers" 폐기 — 모든 비교·가격
+    # 글이 같은 꼬리로 끝나 자동생성 티가 났다. 대체 꼬리 없이 핵심 구로 끝낸다.
     if " vs " in f" {blob} " or "vs." in blob or "versus" in blob:
-        titles.append((_with_year(f"{tc}: Which One Wins?"), "comparison"))
+        titles.append((_with_year(tc), "comparison"))
         titles.append((_with_year(f"{tc} Compared"), "comparison"))
     if any(k in blob for k in ("pricing", "price", "cost", "free vs", "what you actually get", "hidden cost")):
-        titles.append((_with_year(f"{tc}: The Real Numbers"), "search"))
+        titles.append((_with_year(tc), "search"))
         titles.append((_with_year(f"{tc}, Explained"), "howto"))
     if any(k in blob for k in ("fix", "not working", "workaround", "limit", "wrong answers", "outage")):
         titles.append((_with_year(f"{tc}: What Actually Works"), "howto"))
@@ -700,6 +753,8 @@ class TitleCandidateService:
                 blocking.append("low_value_viral_rating_title")
             elif issue == "telecom_plan_topic_using_viral_reaction_template":
                 blocking.append("pattern_crossover:telecom_plan")
+            elif issue == "spliced_how_to_use_event_title":
+                blocking.append("spliced_how_to_use_event_title")
         blocking = list(dict.fromkeys(blocking))
 
         is_allowed = not blocking
