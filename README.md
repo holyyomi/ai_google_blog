@@ -174,7 +174,7 @@ fallback 저장:
 
 교체 지점:
 
-- [topic_selection_service.py](/abs/path/C:/Users/a0104/Desktop/자동화/블로그스팟/src/blogspot_automation/services/topic_selection_service.py)
+- [topic_selection_service.py](src/blogspot_automation/services/topic_selection_service.py)
 
 ## 테스트
 
