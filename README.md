@@ -16,6 +16,17 @@
 - PASS 중심 QA
 - Blogger 발행 기록 저장
 
+## Published troubleshooting guides
+
+[holyyomiai.blogspot.com](https://holyyomiai.blogspot.com/) is where this pipeline publishes version-checked fixes for AI coding tools. Recent guides (English):
+
+- [Claude Code "Login successful" but Not Logged In: 2.1.332](https://holyyomiai.blogspot.com/2026/11/claude-code-login-successful-not-logged-in-21332.html) — the CLI reported a saved login and wrote nothing; 2.1.332 now exits 1 and names the cause (stale lock file, wrong config dir, full disk, locked Keychain).
+- [Claude Code Freezes After /compact: What 2.1.330 Fixes](https://holyyomiai.blogspot.com/2026/11/claude-code-freeze-after-compact-21330.html) — multi-minute hangs after /compact, the version check that rules it out, and one Bedrock hang no upgrade fixes.
+- [Antigravity 429 at 100% Quota: One Log Line Says If Waiting Helps](https://holyyomiai.blogspot.com/2026/11/antigravity-429-100-quota-entitlement.html) — `SetUserTier` and `SetProjectID` printed empty in the IDE log, and what the retry countdown actually tells you.
+- [Code Mode Won't Start? Claude Code 2.1.329 Changed the Rules](https://holyyomiai.blogspot.com/2026/11/code-mode-wont-start-claude-code-21329.html) — three retired refusal reasons, the 13 start-up checks, and the fixes that still apply.
+
+More: [all articles](https://holyyomiai.blogspot.com/p/all-articles.html) · [Fixes label](https://holyyomiai.blogspot.com/search/label/Fixes)
+
 ## 빠른 시작
 
 ```powershell
