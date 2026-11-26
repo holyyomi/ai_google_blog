@@ -24,6 +24,7 @@
 - [Claude Code Freezes After /compact: What 2.1.330 Fixes](https://holyyomiai.blogspot.com/2026/11/claude-code-freeze-after-compact-21330.html) — multi-minute hangs after /compact, the version check that rules it out, and one Bedrock hang no upgrade fixes.
 - [Antigravity 429 at 100% Quota: One Log Line Says If Waiting Helps](https://holyyomiai.blogspot.com/2026/11/antigravity-429-100-quota-entitlement.html) — `SetUserTier` and `SetProjectID` printed empty in the IDE log, and what the retry countdown actually tells you.
 - [Code Mode Won't Start? Claude Code 2.1.329 Changed the Rules](https://holyyomiai.blogspot.com/2026/11/code-mode-wont-start-claude-code-21329.html) — three retired refusal reasons, the 13 start-up checks, and the fixes that still apply.
+- [Codex Slow Startup (0.170): 25 s thread/start Fix](https://holyyomiai.blogspot.com/2026/11/codex-slow-startup-thread-start-fix.html) — up to 25 s to open a thread in a repo with many skills, because each repo skill read spawns its own sandbox; cause, real fixes, and what not to try.
 
 More: [all articles](https://holyyomiai.blogspot.com/p/all-articles.html) · [Fixes label](https://holyyomiai.blogspot.com/search/label/Fixes)
 
